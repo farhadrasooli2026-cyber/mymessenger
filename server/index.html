@@ -1,1 +1,273 @@
-<!DOCTYPE html> <html lang="en"> <head> <meta charset="UTF-8"> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <title>MyMessenger</title> </head> <body> <h1>MyMessenger</h1> <input id="messageInput" type="text" placeholder="Type a message..."> <button id="sendButton">Send</button> <ul id="messages"></ul> <script src="/socket.io/socket.io.js"></script> <script> const socket = io(); const input = document.getElementById("messageInput"); const button = document.getElementById("sendButton"); const messages = document.getElementById("messages"); button.addEventListener("click", () => { const message = input.value.trim(); if (message === "") { return; } socket.emit("message", message); input.value = ""; }); socket.on("message", (message) => { const li = document.createElement("li"); li.textContent = message; messages.appendChild(li); }); </script> </body> </html>
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyMessenger - ثبت نام</title>
+    <style>
+        :root {
+            /* پس‌زمینه پیش‌فرض (پسرانه) */
+            --bg-image: url('male-bg.jpg');
+            --primary: #0284c7;
+            --primary-hover: #0369a1;
+            --text-main: #0c4a6e;
+            --text-muted: #64748b;
+            --input-border: #cbd5e1;
+            --input-focus: #38bdf8;
+            --card-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        /* تم دخترانه */
+        body.female-theme { 
+            --bg-image: url('female-bg.jpg');
+            --primary: #e11d48; 
+            --primary-hover: #be123c; 
+            --text-main: #4c0519; 
+            --text-muted: #9f1239; 
+            --input-border: #fda4af; 
+            --input-focus: #f43f5e; 
+            --card-shadow: 0 20px 40px rgba(225, 29, 72, 0.25); 
+        }
+
+        * { 
+            box-sizing: border-box; 
+            margin: 0; 
+            padding: 0; 
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            transition: background 0.4s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease; 
+        }
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-image: var(--bg-image);
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            padding: 20px 15px;
+        }
+
+        .container { 
+            background: rgba(255, 255, 255, 0.85); 
+            backdrop-filter: blur(12px);
+            width: 100%; 
+            max-width: 420px; 
+            border-radius: 36px; 
+            padding: 35px 25px; 
+            box-shadow: var(--card-shadow); 
+            border: 2px solid rgba(255, 255, 255, 0.6); 
+            text-align: center; 
+        }
+
+        .brand-header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+
+        .brand-title { 
+            color: var(--primary); 
+            font-size: 36px; 
+            font-weight: 800; 
+            letter-spacing: -0.5px;
+            direction: ltr;
+        }
+
+        .brand-icon { font-size: 30px; line-height: 1; }
+
+        .brand-subtitle { 
+            color: var(--text-muted); 
+            font-size: 15px; 
+            font-weight: 600;
+            margin-bottom: 24px; 
+        }
+
+        .section-title { 
+            color: var(--text-main); 
+            font-size: 26px; 
+            font-weight: 800; 
+            margin-bottom: 24px; 
+        }
+        
+        .form-group { margin-bottom: 14px; } 
+
+        .input-box { 
+            width: 100%; 
+            padding: 16px 20px; 
+            border: 2px solid var(--input-border); 
+            border-radius: 20px; 
+            font-size: 15px; 
+            outline: none; 
+            background: rgba(255, 255, 255, 0.9); 
+            color: #333; 
+            text-align: right; 
+        } 
+
+        .input-box:focus { 
+            border-color: var(--input-focus); 
+            box-shadow: 0 0 0 4px rgba(244, 63, 94, 0.15); 
+        }
+
+        .gender-title { 
+            color: var(--text-main); 
+            font-size: 16px; 
+            font-weight: 700; 
+            margin: 24px 0 14px 0; 
+        }
+
+        .gender-selector { display: flex; gap: 14px; }
+        
+        .gender-btn {
+            flex: 1;
+            padding: 14px;
+            border: 2px solid var(--input-border);
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            color: var(--text-main);
+            font-size: 17px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .gender-btn.active {
+            background: var(--primary);
+            color: #fff;
+            border-color: var(--primary);
+            box-shadow: 0 8px 18px rgba(0,0,0,0.15);
+        }
+
+        .btn-submit {
+            width: 100%;
+            padding: 16px;
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            border-radius: 20px;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            margin-top: 24px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.15);
+        }
+
+        .btn-submit:hover { background: var(--primary-hover); }
+
+        .footer-text { margin-top: 20px; color: var(--text-muted); font-size: 14px; }
+        .footer-link { color: var(--primary); font-weight: 700; text-decoration: none; }
+    </style>
+</head>
+<body class="female-theme">
+
+<div class="container">
+    <div class="brand-header">
+        <span class="brand-title">MyMessenger</span>
+        <span class="brand-icon">💬</span>
+    </div>
+    <div class="brand-subtitle">پیام‌رسان سریع و امن</div>
+
+    <h2 class="section-title">ساخت حساب</h2>
+
+    <form id="registerForm" onsubmit="handleAuth(event)">
+        <div class="form-group">
+            <input type="text" class="input-box" placeholder="نام کاربری" required>
+        </div>
+        <div class="form-group">
+            <input type="email" class="input-box" placeholder="ایمیل" required>
+        </div>
+        <div class="form-group">
+            <input type="tel" class="input-box" placeholder="شماره تلفن" required>
+        </div>
+        <div class="form-group">
+            <input type="password" id="password" class="input-box" placeholder="رمز عبور" required>
+        </div>
+        <div class="form-group">
+            <input type="password" id="confirmPassword" class="input-box" placeholder="تکرار رمز عبور" required>
+        </div>
+
+        <div class="gender-title">جنسیت خود را انتخاب کنید</div>
+        <div class="gender-selector">
+            <button type="button" class="gender-btn active" id="btnFemale" onclick="selectGender('female')">زن 👩</button>
+            <button type="button" class="gender-btn" id="btnMale" onclick="selectGender('male')">مرد 👨</button>
+        </div>
+
+        <button type="submit" class="btn-submit">ثبت نام</button>
+    </form>
+
+    <div class="footer-text">
+        قبلاً حساب دارید؟ <a href="login.html" class="footer-link">ورود به حساب</a>
+    </div>
+</div>
+
+<script>
+    let currentGender = 'female';
+
+    function selectGender(gender) {
+        currentGender = gender;
+        const body = document.body;
+        const btnMale = document.getElementById('btnMale');
+        const btnFemale = document.getElementById('btnFemale');
+
+        if (gender === 'female') {
+            body.classList.add('female-theme');
+            btnFemale.classList.add('active');
+            btnMale.classList.remove('active');
+        } else {
+            body.classList.remove('female-theme');
+            btnMale.classList.add('active');
+            btnFemale.classList.remove('active');
+        }
+    }
+
+    async function handleAuth(event) {
+        event.preventDefault();
+
+        const inputs = event.target.querySelectorAll('.input-box');
+        const username = inputs[0].value.trim();
+        const email = inputs[1].value.trim();
+        const phone = inputs[2].value.trim();
+        const password = document.getElementById('password').value;
+        const confirmPassword = document.getElementById('confirmPassword').value;
+
+        if (password !== confirmPassword) {
+            alert('رمز عبور و تکرار آن یکسان نیستند!');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username,
+                    email,
+                    phone,
+                    password,
+                    gender: currentGender
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                alert(data.message);
+                event.target.reset();
+                window.location.href = 'login.html'; // هدایت به صفحه ورود پس از ثبت‌نام موفق
+            } else {
+                alert('خطا: ' + data.message);
+            }
+        } catch (error) {
+            alert('ارتباط با سرور برقرار نشد!');
+        }
+    }
+</script>
+
+</body>
+</html>

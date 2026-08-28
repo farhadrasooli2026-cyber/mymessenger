@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyMessenger - محیط گفتگو</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root {
+            --bg-image: url('male-bg.jpg');
+            --primary: #0284c7;
+            --sidebar-bg: rgba(255, 255, 255, 0.85);
+            --chat-bg: rgba(255, 255, 255, 0.75);
+            --text-main: #0c4a6e;
+            --msg-out: #0284c7;
+            --msg-in: #ffffff;
+        }
+
+        body.female-theme {
+            --bg-image: url('female-bg.jpg');
+            --primary: #e11d48;
+            --sidebar-bg: rgba(255, 255, 255, 0.85);
+            --chat-bg: rgba(255, 255, 255, 0.75);
+            --text-main: #4c0519;
+            --msg-out: #e11d48;
+            --msg-in: #ffffff;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, sans-serif; transition: background 0.3s; }
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-image: var(--bg-image);
+            background-size: cover;
+            background-position: center;
+            padding: 10px;
+        }
+
+        .chat-app {
+            width: 100%;
+            max-width: 1000px;
+            height: 92vh;
+            background: rgba(255, 255, 255, 0.4);
+            backdrop-filter: blur(15px);
+            border-radius: 24px;
+            display: flex;
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            border: 2px solid rgba(255, 255, 255, 0.5);
+        }
+
+        .sidebar {
+            width: 300px;
+            background: var(--sidebar-bg);
+            border-left: 1px solid rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .user-header {
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+
+        .user-info { display: flex; align-items: center; gap: 10px; }
+        .avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px; }
+        .username { font-weight: 700; color: var(--text-main); font-size: 15px; }
+
+        .btn-logout { background: none; border: none; font-size: 20px; cursor: pointer; color: #ef4444; }
+
+        .chat-list { flex: 1; overflow-y: auto; padding: 10px; }
+        .chat-item { padding: 12px; border-radius: 14px; display: flex; align-items: center; gap: 10px; cursor: pointer; margin-bottom: 6px; }
+        .chat-item:hover, .chat-item.active { background: rgba(255,255,255,0.8); }
+
+        .chat-main { flex: 1; display: flex; flex-direction: column; background: var(--chat-bg); }
+        .chat-header { padding: 15px 20px; background: rgba(255, 255, 255, 0.6); border-bottom: 1px solid rgba(0,0,0,0.05); font-weight: bold; color: var(--text-main); }
+
+        .messages-container { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+
+        .message { max-width: 80%; padding: 10px 14px; border-radius: 16px; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .message.outgoing { background: var(--msg-out); color: #fff; align-self: flex-start; border-bottom-right-radius: 4px; }
+        .message.incoming { background: var(--msg-in); color: #333; align-self: flex-end; border-bottom-left-radius: 4px; }
+        .message-sender { font-size: 11px; margin-bottom: 4px; opacity: 0.8; font-weight: bold; }
+
+        .input-area { padding: 12px 15px; background: rgba(255, 255, 255, 0.6); display: flex; gap: 8px; align-items: center; }
+        .msg-input { flex: 1; padding: 12px 16px; border: 1px solid #cbd5e1; border-radius: 18px; outline: none; font-size: 14px; }
+        .btn-send { background: var(--primary); color: #fff; border: none; padding: 12px 20px; border-radius: 18px; font-weight: bold; cursor: pointer; }
+
+        /* استایل‌های مخصوص صفحه نمایش موبایل */
+        @media (max-width: 768px) {
+            body { padding: 0; }
+            .chat-app { height: 100vh; border-radius: 0; border: none; }
+            .sidebar { width: 80px; }
+            .username, .brand-subtitle, .chat-item div { display: none; }
+            .user-header { justify-content: center; flex-direction: column; gap: 10px; }
+            .chat-item { justify-content: center; }
+            .message { max-width: 88%; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="chat-app">
+    <div class="sidebar">
+        <div class="user-header">
+            <div class="user-info">
+                <div class="avatar" id="userAvatar">U</div>
+                <div class="username" id="displayUsername">کاربر</div>
+            </div>
+            <button class="btn-logout" onclick="logout()" title="خروج">🚪</button>
+        </div>
+        <div class="chat-list" id="chatList">
+            <div class="chat-item active">
+                <div class="avatar">💬</div>
+                <div>
+                    <div style="font-weight: bold;">چت عمومی</div>
+                    <div style="font-size: 12px; color: #666;">اتاق گفتگوی زنده</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="chat-main">
+        <div class="chat-header" id="currentChatTitle">چت عمومی</div>
+        
+        <div class="messages-container" id="messagesBox"></div>
+
+        <form class="input-area" onsubmit="sendMessage(event)">
+            <input type="text" id="messageInput" class="msg-input" placeholder="پیام خود را بنویسید..." autocomplete="off">
+            <button type="submit" class="btn-send">ارسال</button>
+        </form>
+    </div>
+</div>
+
+<script>
+    const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+
+    if (!currentUser) {
+        window.location.href = 'login.html';
+    } else {
+        document.getElementById('displayUsername').innerText = currentUser.username;
+        document.getElementById('userAvatar').innerText = currentUser.username.charAt(0).toUpperCase();
+
+        if (currentUser.gender === 'female') {
+            document.body.classList.add('female-theme');
+        } else {
+            document.body.classList.remove('female-theme');
+        }
+    }
+
+    const socket = io();
+
+    socket.on('load_history', (messages) => {
+        const msgBox = document.getElementById('messagesBox');
+        msgBox.innerHTML = '';
+        messages.forEach(msg => {
+            renderMessage(msg);
+        });
+        msgBox.scrollTop = msgBox.scrollHeight;
+    });
+
+    socket.on('receive_message', (msg) => {
+        renderMessage(msg);
+        const msgBox = document.getElementById('messagesBox');
+        msgBox.scrollTop = msgBox.scrollHeight;
+    });
+
+    function renderMessage(msg) {
+        const msgBox = document.getElementById('messagesBox');
+        const msgDiv = document.createElement('div');
+        const isSelf = msg.sender_id === currentUser.id;
+        
+        msgDiv.className = `message ${isSelf ? 'outgoing' : 'incoming'}`;
+        msgDiv.innerHTML = `
+            ${!isSelf ? `<div class="message-sender">${msg.sender_name}</div>` : ''}
+            <div>${msg.text}</div>
+        `;
+        msgBox.appendChild(msgDiv);
+    }
+
+    function sendMessage(e) {
+        e.preventDefault();
+        const input = document.getElementById('messageInput');
+        const text = input.value.trim();
+        
+        if (text) {
+            socket.emit('send_message', {
+                senderId: currentUser.id,
+                senderName: currentUser.username,
+                text: text
+            });
+            input.value = '';
+        }
+    }
+
+    function logout() {
+        localStorage.removeItem('currentUser');
+        window.location.href = 'login.html';
+    }
+</script>
+
+</body>
+</html>
