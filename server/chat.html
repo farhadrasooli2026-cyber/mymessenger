@@ -64,6 +64,7 @@
         
         .item-details { display: flex; align-items: center; gap: 12px; }
         .online-dot { width: 10px; height: 10px; background: #22c55e; border-radius: 50%; position: absolute; bottom: 0; right: 0; border: 2px solid #000; }
+        .offline-dot { width: 10px; height: 10px; background: #9ca3af; border-radius: 50%; position: absolute; bottom: 0; right: 0; border: 2px solid #000; }
 
         .unread-badge {
             background: #ef4444; color: white; font-size: 11px; font-weight: bold;
@@ -72,7 +73,11 @@
         .unread-badge.show { display: inline-block; }
 
         .chat-main { flex: 1; display: flex; flex-direction: column; background: var(--chat-bg); min-width: 0; }
-        .chat-header { padding: 14px 20px; background: rgba(0, 0, 0, 0.3); border-bottom: 1px solid rgba(255, 255, 255, 0.15); font-weight: bold; color: var(--text-main); display: flex; justify-content: space-between; align-items: center; }
+        .chat-header { padding: 14px 20px; background: rgba(0, 0, 0, 0.3); border-bottom: 1px solid rgba(255, 255, 255, 0.15); color: var(--text-main); display: flex; justify-content: space-between; align-items: center; }
+
+        .header-user-info { display: flex; flex-direction: column; }
+        .header-title { font-weight: bold; font-size: 15px; }
+        .header-subtitle { font-size: 11px; opacity: 0.8; margin-top: 2px; }
 
         .menu-toggle { display: none; background: rgba(255,255,255,0.25); border: none; color: #fff; font-size: 20px; padding: 6px 12px; border-radius: 10px; cursor: pointer; position: relative; }
         .menu-toggle .badge-dot { position: absolute; top: 2px; right: 2px; width: 10px; height: 10px; background: #ef4444; border-radius: 50%; display: none; }
@@ -131,8 +136,8 @@
                 </div>
             </div>
 
-            <div class="section-title">کاربران آنلاین (<span id="onlineCount">0</span>)</div>
-            <div id="onlineUsersList"></div>
+            <div class="section-title">کاربران (<span id="userCount">0</span>)</div>
+            <div id="usersList"></div>
         </div>
     </div>
 
@@ -143,7 +148,10 @@
                     ☰
                     <span class="badge-dot" id="menuBadge"></span>
                 </button>
-                <span id="currentChatTitle">چت عمومی</span>
+                <div class="header-user-info">
+                    <span class="header-title" id="currentChatTitle">چت عمومی</span>
+                    <span class="header-subtitle" id="currentChatSubtitle">اتاق عمومی گفتگو</span>
+                </div>
             </div>
             <span id="chatTypeBadge" style="font-size: 12px; opacity: 0.8; background: rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 10px;">عمومی</span>
         </div>
@@ -160,9 +168,9 @@
 <script>
     let currentUser = null;
     let currentTargetUser = null;
-    let unreadCounts = {}; // نگهداری تعداد پیام‌های خوانده‌نشده
+    let unreadCounts = {};
+    let allUsersData = [];
 
-    // صدای نوتیفیکیشن صوتی ساده
     function playNotificationSound() {
         try {
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -170,7 +178,7 @@
             const gain = ctx.createGain();
             osc.connect(gain);
             gain.connect(ctx.destination);
-            osc.frequency.setValueAtTime(587.33, ctx.currentTime); // نت D5
+            osc.frequency.setValueAtTime(587.33, ctx.currentTime);
             gain.gain.setValueAtTime(0.1, ctx.currentTime);
             osc.start();
             osc.stop(ctx.currentTime + 0.15);
@@ -209,6 +217,7 @@
         document.querySelectorAll('.chat-item').forEach(el => el.classList.remove('active'));
         document.getElementById('publicChatItem').classList.add('active');
         document.getElementById('currentChatTitle').innerText = 'چت عمومی';
+        document.getElementById('currentChatSubtitle').innerText = 'اتاق عمومی گفتگو';
         document.getElementById('chatTypeBadge').innerText = 'عمومی';
         socket.emit('get_public_history');
         if (window.innerWidth <= 768) toggleSidebar();
@@ -216,12 +225,16 @@
 
     function selectPrivateChat(user, element) {
         currentTargetUser = user;
-        unreadCounts[user.id] = 0; // صفر کردن پیام‌های خوانده‌نشده
+        unreadCounts[user.id] = 0;
         updateUnreadUI(user.id);
 
         document.querySelectorAll('.chat-item').forEach(el => el.classList.remove('active'));
         if (element) element.classList.add('active');
-        document.getElementById('currentChatTitle').innerText = `پیام خصوصی با ${user.username}`;
+        
+        document.getElementById('currentChatTitle').innerText = user.username;
+        
+        const subtitleText = user.isOnline ? 'آنلاین' : `آخرین بازدید: ${user.lastSeen}`;
+        document.getElementById('currentChatSubtitle').innerText = subtitleText;
         document.getElementById('chatTypeBadge').innerText = 'پیوی (PV)';
         
         socket.emit('get_private_history', { targetUserId: user.id, myId: currentUser.id });
@@ -229,15 +242,22 @@
     }
 
     socket.on('update_online_users', (users) => {
-        const listContainer = document.getElementById('onlineUsersList');
+        allUsersData = users;
+        const listContainer = document.getElementById('usersList');
         const otherUsers = users.filter(u => currentUser && u.id !== currentUser.id);
-        document.getElementById('onlineCount').innerText = otherUsers.length;
+        document.getElementById('userCount').innerText = otherUsers.length;
         listContainer.innerHTML = '';
 
         otherUsers.forEach(u => {
             const item = document.createElement('div');
             const isActive = currentTargetUser && currentTargetUser.id === u.id;
             const count = unreadCounts[u.id] || 0;
+
+            // بروزرسانی لایو زیرعنوان چت فعال
+            if (isActive) {
+                const subtitleText = u.isOnline ? 'آنلاین' : `آخرین بازدید: ${u.lastSeen}`;
+                document.getElementById('currentChatSubtitle').innerText = subtitleText;
+            }
 
             item.className = `chat-item ${isActive ? 'active' : ''}`;
             item.id = `user-item-${u.id}`;
@@ -246,11 +266,11 @@
                 <div class="item-details">
                     <div class="avatar">
                         ${u.username.charAt(0).toUpperCase()}
-                        <span class="online-dot"></span>
+                        <span class="${u.isOnline ? 'online-dot' : 'offline-dot'}"></span>
                     </div>
                     <div>
                         <div style="font-weight: bold; font-size: 13px;">${u.username}</div>
-                        <div style="font-size: 11px; opacity: 0.8;">کلیک برای چت خصوصی</div>
+                        <div style="font-size: 11px; opacity: 0.8;">${u.isOnline ? 'آنلاین' : u.lastSeen}</div>
                     </div>
                 </div>
                 <span class="unread-badge ${count > 0 ? 'show' : ''}" id="unread-${u.id}">${count}</span>
@@ -279,7 +299,6 @@
             const msgBox = document.getElementById('messagesBox');
             msgBox.scrollTop = msgBox.scrollHeight;
         } else if (msg.target_id === currentUser.id) {
-            // دریافت پیام خصوصی غیرفعال (کاربر صفحه PV شخص فرستنده را باز نکرده)
             unreadCounts[msg.sender_id] = (unreadCounts[msg.sender_id] || 0) + 1;
             updateUnreadUI(msg.sender_id);
             playNotificationSound();
@@ -294,7 +313,6 @@
             badge.classList.toggle('show', count > 0);
         }
 
-        // نمایش نقطه قرمز روی دکمه منو در موبایل
         const hasAnyUnread = Object.values(unreadCounts).some(c => c > 0);
         document.getElementById('menuBadge').classList.toggle('show', hasAnyUnread);
     }

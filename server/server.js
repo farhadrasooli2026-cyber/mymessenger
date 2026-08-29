@@ -1,6 +1,7 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
 const app = express();
@@ -9,113 +10,131 @@ const io = new Server(server);
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.static(__dirname));
 
-let users = [];
-let messageHistory = []; // چت عمومی
-let privateMessages = {}; // چت‌های خصوصی
-let onlineUsers = {}; // socketId -> user info
+// اتصال به دیتابیس SQLite
+const db = new sqlite3.Database('./database.db', (err) => {
+    if (err) console.error(err.message);
+    else console.log('Connected to SQLite database.');
+});
 
+// ساخت جدول‌ها در صورت عدم وجود
+db.serialize(() => {
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT UNIQUE,
+        password TEXT,
+        gender TEXT,
+        last_seen TEXT
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender_id TEXT,
+        sender_name TEXT,
+        target_id TEXT,
+        text TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+});
+
+// ساختار نگهداری کاربران آنلاین
+const onlineUsers = new Map(); // socket.id -> { id, username, gender }
+
+// ای‌پیاهای ثبت‌نام و ورود
 app.post('/api/register', (req, res) => {
-    const { username, email, password, gender } = req.body;
-    if (!password || (!username && !email)) {
-        return res.status(400).json({ success: false, message: 'اطلاعات ناقص است.' });
-    }
-    const userExists = users.some(u => u.username === username || (email && u.email === email));
-    if (userExists) {
-        return res.status(400).json({ success: false, message: 'این حساب قبلاً ثبت شده است.' });
-    }
-
-    const newUser = {
-        id: 'user_' + Date.now(),
-        username: username || email.split('@')[0],
-        email: email || '',
-        password: password,
-        gender: gender || 'male'
-    };
-
-    users.push(newUser);
-    res.json({ success: true, user: { id: newUser.id, username: newUser.username, gender: newUser.gender } });
+    const { username, password, gender } = req.body;
+    const id = Date.now().toString();
+    
+    db.run(`INSERT INTO users (id, username, password, gender, last_seen) VALUES (?, ?, ?, ?, ?)`,
+        [id, username, password, gender, 'online'],
+        function(err) {
+            if (err) return res.status(400).json({ success: false, message: 'نام کاربری قبلاً انتخاب شده است.' });
+            res.json({ success: true, user: { id, username, gender } });
+        }
+    );
 });
 
 app.post('/api/login', (req, res) => {
-    const { identifier, password } = req.body;
-    const user = users.find(u => (u.username === identifier || u.email === identifier) && u.password === password);
-    if (!user) {
-        return res.status(400).json({ success: false, message: 'اطلاعات ورود اشتباه است.' });
-    }
-    res.json({ success: true, user: { id: user.id, username: user.username, gender: user.gender } });
-});
-
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'login.html'), (err) => {
-        if (err) res.sendFile(path.join(__dirname, 'login.html'));
+    const { username, password } = req.body;
+    db.get(`SELECT * FROM users WHERE username = ? AND password = ?`, [username, password], (err, user) => {
+        if (err || !user) return res.status(400).json({ success: false, message: 'نام کاربری یا رمز عبور اشتباه است.' });
+        res.json({ success: true, user: { id: user.id, username: user.username, gender: user.gender } });
     });
 });
 
-// کلید یکتا برای چت خصوصی بین دو کاربر
-function getRoomId(id1, id2) {
-    return [id1, id2].sort().join('_');
-}
-
+// Socket.io
 io.on('connection', (socket) => {
-    socket.on('user_connected', (userData) => {
-        if (userData && userData.id) {
-            onlineUsers[socket.id] = {
-                socketId: socket.id,
-                id: userData.id,
-                username: userData.username,
-                gender: userData.gender
-            };
-            io.emit('update_online_users', Object.values(onlineUsers));
-        }
+
+    socket.on('user_connected', (user) => {
+        onlineUsers.set(socket.id, { socketId: socket.id, ...user });
+        
+        // آپدیت وضعیت کاربر در دیتابیس به آنلاین
+        db.run(`UPDATE users SET last_seen = 'online' WHERE id = ?`, [user.id]);
+        
+        broadcastUsersList();
     });
 
-    // لود تاریخچه چت عمومی
     socket.on('get_public_history', () => {
-        socket.emit('load_history', { type: 'public', messages: messageHistory });
+        db.all(`SELECT * FROM messages WHERE target_id = 'public' ORDER BY id ASC LIMIT 50`, [], (err, rows) => {
+            if (!err) socket.emit('load_history', { messages: rows });
+        });
     });
 
-    // لود تاریخچه چت خصوصی
     socket.on('get_private_history', ({ targetUserId, myId }) => {
-        const roomId = getRoomId(myId, targetUserId);
-        const history = privateMessages[roomId] || [];
-        socket.emit('load_history', { type: 'private', targetUserId, messages: history });
+        db.all(
+            `SELECT * FROM messages WHERE (sender_id = ? AND target_id = ?) OR (sender_id = ? AND target_id = ?) ORDER BY id ASC LIMIT 50`,
+            [myId, targetUserId, targetUserId, myId],
+            (err, rows) => {
+                if (!err) socket.emit('load_history', { messages: rows });
+            }
+        );
     });
 
-    // ارسال پیام (هم عمومی هم خصوصی)
     socket.on('send_message', (data) => {
-        const msg = {
-            id: Date.now(),
-            sender_id: data.senderId,
-            sender_name: data.senderName,
-            text: data.text,
-            target_id: data.targetId || 'public'
-        };
-
-        if (!data.targetId || data.targetId === 'public') {
-            // چت عمومی
-            messageHistory.push(msg);
-            io.emit('receive_message', msg);
-        } else {
-            // چت خصوصی
-            const roomId = getRoomId(data.senderId, data.targetId);
-            if (!privateMessages[roomId]) privateMessages[roomId] = [];
-            privateMessages[roomId].push(msg);
-
-            // پیدا کردن socketId گیرنده و فرستنده برای تحویل پیام
-            Object.values(onlineUsers).forEach(u => {
-                if (u.id === data.targetId || u.id === data.senderId) {
-                    io.to(u.socketId).emit('receive_message', msg);
+        const { senderId, senderName, targetId, text } = data;
+        db.run(
+            `INSERT INTO messages (sender_id, sender_name, target_id, text) VALUES (?, ?, ?, ?)`,
+            [senderId, senderName, targetId, text],
+            function(err) {
+                if (!err) {
+                    const msg = { id: this.lastID, sender_id: senderId, sender_name: senderName, target_id: targetId, text };
+                    io.emit('receive_message', msg);
                 }
-            });
-        }
+            }
+        );
     });
 
     socket.on('disconnect', () => {
-        delete onlineUsers[socket.id];
-        io.emit('update_online_users', Object.values(onlineUsers));
+        const user = onlineUsers.get(socket.id);
+        if (user) {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
+            
+            // ثبت زمان قطع اتصال در دیتابیس
+            db.run(`UPDATE users SET last_seen = ? WHERE id = ?`, [timeString, user.id]);
+            
+            onlineUsers.delete(socket.id);
+            broadcastUsersList();
+        }
     });
+
+    function broadcastUsersList() {
+        // دریافت تمام کاربران دیتابیس برای نمایش آنلاین/آفلاین بودن همه
+        db.all(`SELECT id, username, gender, last_seen FROM users`, [], (err, allUsers) => {
+            if (err) return;
+            const activeIds = new Set(Array.from(onlineUsers.values()).map(u => u.id));
+            
+            const usersWithStatus = allUsers.map(u => ({
+                id: u.id,
+                username: u.username,
+                gender: u.gender,
+                isOnline: activeIds.has(u.id),
+                lastSeen: activeIds.has(u.id) ? 'آنلاین' : (u.last_seen || 'ناشناس')
+            }));
+
+            io.emit('update_online_users', usersWithStatus);
+        });
+    }
 });
 
 const PORT = process.env.PORT || 3000;
