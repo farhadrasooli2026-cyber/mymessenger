@@ -27,47 +27,30 @@
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
-
         html, body { height: 100%; width: 100%; overflow: hidden; }
 
         body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background-image: var(--bg-image);
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-            padding: 15px;
+            display: flex; justify-content: center; align-items: center;
+            background-image: var(--bg-image); background-size: cover; background-position: center;
+            background-repeat: no-repeat; padding: 15px;
         }
 
         .chat-app {
-            width: 100%;
-            max-width: 1050px;
-            height: 88vh;
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: 24px;
-            display: flex;
-            overflow: hidden;
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            width: 100%; max-width: 1050px; height: 88vh;
+            background: rgba(0, 0, 0, 0.2); border-radius: 24px;
+            display: flex; overflow: hidden; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
             border: 1px solid rgba(255, 255, 255, 0.2);
         }
 
         .sidebar {
-            width: 280px;
-            background: var(--sidebar-bg);
+            width: 280px; background: var(--sidebar-bg);
             border-left: 1px solid rgba(255, 255, 255, 0.15);
-            display: flex;
-            flex-direction: column;
-            flex-shrink: 0;
+            display: flex; flex-direction: column; flex-shrink: 0;
         }
 
         .user-header {
-            padding: 16px;
-            background: rgba(0, 0, 0, 0.2);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+            padding: 16px; background: rgba(0, 0, 0, 0.2);
+            display: flex; align-items: center; justify-content: space-between;
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
 
@@ -79,13 +62,13 @@
         .section-title { padding: 10px 14px 4px; font-size: 12px; color: rgba(255,255,255,0.7); font-weight: bold; }
 
         .chat-list { flex: 1; overflow-y: auto; padding: 10px; }
-        .chat-item { padding: 10px 12px; border-radius: 14px; display: flex; align-items: center; gap: 12px; cursor: pointer; margin-bottom: 6px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.15); color: #fff; }
-        .chat-item:hover, .chat-item.active { background: rgba(0, 0, 0, 0.5); }
+        .chat-item { padding: 10px 12px; border-radius: 14px; display: flex; align-items: center; gap: 12px; cursor: pointer; margin-bottom: 6px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.15); color: #fff; transition: 0.2s; }
+        .chat-item:hover, .chat-item.active { background: rgba(0, 0, 0, 0.55); border-color: rgba(255, 255, 255, 0.4); }
         
         .online-dot { width: 10px; height: 10px; background: #22c55e; border-radius: 50%; position: absolute; bottom: 0; right: 0; border: 2px solid #000; }
 
         .chat-main { flex: 1; display: flex; flex-direction: column; background: var(--chat-bg); min-width: 0; }
-        .chat-header { padding: 16px 20px; background: rgba(0, 0, 0, 0.2); border-bottom: 1px solid rgba(255, 255, 255, 0.1); font-weight: bold; color: var(--text-main); }
+        .chat-header { padding: 16px 20px; background: rgba(0, 0, 0, 0.2); border-bottom: 1px solid rgba(255, 255, 255, 0.1); font-weight: bold; color: var(--text-main); display: flex; justify-content: space-between; align-items: center; }
 
         .messages-container { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 
@@ -127,7 +110,7 @@
         
         <div class="chat-list">
             <div class="section-title">اتاق‌ها</div>
-            <div class="chat-item active">
+            <div class="chat-item active" id="publicChatItem" onclick="selectPublicChat()">
                 <div class="avatar">💬</div>
                 <div>
                     <div style="font-weight: bold;">چت عمومی</div>
@@ -141,7 +124,10 @@
     </div>
 
     <div class="chat-main">
-        <div class="chat-header" id="currentChatTitle">چت عمومی</div>
+        <div class="chat-header">
+            <span id="currentChatTitle">چت عمومی</span>
+            <span id="chatTypeBadge" style="font-size: 12px; opacity: 0.7; background: rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 10px;">عمومی</span>
+        </div>
         
         <div class="messages-container" id="messagesBox"></div>
 
@@ -154,6 +140,8 @@
 
 <script>
     let currentUser = null;
+    let currentTargetUser = null; // null یعنی چت عمومی، یا مقداری شامل اطلاعات کاربر مقابل در PV
+
     try {
         currentUser = JSON.parse(localStorage.getItem('currentUser'));
     } catch(e) {}
@@ -171,22 +159,41 @@
 
     const socket = io();
 
-    // اعلام ورود کاربر به سرور
     if (currentUser) {
         socket.emit('user_connected', currentUser);
+        socket.emit('get_public_history');
     }
 
-    // دریافت و رندر کاربران آنلاین
+    function selectPublicChat() {
+        currentTargetUser = null;
+        document.querySelectorAll('.chat-item').forEach(el => el.classList.remove('active'));
+        document.getElementById('publicChatItem').classList.add('active');
+        document.getElementById('currentChatTitle').innerText = 'چت عمومی';
+        document.getElementById('chatTypeBadge').innerText = 'عمومی';
+        socket.emit('get_public_history');
+    }
+
+    function selectPrivateChat(user, element) {
+        currentTargetUser = user;
+        document.querySelectorAll('.chat-item').forEach(el => el.classList.remove('active'));
+        if (element) element.classList.add('active');
+        document.getElementById('currentChatTitle').innerText = `پیام خصوصی با ${user.username}`;
+        document.getElementById('chatTypeBadge').innerText = 'پیوی (PV)';
+        
+        socket.emit('get_private_history', { targetUserId: user.id, myId: currentUser.id });
+    }
+
     socket.on('update_online_users', (users) => {
         const listContainer = document.getElementById('onlineUsersList');
-        document.getElementById('onlineCount').innerText = users.length;
+        const otherUsers = users.filter(u => currentUser && u.id !== currentUser.id);
+        document.getElementById('onlineCount').innerText = otherUsers.length;
         listContainer.innerHTML = '';
 
-        users.forEach(u => {
-            if (currentUser && u.id === currentUser.id) return; // خودش را فرعی نمایش ندادن
-
+        otherUsers.forEach(u => {
             const item = document.createElement('div');
-            item.className = 'chat-item';
+            const isActive = currentTargetUser && currentTargetUser.id === u.id;
+            item.className = `chat-item ${isActive ? 'active' : ''}`;
+            item.onclick = () => selectPrivateChat(u, item);
             item.innerHTML = `
                 <div class="avatar">
                     ${u.username.charAt(0).toUpperCase()}
@@ -194,26 +201,34 @@
                 </div>
                 <div>
                     <div style="font-weight: bold; font-size: 13px;">${u.username}</div>
-                    <div style="font-size: 11px; opacity: 0.7;">آنلاین</div>
+                    <div style="font-size: 11px; opacity: 0.7;">کلیک برای چت خصوصی</div>
                 </div>
             `;
             listContainer.appendChild(item);
         });
     });
 
-    socket.on('load_history', (messages) => {
+    socket.on('load_history', (data) => {
         const msgBox = document.getElementById('messagesBox');
         msgBox.innerHTML = '';
-        if (Array.isArray(messages)) {
-            messages.forEach(msg => renderMessage(msg));
+        if (Array.isArray(data.messages)) {
+            data.messages.forEach(msg => renderMessage(msg));
         }
         msgBox.scrollTop = msgBox.scrollHeight;
     });
 
     socket.on('receive_message', (msg) => {
-        renderMessage(msg);
-        const msgBox = document.getElementById('messagesBox');
-        msgBox.scrollTop = msgBox.scrollHeight;
+        // اگر پیام مربوط به گفتگو فعلی باشد رندرش کن
+        const isPublicMsg = !currentTargetUser && msg.target_id === 'public';
+        const isCurrentPvMsg = currentTargetUser && 
+            ((msg.sender_id === currentTargetUser.id && msg.target_id === currentUser.id) || 
+             (msg.sender_id === currentUser.id && msg.target_id === currentTargetUser.id));
+
+        if (isPublicMsg || isCurrentPvMsg) {
+            renderMessage(msg);
+            const msgBox = document.getElementById('messagesBox');
+            msgBox.scrollTop = msgBox.scrollHeight;
+        }
     });
 
     function renderMessage(msg) {
@@ -238,6 +253,7 @@
             socket.emit('send_message', {
                 senderId: currentUser ? currentUser.id : 'guest',
                 senderName: currentUser ? currentUser.username : 'میهمان',
+                targetId: currentTargetUser ? currentTargetUser.id : 'public',
                 text: text
             });
             input.value = '';

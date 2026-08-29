@@ -12,20 +12,18 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
 
 let users = [];
-let messageHistory = [];
-let onlineUsers = {};
+let messageHistory = []; // چت عمومی
+let privateMessages = {}; // چت‌های خصوصی
+let onlineUsers = {}; // socketId -> user info
 
-// API ثبت‌نام (پشتیبانی از ایمیل و نام‌کاربری)
 app.post('/api/register', (req, res) => {
     const { username, email, password, gender } = req.body;
-    
     if (!password || (!username && !email)) {
-        return res.status(400).json({ success: false, message: 'لطفا اطلاعات را کامل وارد کنید.' });
+        return res.status(400).json({ success: false, message: 'اطلاعات ناقص است.' });
     }
-
     const userExists = users.some(u => u.username === username || (email && u.email === email));
     if (userExists) {
-        return res.status(400).json({ success: false, message: 'این حساب یا ایمیل قبلاً ثبت شده است.' });
+        return res.status(400).json({ success: false, message: 'این حساب قبلاً ثبت شده است.' });
     }
 
     const newUser = {
@@ -37,19 +35,15 @@ app.post('/api/register', (req, res) => {
     };
 
     users.push(newUser);
-    res.json({ success: true, message: 'ثبت نام انجام شد', user: { id: newUser.id, username: newUser.username, gender: newUser.gender } });
+    res.json({ success: true, user: { id: newUser.id, username: newUser.username, gender: newUser.gender } });
 });
 
-// API ورود (پشتیبانی همزمان با ایمیل یا نام‌کاربری)
 app.post('/api/login', (req, res) => {
     const { identifier, password } = req.body;
-
     const user = users.find(u => (u.username === identifier || u.email === identifier) && u.password === password);
-
     if (!user) {
-        return res.status(400).json({ success: false, message: 'نام کاربری/ایمیل یا رمز عبور اشتباه است.' });
+        return res.status(400).json({ success: false, message: 'اطلاعات ورود اشتباه است.' });
     }
-
     res.json({ success: true, user: { id: user.id, username: user.username, gender: user.gender } });
 });
 
@@ -58,6 +52,11 @@ app.get('/', (req, res) => {
         if (err) res.sendFile(path.join(__dirname, 'login.html'));
     });
 });
+
+// کلید یکتا برای چت خصوصی بین دو کاربر
+function getRoomId(id1, id2) {
+    return [id1, id2].sort().join('_');
+}
 
 io.on('connection', (socket) => {
     socket.on('user_connected', (userData) => {
@@ -72,17 +71,45 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.emit('load_history', messageHistory);
+    // لود تاریخچه چت عمومی
+    socket.on('get_public_history', () => {
+        socket.emit('load_history', { type: 'public', messages: messageHistory });
+    });
 
+    // لود تاریخچه چت خصوصی
+    socket.on('get_private_history', ({ targetUserId, myId }) => {
+        const roomId = getRoomId(myId, targetUserId);
+        const history = privateMessages[roomId] || [];
+        socket.emit('load_history', { type: 'private', targetUserId, messages: history });
+    });
+
+    // ارسال پیام (هم عمومی هم خصوصی)
     socket.on('send_message', (data) => {
         const msg = {
             id: Date.now(),
             sender_id: data.senderId,
             sender_name: data.senderName,
-            text: data.text
+            text: data.text,
+            target_id: data.targetId || 'public'
         };
-        messageHistory.push(msg);
-        io.emit('receive_message', msg);
+
+        if (!data.targetId || data.targetId === 'public') {
+            // چت عمومی
+            messageHistory.push(msg);
+            io.emit('receive_message', msg);
+        } else {
+            // چت خصوصی
+            const roomId = getRoomId(data.senderId, data.targetId);
+            if (!privateMessages[roomId]) privateMessages[roomId] = [];
+            privateMessages[roomId].push(msg);
+
+            // پیدا کردن socketId گیرنده و فرستنده برای تحویل پیام
+            Object.values(onlineUsers).forEach(u => {
+                if (u.id === data.targetId || u.id === data.senderId) {
+                    io.to(u.socketId).emit('receive_message', msg);
+                }
+            });
+        }
     });
 
     socket.on('disconnect', () => {
@@ -92,6 +119,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
