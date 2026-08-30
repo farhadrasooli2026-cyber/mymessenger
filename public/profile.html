@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تکمیل پروفایل | MyMessenger</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: #ffe6e8;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .card {
+            background: #ffffff;
+            padding: 30px 25px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+            width: 100%;
+            max-width: 380px;
+            text-align: center;
+        }
+
+        h2 {
+            color: #d81b60;
+            margin-bottom: 20px;
+            font-size: 22px;
+        }
+
+        .avatar-container {
+            position: relative;
+            width: 100px;
+            height: 100px;
+            margin: 0 auto 20px auto;
+        }
+
+        .avatar-preview {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 3px solid #e91e63;
+            background-color: #fdf8f9;
+        }
+
+        .avatar-options {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .avatar-choice {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            object-fit: cover;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: 0.3s;
+        }
+
+        .avatar-choice.selected {
+            border-color: #e91e63;
+            transform: scale(1.1);
+        }
+
+        textarea {
+            width: 100%;
+            padding: 12px 15px;
+            margin: 8px 0 15px 0;
+            border: 1px solid #f3c2d3;
+            border-radius: 10px;
+            outline: none;
+            background-color: #fdf8f9;
+            font-size: 14px;
+            resize: none;
+            height: 90px;
+            transition: 0.3s;
+        }
+
+        textarea:focus {
+            border-color: #e91e63;
+            background-color: #fff;
+        }
+
+        .file-upload-btn {
+            display: block;
+            margin-bottom: 15px;
+            font-size: 13px;
+            color: #e91e63;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background-color: #e91e63;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: 0.3s;
+        }
+
+        .btn:hover {
+            background-color: #c2185b;
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>تکمیل اطلاعات پروفایل</h2>
+    
+    <div class="avatar-container">
+        <img id="previewImg" src="/girl.jpg" alt="پروفایل" class="avatar-preview">
+    </div>
+
+    <!-- انتخاب از تصاویر پیش‌فرض یا گالری -->
+    <div class="avatar-options">
+        <img src="/girl.jpg" class="avatar-choice selected" onclick="selectAvatar('/girl.jpg')">
+        <img src="/boy.jpg" class="avatar-choice" onclick="selectAvatar('/boy.jpg')">
+    </div>
+
+    <label class="file-upload-btn">
+        📁 آپلود عکس از دستگاه
+        <input type="file" id="uploadFile" accept="image/*" style="display: none;" onchange="handleFileUpload(event)">
+    </label>
+
+    <textarea id="bioInput" placeholder="بیوگرافی خود را بنویسید...">سلام! من از MyMessenger استفاده می‌کنم.</textarea>
+
+    <button type="button" class="btn" onclick="saveProfile()">ذخیره و ورود به چت</button>
+</div>
+
+<script>
+    let currentProfilePic = '/girl.jpg';
+    let currentUser = null;
+
+    // خواندن اطلاعات کاربر ذخیره شده در localStorage هنگام لود صفحه
+    window.onload = () => {
+        const userData = localStorage.getItem('user');
+        if (!userData) {
+            window.location.href = '/login.html';
+            return;
+        }
+        currentUser = JSON.parse(userData);
+        
+        // تنظیم عکس پیش‌فرض بر اساس جنسیت ثبت‌نامی
+        if (currentUser.gender === 'مرد') {
+            currentProfilePic = '/boy.jpg';
+            document.getElementById('previewImg').src = currentProfilePic;
+            document.querySelectorAll('.avatar-choice')[1].classList.add('selected');
+            document.querySelectorAll('.avatar-choice')[0].classList.remove('selected');
+        }
+        if (currentUser.profilePic) {
+            currentProfilePic = currentUser.profilePic;
+            document.getElementById('previewImg').src = currentProfilePic;
+        }
+    };
+
+    function selectAvatar(imgSrc) {
+        currentProfilePic = imgSrc;
+        document.getElementById('previewImg').src = imgSrc;
+        document.querySelectorAll('.avatar-choice').forEach(img => {
+            if (img.getAttribute('src') === imgSrc) {
+                img.classList.add('selected');
+            } else {
+                img.classList.remove('selected');
+            }
+        });
+    }
+
+    function handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                currentProfilePic = e.target.result; // تبدیل عکس به Base64
+                document.getElementById('previewImg').src = currentProfilePic;
+                document.querySelectorAll('.avatar-choice').forEach(img => img.classList.remove('selected'));
+            };
+            reader.readAsDataURL(file);
+        }
+    }
+
+    async function saveProfile() {
+        const bio = document.getElementById('bioInput').value.trim();
+
+        try {
+            const res = await fetch('/api/update-profile', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: currentUser.username,
+                    profilePic: currentProfilePic,
+                    bio: bio
+                })
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+                // آپدیت اطلاعات جدید در localStorage و ورود به صفحه اصلی چت
+                localStorage.setItem('user', JSON.stringify(data.user));
+                window.location.href = '/chat.html';
+            } else {
+                alert(data.error || 'خطا در ذخیره پروفایل.');
+            }
+        } catch (err) {
+            alert('خطا در ارتباط با سرور.');
+        }
+    }
+</script>
+
+</body>
+</html>
