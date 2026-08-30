@@ -2,7 +2,7 @@
 <html lang="fa" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>چت روم | MyMessenger</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
@@ -20,7 +20,7 @@
             align-items: center; 
         }
 
-        /* باکس اصلی کاملاً شفاف بدون ماتی - دقیقاً طبق کد اولیه شما */
+        /* باکس اصلی کاملاً شفاف - بدون ماتی */
         .chat-container { 
             display: flex; 
             width: 90%; 
@@ -65,7 +65,8 @@
         .message.received { align-self: flex-end; background: rgba(255, 255, 255, 0.95); color: #050505; border-bottom-left-radius: 2px; }
         
         .input-box { padding: 15px; display: flex; gap: 10px; background: rgba(0, 0, 0, 0.2); border-top: 1px solid rgba(255,255,255,0.2); align-items: center; }
-        .input-box input[type="text"] { flex: 1; padding: 10px 15px; border: 1px solid rgba(255,255,255,0.5); border-radius: 20px; outline: none; background: rgba(255, 255, 255, 0.9); }
+        /* اندازه فونت 16px مانع زوم خودکار مرورگر موبایل می‌شود */
+        .input-box input[type="text"] { flex: 1; padding: 10px 15px; border: 1px solid rgba(255,255,255,0.5); border-radius: 20px; outline: none; background: rgba(255, 255, 255, 0.9); font-size: 16px; }
         .input-box button { padding: 10px 20px; background: #e91e63; color: white; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; }
         
         .attach-btn { background: rgba(255, 255, 255, 0.9); border: 1px solid #ddd; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 20px; }
@@ -280,90 +281,3 @@
             input.value = '';
         }
     });
-
-    function handleImageUpload(input) {
-        const file = input.files[0];
-        if (file && activeChatUser) {
-            const caption = prompt("توضیحات عکس (کپشن) را وارد کنید (اختیاری):") || "";
-            
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const img = new Image();
-                img.onload = function() {
-                    const canvas = document.createElement('canvas');
-                    const MAX_WIDTH = 800;
-                    const MAX_HEIGHT = 800;
-                    let width = img.width;
-                    let height = img.height;
-
-                    if (width > height) {
-                        if (width > MAX_WIDTH) {
-                            height *= MAX_WIDTH / width;
-                            width = MAX_WIDTH;
-                        }
-                    } else {
-                        if (height > MAX_HEIGHT) {
-                            width *= MAX_HEIGHT / height;
-                            height = MAX_HEIGHT;
-                        }
-                    }
-
-                    canvas.width = width;
-                    canvas.height = height;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0, width, height);
-
-                    const resizedBase64 = canvas.toDataURL('image/jpeg', 0.7);
-                    const base64Data = resizedBase64 + '||caption||' + caption;
-
-                    socket.emit('send_private_message', {
-                        sender: currentUser.username,
-                        receiver: activeChatUser,
-                        message: base64Data
-                    });
-                };
-                img.src = e.target.result;
-            };
-            reader.readAsDataURL(file);
-            input.value = '';
-        }
-    }
-
-    function openImageModal(src) {
-        const modal = document.getElementById('imageModal');
-        modal.querySelector('img').src = src;
-        modal.style.display = 'flex';
-    }
-
-    function closeImageModal() {
-        document.getElementById('imageModal').style.display = 'none';
-    }
-
-    socket.on('receive_private_message', (data) => {
-        playBeepSound();
-        if (data.sender === activeChatUser) {
-            appendMessage(data.sender, data.message);
-        } else {
-            unreadCounts[data.sender] = (unreadCounts[data.sender] || 0) + 1;
-            const badge = document.getElementById(`badge-${data.sender}`);
-            if (badge) {
-                badge.innerText = unreadCounts[data.sender];
-                badge.style.display = 'inline-block';
-            }
-        }
-    });
-
-    socket.on('message_sent', (data) => {
-        if (data.receiver === activeChatUser) appendMessage(data.sender, data.message);
-    });
-
-    function logout() {
-        localStorage.removeItem('user');
-        window.location.href = '/login.html';
-    }
-
-    loadUsers();
-</script>
-
-</body>
-</html>
