@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
@@ -209,8 +208,9 @@
 
             const data = await res.json();
             if (res.ok) {
+                localStorage.setItem('user', JSON.stringify(data.user || { username, gender: selectedGender }));
                 alert('ثبت‌نام با موفقیت انجام شد!');
-                toggleAuth('login');
+                window.location.href = '/profile.html';
             } else {
                 alert(data.error || 'خطا در ثبت‌نام.');
             }
@@ -235,7 +235,7 @@
 
             const data = await res.json();
             if (res.ok) {
-                localStorage.setItem('user', JSON.stringify(data.user));
+                localStorage.setItem('user', JSON.stringify(data.user || { username }));
                 window.location.href = '/chat.html';
             } else {
                 alert(data.error || 'نام کاربری یا رمز عبور اشتباه است.');
