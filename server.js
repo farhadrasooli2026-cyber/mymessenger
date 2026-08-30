@@ -36,7 +36,9 @@ db.serialize(() => {
       email TEXT,
       phone TEXT,
       password TEXT,
-      gender TEXT
+      gender TEXT,
+      profilePic TEXT,
+      bio TEXT
     )
   `);
 
@@ -74,16 +76,37 @@ app.post('/api/register', (req, res) => {
 
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
-  db.get('SELECT * FROM users WHERE username = ? AND password = ?', [username, password], (err, row) => {
+  db.get('SELECT username, gender, profilePic, bio FROM users WHERE username = ? AND password = ?', [username, password], (err, row) => {
     if (err || !row) {
       return res.status(401).json({ error: 'نام کاربری یا رمز عبور اشتباه است.' });
     }
-    res.json({ success: true, user: { username: row.username, gender: row.gender } });
+    res.json({ success: true, user: row });
   });
 });
 
+// مسیر ذخیره و آپدیت پروفایل و بیوگرافی
+app.post('/api/update-profile', (req, res) => {
+  const { username, profilePic, bio } = req.body;
+  
+  db.run(
+    'UPDATE users SET profilePic = ?, bio = ? WHERE username = ?',
+    [profilePic, bio, username],
+    function (err) {
+      if (err) {
+        return res.status(500).json({ error: 'خطا در ذخیره اطلاعات پروفایل در دیتابیس.' });
+      }
+      db.get('SELECT username, gender, profilePic, bio FROM users WHERE username = ?', [username], (err, row) => {
+        if (err || !row) {
+          return res.status(404).json({ error: 'کاربر یافت نشد.' });
+        }
+        res.json({ success: true, user: row });
+      });
+    }
+  );
+});
+
 app.get('/api/users', (req, res) => {
-  db.all('SELECT username, gender FROM users', [], (err, rows) => {
+  db.all('SELECT username, gender, profilePic, bio FROM users', [], (err, rows) => {
     if (err) {
       return res.status(500).json({ error: 'خطا در دریافت لیست کاربران.' });
     }
