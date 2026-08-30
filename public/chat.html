@@ -59,6 +59,7 @@
         
         .message { max-width: 65%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4; word-break: break-word; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
         .message img { max-width: 100%; max-height: 250px; border-radius: 8px; margin-top: 5px; cursor: pointer; display: block; object-fit: cover; }
+        .message audio { max-width: 100%; margin-top: 5px; outline: none; }
         .message .caption { margin-top: 5px; font-size: 13px; font-weight: normal; }
         .message.sent { align-self: flex-start; background: rgba(233, 30, 99, 0.9); color: white; border-bottom-right-radius: 2px; }
         .message.received { align-self: flex-end; background: rgba(255, 255, 255, 0.95); color: #050505; border-bottom-left-radius: 2px; }
@@ -67,9 +68,16 @@
         .input-box input[type="text"] { flex: 1; padding: 10px 15px; border: 1px solid rgba(255,255,255,0.5); border-radius: 20px; outline: none; background: rgba(255, 255, 255, 0.9); font-size: 16px; }
         .input-box button { padding: 10px 20px; background: #e91e63; color: white; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; }
         
-        .attach-btn { background: rgba(255, 255, 255, 0.9); border: 1px solid #ddd; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 20px; }
-        .attach-btn:hover { background: #fff; }
+        .attach-btn, .record-btn { background: rgba(255, 255, 255, 0.9); border: 1px solid #ddd; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 18px; user-select: none; }
+        .attach-btn:hover, .record-btn:hover { background: #fff; }
+        .record-btn.recording { background: #ff4d4d; color: white; animation: pulse 1.5s infinite; }
         #imageInput { display: none; }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
 
         .logout-btn { background: rgba(0,0,0,0.3); border: 1px solid #fff; color: white; padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; }
 
@@ -112,6 +120,8 @@
             <label for="imageInput" class="attach-btn" title="ارسال عکس">📎</label>
             <input type="file" id="imageInput" accept="image/*" disabled onchange="handleImageUpload(this)">
             
+            <div type="button" id="recordBtn" class="record-btn" title="ضبط و ارسال صدا (کلیک برای شروع/توقف)" onclick="toggleRecording()" style="opacity: 0.6; pointer-events: none;">🎤</div>
+
             <input type="text" id="messageInput" placeholder="پیام خود را بنویسید..." disabled>
             <button type="submit" id="sendBtn" disabled>ارسال</button>
         </form>
@@ -211,6 +221,10 @@
         document.getElementById('messageInput').disabled = false;
         document.getElementById('sendBtn').disabled = false;
         document.getElementById('imageInput').disabled = false;
+        
+        const recBtn = document.getElementById('recordBtn');
+        recBtn.style.opacity = '1';
+        recBtn.style.pointerEvents = 'auto';
 
         document.getElementById('chatContainer').classList.add('mobile-chat-open');
 
@@ -260,12 +274,64 @@
             img.src = text;
             img.onclick = () => openImageModal(text);
             div.appendChild(img);
+        } else if (text && text.startsWith('data:audio')) {
+            const audio = document.createElement('audio');
+            audio.controls = true;
+            audio.src = text;
+            div.appendChild(audio);
         } else {
             div.innerText = text;
         }
         
         box.appendChild(div);
         box.scrollTop = box.scrollHeight;
+    }
+
+    // بخش ضبط صدا
+    let mediaRecorder;
+    let audioChunks = [];
+
+    async function toggleRecording() {
+        const recordBtn = document.getElementById('recordBtn');
+
+        if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = (event) => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        const base64Audio = reader.result;
+                        if (activeChatUser) {
+                            socket.emit('send_private_message', {
+                                sender: currentUser.username,
+                                receiver: activeChatUser,
+                                message: base64Audio
+                            });
+                        }
+                    };
+                    reader.readAsDataURL(audioBlob);
+                    
+                    // بستن استریم میکروفون
+                    stream.getTracks().forEach(track => track.stop());
+                };
+
+                mediaRecorder.start();
+                recordBtn.classList.add('recording');
+            } catch (err) {
+                alert('امکان دسترسی به میکروفون وجود ندارد یا مرورگر شما پشتیبانی نمی‌کند.');
+            }
+        } else if (mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+            recordBtn.classList.remove('recording');
+        }
     }
 
     document.getElementById('messageForm').addEventListener('submit', (e) => {
