@@ -20,7 +20,6 @@
             align-items: center; 
         }
 
-        /* باکس اصلی کاملاً شفاف بدون ماتی */
         .chat-container { 
             display: flex; 
             width: 90%; 
@@ -57,8 +56,8 @@
         }
         
         .message { max-width: 65%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4; word-break: break-word; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
-        .message img { max-width: 100%; border-radius: 8px; margin-top: 5px; cursor: pointer; display: block; }
-        .message .caption { margin-top: 5px; font-size: 13px; }
+        .message img { max-width: 100%; max-height: 250px; border-radius: 8px; margin-top: 5px; cursor: pointer; display: block; object-fit: cover; }
+        .message .caption { margin-top: 5px; font-size: 13px; font-weight: normal; }
         .message.sent { align-self: flex-start; background: rgba(233, 30, 99, 0.9); color: white; border-bottom-right-radius: 2px; }
         .message.received { align-self: flex-end; background: rgba(255, 255, 255, 0.95); color: #050505; border-bottom-left-radius: 2px; }
         
@@ -99,7 +98,7 @@
             <label for="imageInput" class="attach-btn" title="ارسال عکس">📎</label>
             <input type="file" id="imageInput" accept="image/*" disabled onchange="handleImageUpload(this)">
             
-            <input type="text" id="messageInput" placeholder="پیام خود را بنویسید..." disabled required>
+            <input type="text" id="messageInput" placeholder="پیام خود را بنویسید..." disabled>
             <button type="submit" id="sendBtn" disabled>ارسال</button>
         </form>
     </div>
@@ -216,16 +215,27 @@
         const div = document.createElement('div');
         div.className = `message ${sender === currentUser.username ? 'sent' : 'received'}`;
         
-        if (text.startsWith('data:image')) {
-            const parts = text.split('||caption||');
-            const imgUrl = parts[0];
-            const captionText = parts[1] || '';
+        if (text && text.includes('||caption||')) {
+            const firstIndex = text.indexOf('||caption||');
+            const imgUrl = text.substring(0, firstIndex);
+            const captionText = text.substring(firstIndex + 11);
 
-            let html = `<img src="${imgUrl}" onclick="openImageModal('${imgUrl}')" alt="تصویر">`;
+            const img = document.createElement('img');
+            img.src = imgUrl;
+            img.onclick = () => openImageModal(imgUrl);
+            div.appendChild(img);
+
             if (captionText) {
-                html += `<div class="caption">${captionText}</div>`;
+                const capDiv = document.createElement('div');
+                capDiv.className = 'caption';
+                capDiv.innerText = captionText;
+                div.appendChild(capDiv);
             }
-            div.innerHTML = html;
+        } else if (text && text.startsWith('data:image')) {
+            const img = document.createElement('img');
+            img.src = text;
+            img.onclick = () => openImageModal(text);
+            div.appendChild(img);
         } else {
             div.innerText = text;
         }
@@ -269,9 +279,8 @@
 
     function openImageModal(src) {
         const modal = document.getElementById('imageModal');
-        const modalImg = document.getElementById('modalImage');
+        modal.querySelector('img').src = src;
         modal.style.display = 'flex';
-        modalImg.src = src;
     }
 
     function closeImageModal() {
