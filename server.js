@@ -13,6 +13,11 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// باز شدن خودکار صفحه ورود در ریشه سایت
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
 // اتصال به دیتابیس SQLite
 const db = new sqlite3.Database('./database.db', (err) => {
   if (err) {
@@ -22,7 +27,7 @@ const db = new sqlite3.Database('./database.db', (err) => {
   }
 });
 
-// ساخت جدول کاربران و پیام‌ها در صورت عدم وجود
+// ساخت جدول کاربران و پیام‌ها
 db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
@@ -47,8 +52,6 @@ db.serialize(() => {
 });
 
 // مسیرهای API
-
-// ۱. ثبت‌نام کاربر
 app.post('/api/register', (req, res) => {
   const { username, email, phone, password, gender } = req.body;
   if (!username || !password) {
@@ -65,7 +68,6 @@ app.post('/api/register', (req, res) => {
   stmt.finalize();
 });
 
-// ۲. ورود کاربر
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   db.get('SELECT * FROM users WHERE username = ? AND password = ?', [username, password], (err, row) => {
@@ -76,7 +78,6 @@ app.post('/api/login', (req, res) => {
   });
 });
 
-// ۳. دریافت لیست کاربران
 app.get('/api/users', (req, res) => {
   db.all('SELECT username, gender FROM users', [], (err, rows) => {
     if (err) {
@@ -86,7 +87,6 @@ app.get('/api/users', (req, res) => {
   });
 });
 
-// ۴. دریافت چت‌های خصوصی بین دو کاربر
 app.get('/api/messages/:user1/:user2', (req, res) => {
   const { user1, user2 } = req.params;
   db.all(
@@ -103,7 +103,7 @@ app.get('/api/messages/:user1/:user2', (req, res) => {
   );
 });
 
-// مدیریت Socket.IO برای چت آنلاین
+// Socket.IO
 const userSockets = {};
 
 io.on('connection', (socket) => {
@@ -113,17 +113,13 @@ io.on('connection', (socket) => {
 
   socket.on('send_private_message', (data) => {
     const { sender, receiver, message } = data;
-
-    // ذخیره پیام در دیتابیس
     const stmt = db.prepare('INSERT INTO messages (sender, receiver, message) VALUES (?, ?, ?)');
     stmt.run(sender, receiver, message, function (err) {
       if (!err) {
-        // ارسال به دریافت‌کننده (اگر آنلاین باشد)
         const receiverSocketId = userSockets[receiver];
         if (receiverSocketId) {
           io.to(receiverSocketId).emit('receive_private_message', data);
         }
-        // تایید ارسال برای فرستنده
         socket.emit('message_sent', data);
       }
     });
@@ -140,8 +136,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// تنظیم دقیق پورت هم برای سیستم خودت هم برای سرور Render
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`سرور روی پورت ${PORT} با موفقیت در حال اجراست.`);
+  console.log(`Server running on port ${PORT}`);
 });
