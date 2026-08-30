@@ -20,34 +20,34 @@
             align-items: center; 
         }
 
+        /* باکس اصلی کاملاً شفاف بدون ماتی - دقیقاً طبق کد اولیه شما */
         .chat-container { 
             display: flex; 
-            width: 95%; 
+            width: 90%; 
             max-width: 1000px; 
-            height: 90vh; 
-            background: rgba(0, 0, 0, 0.4); 
-            backdrop-filter: blur(10px);
+            height: 85vh; 
+            background: rgba(255, 255, 255, 0.15); 
             border-radius: 15px; 
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5); 
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3); 
+            border: 1px solid rgba(255, 255, 255, 0.3);
             overflow: hidden; 
         }
         
-        .sidebar { width: 35%; background: rgba(0, 0, 0, 0.3); border-left: 1px solid rgba(255,255,255,0.2); display: flex; flex-direction: column; }
+        .sidebar { width: 35%; background: rgba(0, 0, 0, 0.15); border-left: 1px solid rgba(255,255,255,0.2); display: flex; flex-direction: column; }
         .sidebar-header { padding: 15px; background: rgba(233, 30, 99, 0.85); color: white; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
         .user-list { list-style: none; overflow-y: auto; flex: 1; }
         .user-item { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.15); cursor: pointer; transition: 0.2s; display: flex; align-items: center; justify-content: space-between; color: #fff; font-weight: bold; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
-        .user-item:hover, .user-item.active { background: rgba(233, 30, 99, 0.5); }
+        .user-item:hover, .user-item.active { background: rgba(233, 30, 99, 0.4); }
         .user-info { display: flex; align-items: center; gap: 10px; }
         .unread-badge { background-color: #e91e63; color: white; border-radius: 50%; padding: 2px 7px; font-size: 11px; font-weight: bold; display: none; }
 
         .main-chat { width: 65%; display: flex; flex-direction: column; background: transparent; }
-        .chat-header { padding: 12px 15px; background: rgba(0, 0, 0, 0.4); border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center; }
+        .chat-header { padding: 12px 15px; background: rgba(0, 0, 0, 0.2); border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center; }
         .chat-header-info { display: flex; flex-direction: column; }
         .chat-header-name { font-weight: bold; color: #fff; font-size: 16px; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
         .chat-header-status { font-size: 12px; color: #00ff66; font-weight: bold; margin-top: 2px; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
-        .back-btn { display: none; background: rgba(255,255,255,0.2); border: none; color: white; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-        
+        .back-btn { display: none; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.4); color: white; padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; }
+
         .messages-box { 
             flex: 1; 
             padding: 15px; 
@@ -58,17 +58,17 @@
             gap: 10px; 
         }
         
-        .message { max-width: 75%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4; word-break: break-word; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+        .message { max-width: 65%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4; word-break: break-word; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
         .message img { max-width: 100%; max-height: 250px; border-radius: 8px; margin-top: 5px; cursor: pointer; display: block; object-fit: cover; }
         .message .caption { margin-top: 5px; font-size: 13px; font-weight: normal; }
         .message.sent { align-self: flex-start; background: rgba(233, 30, 99, 0.9); color: white; border-bottom-right-radius: 2px; }
         .message.received { align-self: flex-end; background: rgba(255, 255, 255, 0.95); color: #050505; border-bottom-left-radius: 2px; }
         
-        .input-box { padding: 10px 15px; display: flex; gap: 8px; background: rgba(0, 0, 0, 0.4); border-top: 1px solid rgba(255,255,255,0.2); align-items: center; }
-        .input-box input[type="text"] { flex: 1; padding: 10px 15px; border: 1px solid rgba(255,255,255,0.3); border-radius: 20px; outline: none; background: rgba(255, 255, 255, 0.9); font-size: 14px; }
-        .input-box button { padding: 10px 18px; background: #e91e63; color: white; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; white-space: nowrap; }
+        .input-box { padding: 15px; display: flex; gap: 10px; background: rgba(0, 0, 0, 0.2); border-top: 1px solid rgba(255,255,255,0.2); align-items: center; }
+        .input-box input[type="text"] { flex: 1; padding: 10px 15px; border: 1px solid rgba(255,255,255,0.5); border-radius: 20px; outline: none; background: rgba(255, 255, 255, 0.9); }
+        .input-box button { padding: 10px 20px; background: #e91e63; color: white; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; }
         
-        .attach-btn { background: rgba(255, 255, 255, 0.9); border: 1px solid #ddd; border-radius: 50%; min-width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 18px; }
+        .attach-btn { background: rgba(255, 255, 255, 0.9); border: 1px solid #ddd; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 20px; }
         .attach-btn:hover { background: #fff; }
         #imageInput { display: none; }
 
@@ -78,7 +78,7 @@
         .image-modal img { max-width: 90%; max-height: 90%; border-radius: 10px; }
         .image-modal-close { position: absolute; top: 20px; right: 30px; color: white; font-size: 35px; cursor: pointer; }
 
-        /* موبایل و تبلت */
+        /* ساختار واکنش‌گرا برای موبایل */
         @media (max-width: 768px) {
             .chat-container { width: 100%; height: 100vh; border-radius: 0; border: none; }
             .sidebar { width: 100%; display: flex; }
@@ -102,11 +102,11 @@
 
     <div class="main-chat">
         <div class="chat-header">
-            <button class="back-btn" onclick="closeMobileChat()">بازگشت 🔙</button>
             <div class="chat-header-info">
                 <div class="chat-header-name" id="selectedUserHeader">لطفا یک کاربر را انتخاب کنید</div>
                 <div class="chat-header-status" id="selectedUserStatus"></div>
             </div>
+            <button class="back-btn" onclick="closeMobileChat()">بازگشت 🔙</button>
         </div>
         <div class="messages-box" id="messagesBox"></div>
         
