@@ -22,28 +22,31 @@
 
         .chat-container { 
             display: flex; 
-            width: 90%; 
+            width: 95%; 
             max-width: 1000px; 
-            height: 85vh; 
-            background: rgba(255, 255, 255, 0.15); 
+            height: 90vh; 
+            background: rgba(0, 0, 0, 0.4); 
+            backdrop-filter: blur(10px);
             border-radius: 15px; 
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3); 
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5); 
+            border: 1px solid rgba(255, 255, 255, 0.2);
             overflow: hidden; 
         }
         
-        .sidebar { width: 35%; background: rgba(0, 0, 0, 0.15); border-left: 1px solid rgba(255,255,255,0.2); display: flex; flex-direction: column; }
+        .sidebar { width: 35%; background: rgba(0, 0, 0, 0.3); border-left: 1px solid rgba(255,255,255,0.2); display: flex; flex-direction: column; }
         .sidebar-header { padding: 15px; background: rgba(233, 30, 99, 0.85); color: white; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
         .user-list { list-style: none; overflow-y: auto; flex: 1; }
         .user-item { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.15); cursor: pointer; transition: 0.2s; display: flex; align-items: center; justify-content: space-between; color: #fff; font-weight: bold; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
-        .user-item:hover, .user-item.active { background: rgba(233, 30, 99, 0.4); }
+        .user-item:hover, .user-item.active { background: rgba(233, 30, 99, 0.5); }
         .user-info { display: flex; align-items: center; gap: 10px; }
         .unread-badge { background-color: #e91e63; color: white; border-radius: 50%; padding: 2px 7px; font-size: 11px; font-weight: bold; display: none; }
 
         .main-chat { width: 65%; display: flex; flex-direction: column; background: transparent; }
-        .chat-header { padding: 12px 15px; background: rgba(0, 0, 0, 0.2); border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; flex-direction: column; }
+        .chat-header { padding: 12px 15px; background: rgba(0, 0, 0, 0.4); border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center; }
+        .chat-header-info { display: flex; flex-direction: column; }
         .chat-header-name { font-weight: bold; color: #fff; font-size: 16px; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
         .chat-header-status { font-size: 12px; color: #00ff66; font-weight: bold; margin-top: 2px; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
+        .back-btn { display: none; background: rgba(255,255,255,0.2); border: none; color: white; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
         
         .messages-box { 
             flex: 1; 
@@ -55,17 +58,17 @@
             gap: 10px; 
         }
         
-        .message { max-width: 65%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4; word-break: break-word; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+        .message { max-width: 75%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4; word-break: break-word; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
         .message img { max-width: 100%; max-height: 250px; border-radius: 8px; margin-top: 5px; cursor: pointer; display: block; object-fit: cover; }
         .message .caption { margin-top: 5px; font-size: 13px; font-weight: normal; }
         .message.sent { align-self: flex-start; background: rgba(233, 30, 99, 0.9); color: white; border-bottom-right-radius: 2px; }
         .message.received { align-self: flex-end; background: rgba(255, 255, 255, 0.95); color: #050505; border-bottom-left-radius: 2px; }
         
-        .input-box { padding: 15px; display: flex; gap: 10px; background: rgba(0, 0, 0, 0.2); border-top: 1px solid rgba(255,255,255,0.2); align-items: center; }
-        .input-box input[type="text"] { flex: 1; padding: 10px 15px; border: 1px solid rgba(255,255,255,0.5); border-radius: 20px; outline: none; background: rgba(255, 255, 255, 0.9); }
-        .input-box button { padding: 10px 20px; background: #e91e63; color: white; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; }
+        .input-box { padding: 10px 15px; display: flex; gap: 8px; background: rgba(0, 0, 0, 0.4); border-top: 1px solid rgba(255,255,255,0.2); align-items: center; }
+        .input-box input[type="text"] { flex: 1; padding: 10px 15px; border: 1px solid rgba(255,255,255,0.3); border-radius: 20px; outline: none; background: rgba(255, 255, 255, 0.9); font-size: 14px; }
+        .input-box button { padding: 10px 18px; background: #e91e63; color: white; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; white-space: nowrap; }
         
-        .attach-btn { background: rgba(255, 255, 255, 0.9); border: 1px solid #ddd; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 20px; }
+        .attach-btn { background: rgba(255, 255, 255, 0.9); border: 1px solid #ddd; border-radius: 50%; min-width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 18px; }
         .attach-btn:hover { background: #fff; }
         #imageInput { display: none; }
 
@@ -74,11 +77,21 @@
         .image-modal { display: none; position: fixed; z-index: 1000; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.85); justify-content: center; align-items: center; }
         .image-modal img { max-width: 90%; max-height: 90%; border-radius: 10px; }
         .image-modal-close { position: absolute; top: 20px; right: 30px; color: white; font-size: 35px; cursor: pointer; }
+
+        /* موبایل و تبلت */
+        @media (max-width: 768px) {
+            .chat-container { width: 100%; height: 100vh; border-radius: 0; border: none; }
+            .sidebar { width: 100%; display: flex; }
+            .main-chat { width: 100%; display: none; }
+            .chat-container.mobile-chat-open .sidebar { display: none; }
+            .chat-container.mobile-chat-open .main-chat { display: flex; }
+            .back-btn { display: block; }
+        }
     </style>
 </head>
 <body>
 
-<div class="chat-container">
+<div class="chat-container" id="chatContainer">
     <div class="sidebar">
         <div class="sidebar-header">
             <span id="myUsername">کاربر</span>
@@ -89,8 +102,11 @@
 
     <div class="main-chat">
         <div class="chat-header">
-            <div class="chat-header-name" id="selectedUserHeader">لطفا یک کاربر را انتخاب کنید</div>
-            <div class="chat-header-status" id="selectedUserStatus"></div>
+            <button class="back-btn" onclick="closeMobileChat()">بازگشت 🔙</button>
+            <div class="chat-header-info">
+                <div class="chat-header-name" id="selectedUserHeader">لطفا یک کاربر را انتخاب کنید</div>
+                <div class="chat-header-status" id="selectedUserStatus"></div>
+            </div>
         </div>
         <div class="messages-box" id="messagesBox"></div>
         
@@ -194,7 +210,13 @@
         document.getElementById('sendBtn').disabled = false;
         document.getElementById('imageInput').disabled = false;
 
+        document.getElementById('chatContainer').classList.add('mobile-chat-open');
+
         loadMessages();
+    }
+
+    function closeMobileChat() {
+        document.getElementById('chatContainer').classList.remove('mobile-chat-open');
     }
 
     async function loadMessages() {
@@ -263,14 +285,44 @@
         const file = input.files[0];
         if (file && activeChatUser) {
             const caption = prompt("توضیحات عکس (کپشن) را وارد کنید (اختیاری):") || "";
+            
             const reader = new FileReader();
             reader.onload = function(e) {
-                const base64Data = e.target.result + '||caption||' + caption;
-                socket.emit('send_private_message', {
-                    sender: currentUser.username,
-                    receiver: activeChatUser,
-                    message: base64Data
-                });
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const MAX_WIDTH = 800;
+                    const MAX_HEIGHT = 800;
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > height) {
+                        if (width > MAX_WIDTH) {
+                            height *= MAX_WIDTH / width;
+                            width = MAX_WIDTH;
+                        }
+                    } else {
+                        if (height > MAX_HEIGHT) {
+                            width *= MAX_HEIGHT / height;
+                            height = MAX_HEIGHT;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    const resizedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+                    const base64Data = resizedBase64 + '||caption||' + caption;
+
+                    socket.emit('send_private_message', {
+                        sender: currentUser.username,
+                        receiver: activeChatUser,
+                        message: base64Data
+                    });
+                };
+                img.src = e.target.result;
             };
             reader.readAsDataURL(file);
             input.value = '';
