@@ -18,12 +18,12 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
-// اتصال به دیتابیس SQLite
-const db = new sqlite3.Database('./database.db', (err) => {
+// استفاده از دیتابیس حافظه موقت برای جلوگیری از خطای سرور رایگان
+const db = new sqlite3.Database(':memory:', (err) => {
   if (err) {
     console.error('خطا در اتصال به دیتابیس:', err.message);
   } else {
-    console.log('با موفقیت به دیتابیس SQLite متصل شد.');
+    console.log('با موفقیت به دیتابیس متصل شد.');
   }
 });
 
