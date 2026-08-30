@@ -287,7 +287,7 @@
         box.scrollTop = box.scrollHeight;
     }
 
-    // بخش ضبط صدا
+    // بخش ضبط صدا اصلاح شده برای سازگاری کامل با گوشی
     let mediaRecorder;
     let audioChunks = [];
 
@@ -297,7 +297,15 @@
         if (!mediaRecorder || mediaRecorder.state === 'inactive') {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
+                
+                let mimeType = 'audio/webm';
+                if (MediaRecorder.isTypeSupported('audio/mp4')) {
+                    mimeType = 'audio/mp4';
+                } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+                    mimeType = 'audio/ogg';
+                }
+
+                mediaRecorder = new MediaRecorder(stream, { mimeType: mimeType });
                 audioChunks = [];
 
                 mediaRecorder.ondataavailable = (event) => {
@@ -305,7 +313,7 @@
                 };
 
                 mediaRecorder.onstop = () => {
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const audioBlob = new Blob(audioChunks, { type: mimeType });
                     const reader = new FileReader();
                     reader.onloadend = () => {
                         const base64Audio = reader.result;
@@ -319,7 +327,6 @@
                     };
                     reader.readAsDataURL(audioBlob);
                     
-                    // بستن استریم میکروفون
                     stream.getTracks().forEach(track => track.stop());
                 };
 
