@@ -17,11 +17,15 @@
         .user-item:hover, .user-item.active { background: #ffe6e8; }
         
         .main-chat { width: 70%; display: flex; flex-direction: column; background: #fff; }
-        .chat-header { padding: 15px; background: #fff; border-bottom: 1px solid #eee; font-weight: bold; color: #333; }
+        .chat-header { padding: 12px 15px; background: #fff; border-bottom: 1px solid #eee; display: flex; flex-direction: column; }
+        .chat-header-name { font-weight: bold; color: #333; font-size: 16px; }
+        .chat-header-status { font-size: 12px; color: #2e7d32; margin-top: 2px; }
+        
         .messages-box { flex: 1; padding: 15px; overflow-y: auto; background: #fafafa; display: flex; flex-direction: column; gap: 10px; }
         
-        .message { max-width: 60%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4; word-break: break-word; }
-        .message img { max-width: 100%; border-radius: 8px; margin-top: 5px; display: block; }
+        .message { max-width: 65%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4; word-break: break-word; }
+        .message img { max-width: 100%; border-radius: 8px; margin-top: 5px; cursor: pointer; display: block; }
+        .message .caption { margin-top: 5px; font-size: 13px; }
         .message.sent { align-self: flex-start; background: #e91e63; color: white; border-bottom-right-radius: 2px; }
         .message.received { align-self: flex-end; background: #e4e6eb; color: #050505; border-bottom-left-radius: 2px; }
         
@@ -29,12 +33,17 @@
         .input-box input[type="text"] { flex: 1; padding: 10px 15px; border: 1px solid #ddd; border-radius: 20px; outline: none; }
         .input-box button { padding: 10px 20px; background: #e91e63; color: white; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; }
         
-        /* دکمه ارسال عکس */
-        .image-upload-btn { background: #f0f2f5; border: 1px solid #ddd; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 18px; }
-        .image-upload-btn:hover { background: #e4e6eb; }
+        /* آیکون سنجاق */
+        .attach-btn { background: #f0f2f5; border: 1px solid #ddd; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 20px; }
+        .attach-btn:hover { background: #e4e6eb; }
         #imageInput { display: none; }
 
         .logout-btn { background: transparent; border: 1px solid #fff; color: white; padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; }
+
+        /* پاپ‌آپ مشاهده عکس به صورت بزرگ */
+        .image-modal { display: none; position: fixed; z-index: 1000; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.85); justify-content: center; align-items: center; }
+        .image-modal img { max-width: 90%; max-height: 90%; border-radius: 10px; }
+        .image-modal-close { position: absolute; top: 20px; right: 30px; color: white; font-size: 35px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -49,17 +58,26 @@
     </div>
 
     <div class="main-chat">
-        <div class="chat-header" id="selectedUserHeader">لطفا یک کاربر را برای گفتگو انتخاب کنید</div>
+        <div class="chat-header">
+            <div class="chat-header-name" id="selectedUserHeader">لطفا یک کاربر را انتخاب کنید</div>
+            <div class="chat-header-status" id="selectedUserStatus"></div>
+        </div>
         <div class="messages-box" id="messagesBox"></div>
         
         <form class="input-box" id="messageForm">
-            <label for="imageInput" class="image-upload-btn" title="ارسال عکس">📷</label>
-            <input type="file" id="imageInput" accept="image/*" disabled onchange="sendImage(this)">
+            <label for="imageInput" class="attach-btn" title="ارسال عکس">📎</label>
+            <input type="file" id="imageInput" accept="image/*" disabled onchange="handleImageUpload(this)">
             
             <input type="text" id="messageInput" placeholder="پیام خود را بنویسید..." disabled required>
             <button type="submit" id="sendBtn" disabled>ارسال</button>
         </form>
     </div>
+</div>
+
+<!-- پنجره بزرگ‌نمایی عکس -->
+<div class="image-modal" id="imageModal" onclick="closeImageModal()">
+    <span class="image-modal-close">&times;</span>
+    <img id="modalImage" src="">
 </div>
 
 <script>
@@ -101,6 +119,8 @@
         if (element) element.classList.add('active');
 
         document.getElementById('selectedUserHeader').innerText = `گفتگو با ${username}`;
+        document.getElementById('selectedUserStatus').innerText = '🟢 آنلاین (آخرین بازدید امروز)';
+        
         document.getElementById('messageInput').disabled = false;
         document.getElementById('sendBtn').disabled = false;
         document.getElementById('imageInput').disabled = false;
@@ -126,9 +146,17 @@
         const div = document.createElement('div');
         div.className = `message ${sender === currentUser.username ? 'sent' : 'received'}`;
         
-        // اگر پیام شامل عکس base64 باشد
+        // نمایش عکس و کپشن
         if (text.startsWith('data:image')) {
-            div.innerHTML = `<img src="${text}" alt="تصویر ارسالی">`;
+            const parts = text.split('||caption||');
+            const imgUrl = parts[0];
+            const captionText = parts[1] || '';
+
+            let html = `<img src="${imgUrl}" onclick="openImageModal('${imgUrl}')" alt="تصویر">`;
+            if (captionText) {
+                html += `<div class="caption">${captionText}</div>`;
+            }
+            div.innerHTML = html;
         } else {
             div.innerText = text;
         }
@@ -152,22 +180,35 @@
         }
     });
 
-    // ارسال عکس
-    function sendImage(input) {
+    // آپلود عکس به همراه کپشن
+    function handleImageUpload(input) {
         const file = input.files[0];
         if (file && activeChatUser) {
+            const caption = prompt("توضیحات عکس (کپشن) را وارد کنید (اختیاری):") || "";
             const reader = new FileReader();
             reader.onload = function(e) {
-                const base64Image = e.target.result;
+                const base64Data = e.target.result + '||caption||' + caption;
                 socket.emit('send_private_message', {
                     sender: currentUser.username,
                     receiver: activeChatUser,
-                    message: base64Image
+                    message: base64Data
                 });
             };
             reader.readAsDataURL(file);
             input.value = '';
         }
+    }
+
+    // بزرگ‌نمایی تصویر
+    function openImageModal(src) {
+        const modal = document.getElementById('imageModal');
+        const modalImg = document.getElementById('modalImage');
+        modal.style.display = 'flex';
+        modalImg.src = src;
+    }
+
+    function closeImageModal() {
+        document.getElementById('imageModal').style.display = 'none';
     }
 
     socket.on('receive_private_message', (data) => {
