@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>چت روم</title>
+  <title>چت روم | MyMessenger</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     * { box-sizing: border-box; font-family: Tahoma, sans-serif; }
@@ -18,24 +18,21 @@
       transition: background 0.5s ease;
     }
 
-    /* تم‌های پس‌زمینه */
     body.theme-female { background-image: url('girl.jpg'); }
     body.theme-male { background-image: url('boy.jpg'); }
 
-    /* کادر اصلی چت بدون لایه سفید مات (شفافیت بالا) */
     .app-container {
       display: flex; 
       width: 95%; 
       max-width: 1100px; 
       height: 90vh;
-      background: rgba(0, 0, 0, 0.25); /* لایه بسیار ملایم برای مشخص بودن بک‌گراند */
+      background: rgba(0, 0, 0, 0.25);
       border-radius: 16px;
       box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
       overflow: hidden;
       border: 1px solid rgba(255, 255, 255, 0.18);
     }
 
-    /* سایبار مخاطبین */
     .sidebar {
       width: 280px; 
       border-left: 1px solid rgba(255, 255, 255, 0.2);
@@ -59,7 +56,6 @@
       color: #fff;
     }
 
-    /* منطقه چت */
     .chat-area { flex: 1; display: flex; flex-direction: column; background: transparent; }
 
     .chat-header {
@@ -72,7 +68,6 @@
       flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; 
     }
 
-    /* حباب پیام‌ها */
     .message {
       max-width: 75%; padding: 10px 14px; border-radius: 16px; word-break: break-word;
       font-size: 14px; line-height: 1.4; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
@@ -94,7 +89,6 @@
 
     .message img { max-width: 100%; border-radius: 10px; cursor: pointer; margin-bottom: 5px; display: block; }
 
-    /* ورودی پیام پایین */
     .input-area {
       padding: 10px 14px; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; gap: 8px;
       border-top: 1px solid rgba(255, 255, 255, 0.15);
@@ -123,7 +117,6 @@
       padding: 5px 12px; border-radius: 12px; cursor: pointer; font-size: 12px;
     }
 
-    /* 📱 استایل اختصاصی برای گوشی */
     @media (max-width: 768px) {
       .app-container {
         width: 100%; height: 100vh; border-radius: 0; border: none;
@@ -175,12 +168,21 @@
 
   <script>
     const socket = io();
-    const currentUser = localStorage.getItem('username');
-    const userGender = localStorage.getItem('gender') || 'female';
+    
+    // خواندن صحیح اطلاعات کاربر از localStorage
+    const userDataStr = localStorage.getItem('user');
+    if (!userDataStr) {
+        window.location.href = '/login.html';
+    }
+    
+    const currentUserObj = JSON.parse(userDataStr);
+    const currentUser = currentUserObj.username;
+    const userGender = currentUserObj.gender === 'مرد' ? 'male' : 'female';
+
     let activeReceiver = null;
     let selectedImageBase64 = null;
 
-    if (!currentUser) window.location.href = '/';
+    if (!currentUser) window.location.href = '/login.html';
 
     if (userGender === 'male') {
       document.body.classList.add('theme-male');
@@ -191,19 +193,23 @@
     socket.emit('register_user', currentUser);
 
     async function loadUsers() {
-      const res = await fetch('/api/users');
-      const users = await res.json();
-      const list = document.getElementById('users-list');
-      list.innerHTML = '';
-      users.forEach(u => {
-        if (u.username !== currentUser) {
-          const div = document.createElement('div');
-          div.className = 'user-item';
-          div.innerHTML = `<span>${u.username} (${u.gender === 'female' ? '👩' : '👨'})</span>`;
-          div.onclick = () => selectUser(u.username, div);
-          list.appendChild(div);
-        }
-      });
+      try {
+        const res = await fetch('/api/users');
+        const users = await res.json();
+        const list = document.getElementById('users-list');
+        list.innerHTML = '';
+        users.forEach(u => {
+          if (u.username !== currentUser) {
+            const div = document.createElement('div');
+            div.className = 'user-item';
+            div.innerHTML = `<span>${u.username} (${u.gender === 'مرد' ? '👨' : '👩'})</span>`;
+            div.onclick = () => selectUser(u.username, div);
+            list.appendChild(div);
+          }
+        });
+      } catch (err) {
+        console.error('Error loading users:', err);
+      }
     }
 
     function selectUser(username, element) {
@@ -212,7 +218,6 @@
       element.classList.add('active');
       document.getElementById('chat-header-title').innerText = `گفتگو با ${username}`;
       
-      // برای نمایش حالت چت در گوشی
       document.getElementById('app-container').classList.add('chat-open');
       loadMessages();
     }
@@ -223,12 +228,16 @@
 
     async function loadMessages() {
       if (!activeReceiver) return;
-      const res = await fetch(`/api/messages/${currentUser}/${activeReceiver}`);
-      const msgs = await res.json();
-      const container = document.getElementById('messages-container');
-      container.innerHTML = '';
-      msgs.forEach(displayMessage);
-      container.scrollTop = container.scrollHeight;
+      try {
+        const res = await fetch(`/api/messages/${currentUser}/${activeReceiver}`);
+        const msgs = await res.json();
+        const container = document.getElementById('messages-container');
+        container.innerHTML = '';
+        msgs.forEach(displayMessage);
+        container.scrollTop = container.scrollHeight;
+      } catch (err) {
+        console.error('Error loading messages:', err);
+      }
     }
 
     function displayMessage(data) {
@@ -238,7 +247,7 @@
       div.className = `message ${isMe ? 'sent' : 'received'}`;
 
       let content = '';
-      if (data.message.startsWith('data:image')) {
+      if (data.message && data.message.startsWith('data:image')) {
         const parts = data.message.split('||caption||');
         const imgSrc = parts[0];
         const caption = parts[1] || '';
