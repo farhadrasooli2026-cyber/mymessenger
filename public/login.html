@@ -209,7 +209,9 @@
             const data = await res.json();
             if (res.ok) {
                 alert('ثبت‌نام با موفقیت انجام شد!');
-                toggleAuth('login');
+                // ذخیره نشست کاربر در مرورگر و انتقال مستقیم به چت
+                localStorage.setItem('user', JSON.stringify({ username: username, gender: selectedGender }));
+                window.location.href = '/chat.html';
             } else {
                 alert(data.error || 'خطا در ثبت‌نام.');
             }
