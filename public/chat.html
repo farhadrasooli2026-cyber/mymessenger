@@ -20,7 +20,6 @@
             align-items: center; 
         }
 
-        /* باکس اصلی کاملاً شفاف - بدون ماتی */
         .chat-container { 
             display: flex; 
             width: 90%; 
@@ -33,7 +32,7 @@
             overflow: hidden; 
         }
         
-        .sidebar { width: 35%; background: rgba(0, 0, 0, 0.15); border-left: 1px solid rgba(255,255,255,0.2); display: flex; flex-direction: column; }
+        .sidebar { width: 35%; background: rgba(0, 0, 0, 0.3); border-left: 1px solid rgba(255,255,255,0.2); display: flex; flex-direction: column; }
         .sidebar-header { padding: 15px; background: rgba(233, 30, 99, 0.85); color: white; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
         .user-list { list-style: none; overflow-y: auto; flex: 1; }
         .user-item { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.15); cursor: pointer; transition: 0.2s; display: flex; align-items: center; justify-content: space-between; color: #fff; font-weight: bold; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
@@ -42,7 +41,7 @@
         .unread-badge { background-color: #e91e63; color: white; border-radius: 50%; padding: 2px 7px; font-size: 11px; font-weight: bold; display: none; }
 
         .main-chat { width: 65%; display: flex; flex-direction: column; background: transparent; }
-        .chat-header { padding: 12px 15px; background: rgba(0, 0, 0, 0.2); border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center; }
+        .chat-header { padding: 12px 15px; background: rgba(0, 0, 0, 0.4); border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center; }
         .chat-header-info { display: flex; flex-direction: column; }
         .chat-header-name { font-weight: bold; color: #fff; font-size: 16px; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
         .chat-header-status { font-size: 12px; color: #00ff66; font-weight: bold; margin-top: 2px; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
@@ -64,8 +63,7 @@
         .message.sent { align-self: flex-start; background: rgba(233, 30, 99, 0.9); color: white; border-bottom-right-radius: 2px; }
         .message.received { align-self: flex-end; background: rgba(255, 255, 255, 0.95); color: #050505; border-bottom-left-radius: 2px; }
         
-        .input-box { padding: 15px; display: flex; gap: 10px; background: rgba(0, 0, 0, 0.2); border-top: 1px solid rgba(255,255,255,0.2); align-items: center; }
-        /* اندازه فونت 16px مانع زوم خودکار مرورگر موبایل می‌شود */
+        .input-box { padding: 15px; display: flex; gap: 10px; background: rgba(0, 0, 0, 0.4); border-top: 1px solid rgba(255,255,255,0.2); align-items: center; }
         .input-box input[type="text"] { flex: 1; padding: 10px 15px; border: 1px solid rgba(255,255,255,0.5); border-radius: 20px; outline: none; background: rgba(255, 255, 255, 0.9); font-size: 16px; }
         .input-box button { padding: 10px 20px; background: #e91e63; color: white; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; }
         
@@ -79,7 +77,6 @@
         .image-modal img { max-width: 90%; max-height: 90%; border-radius: 10px; }
         .image-modal-close { position: absolute; top: 20px; right: 30px; color: white; font-size: 35px; cursor: pointer; }
 
-        /* ساختار واکنش‌گرا برای موبایل */
         @media (max-width: 768px) {
             .chat-container { width: 100%; height: 100vh; border-radius: 0; border: none; }
             .sidebar { width: 100%; display: flex; }
@@ -128,10 +125,14 @@
 
 <script>
     const userRaw = localStorage.getItem('user');
-    if (!userRaw) window.location.href = '/login.html';
+    if (!userRaw) {
+        window.location.href = '/login.html';
+    }
 
     const currentUser = JSON.parse(userRaw);
-    if (!currentUser || !currentUser.username) window.location.href = '/login.html';
+    if (!currentUser || !currentUser.username) {
+        window.location.href = '/login.html';
+    }
 
     if (currentUser.gender === 'زن' || currentUser.gender === 'دختر') {
         document.body.style.backgroundImage = "url('/girl.jpg')";
@@ -281,3 +282,90 @@
             input.value = '';
         }
     });
+
+    function handleImageUpload(input) {
+        const file = input.files[0];
+        if (file && activeChatUser) {
+            const caption = prompt("توضیحات عکس (کپشن) را وارد کنید (اختیاری):") || "";
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const MAX_WIDTH = 800;
+                    const MAX_HEIGHT = 800;
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > height) {
+                        if (width > MAX_WIDTH) {
+                            height *= MAX_WIDTH / width;
+                            width = MAX_WIDTH;
+                        }
+                    } else {
+                        if (height > MAX_HEIGHT) {
+                            width *= MAX_HEIGHT / height;
+                            height = MAX_HEIGHT;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    const resizedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+                    const base64Data = resizedBase64 + '||caption||' + caption;
+
+                    socket.emit('send_private_message', {
+                        sender: currentUser.username,
+                        receiver: activeChatUser,
+                        message: base64Data
+                    });
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+            input.value = '';
+        }
+    }
+
+    function openImageModal(src) {
+        const modal = document.getElementById('imageModal');
+        modal.querySelector('img').src = src;
+        modal.style.display = 'flex';
+    }
+
+    function closeImageModal() {
+        document.getElementById('imageModal').style.display = 'none';
+    }
+
+    socket.on('receive_private_message', (data) => {
+        playBeepSound();
+        if (data.sender === activeChatUser) {
+            appendMessage(data.sender, data.message);
+        } else {
+            unreadCounts[data.sender] = (unreadCounts[data.sender] || 0) + 1;
+            const badge = document.getElementById(`badge-${data.sender}`);
+            if (badge) {
+                badge.innerText = unreadCounts[data.sender];
+                badge.style.display = 'inline-block';
+            }
+        }
+    });
+
+    socket.on('message_sent', (data) => {
+        if (data.receiver === activeChatUser) appendMessage(data.sender, data.message);
+    });
+
+    function logout() {
+        localStorage.removeItem('user');
+        window.location.href = '/login.html';
+    }
+
+    loadUsers();
+</script>
+
+</body>
+</html>
