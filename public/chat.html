@@ -7,36 +7,66 @@
     <script src="/socket.io/socket.io.js"></script>
     <style>
         * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
-        body { background-color: #f0f2f5; height: 100vh; display: flex; justify-content: center; align-items: center; }
-        .chat-container { display: flex; width: 90%; max-width: 1000px; height: 85vh; background: #fff; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); overflow: hidden; }
         
-        .sidebar { width: 35%; background: #f8f9fa; border-left: 1px solid #eee; display: flex; flex-direction: column; }
+        /* بک‌گراند اصلی کل صفحه */
+        body { 
+            background: linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)), url('https://images.unsplash.com/photo-1518655048521-f130df041f66?q=80&w=1920&auto=format&fit=crop') no-repeat center center fixed; 
+            background-size: cover;
+            height: 100vh; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+        }
+
+        /* باکس اصلی چت شیشه‌ای (Glassmorphism) */
+        .chat-container { 
+            display: flex; 
+            width: 90%; 
+            max-width: 1000px; 
+            height: 85vh; 
+            background: rgba(255, 255, 255, 0.85); 
+            backdrop-filter: blur(10px);
+            border-radius: 15px; 
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3); 
+            overflow: hidden; 
+        }
+        
+        .sidebar { width: 35%; background: rgba(248, 249, 250, 0.7); border-left: 1px solid rgba(0,0,0,0.08); display: flex; flex-direction: column; }
         .sidebar-header { padding: 15px; background: #e91e63; color: white; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
         .user-list { list-style: none; overflow-y: auto; flex: 1; }
-        .user-item { padding: 12px 15px; border-bottom: 1px solid #f0f0f0; cursor: pointer; transition: 0.2s; display: flex; align-items: center; justify-content: space-between; }
-        .user-item:hover, .user-item.active { background: #ffe6e8; }
+        .user-item { padding: 12px 15px; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer; transition: 0.2s; display: flex; align-items: center; justify-content: space-between; }
+        .user-item:hover, .user-item.active { background: rgba(233, 30, 99, 0.15); }
         .user-info { display: flex; align-items: center; gap: 10px; }
         .unread-badge { background-color: #e91e63; color: white; border-radius: 50%; padding: 2px 7px; font-size: 11px; font-weight: bold; display: none; }
 
-        .main-chat { width: 65%; display: flex; flex-direction: column; background: #fff; }
-        .chat-header { padding: 12px 15px; background: #fff; border-bottom: 1px solid #eee; display: flex; flex-direction: column; }
+        .main-chat { width: 65%; display: flex; flex-direction: column; background: rgba(255, 255, 255, 0.4); }
+        .chat-header { padding: 12px 15px; background: rgba(255, 255, 255, 0.8); border-bottom: 1px solid rgba(0,0,0,0.08); display: flex; flex-direction: column; }
         .chat-header-name { font-weight: bold; color: #333; font-size: 16px; }
         .chat-header-status { font-size: 12px; color: #2e7d32; margin-top: 2px; }
         
-        .messages-box { flex: 1; padding: 15px; overflow-y: auto; background: #fafafa; display: flex; flex-direction: column; gap: 10px; }
+        /* باکس پیام‌ها نیمه‌شفاف جهت مشخص بودن بک‌گراند */
+        .messages-box { 
+            flex: 1; 
+            padding: 15px; 
+            overflow-y: auto; 
+            background: rgba(255, 255, 255, 0.3); 
+            display: flex; 
+            flex-direction: column; 
+            gap: 10px; 
+        }
         
-        .message { max-width: 65%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4; word-break: break-word; }
+        .message { max-width: 65%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4; word-break: break-word; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
         .message img { max-width: 100%; border-radius: 8px; margin-top: 5px; cursor: pointer; display: block; }
         .message .caption { margin-top: 5px; font-size: 13px; }
         .message.sent { align-self: flex-start; background: #e91e63; color: white; border-bottom-right-radius: 2px; }
-        .message.received { align-self: flex-end; background: #e4e6eb; color: #050505; border-bottom-left-radius: 2px; }
+        .message.received { align-self: flex-end; background: #ffffff; color: #050505; border-bottom-left-radius: 2px; }
         
-        .input-box { padding: 15px; display: flex; gap: 10px; background: #fff; border-top: 1px solid #eee; align-items: center; }
-        .input-box input[type="text"] { flex: 1; padding: 10px 15px; border: 1px solid #ddd; border-radius: 20px; outline: none; }
+        .input-box { padding: 15px; display: flex; gap: 10px; background: rgba(255, 255, 255, 0.8); border-top: 1px solid rgba(0,0,0,0.08); align-items: center; }
+        .input-box input[type="text"] { flex: 1; padding: 10px 15px; border: 1px solid #ddd; border-radius: 20px; outline: none; background: #fff; }
         .input-box button { padding: 10px 20px; background: #e91e63; color: white; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; }
         
-        .attach-btn { background: #f0f2f5; border: 1px solid #ddd; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 20px; }
-        .attach-btn:hover { background: #e4e6eb; }
+        .attach-btn { background: #fff; border: 1px solid #ddd; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 20px; }
+        .attach-btn:hover { background: #f0f2f5; }
         #imageInput { display: none; }
 
         .logout-btn { background: transparent; border: 1px solid #fff; color: white; padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; }
@@ -94,23 +124,20 @@
 
     socket.emit('register_user', currentUser.username);
 
-    // صدای بیپ ملایم
     function playBeepSound() {
         try {
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
             osc.type = 'sine';
-            osc.frequency.setValueAtTime(587.33, ctx.currentTime); // نت D5 (بیپ ملایم)
+            osc.frequency.setValueAtTime(587.33, ctx.currentTime);
             gain.gain.setValueAtTime(0.1, ctx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.25);
             osc.connect(gain);
             gain.connect(ctx.destination);
             osc.start();
             osc.stop(ctx.currentTime + 0.25);
-        } catch (e) {
-            console.log('امکان پخش صدا وجود ندارد');
-        }
+        } catch (e) {}
     }
 
     async function loadUsers() {
@@ -147,7 +174,6 @@
         document.querySelectorAll('.user-item').forEach(el => el.classList.remove('active'));
         if (element) element.classList.add('active');
 
-        // صفر کردن نشانگر پیام‌های خوانده نشده
         unreadCounts[username] = 0;
         const badge = document.getElementById(`badge-${username}`);
         if (badge) {
@@ -245,13 +271,11 @@
         document.getElementById('imageModal').style.display = 'none';
     }
 
-    // دریافت پیام زنده
     socket.on('receive_private_message', (data) => {
         playBeepSound();
         if (data.sender === activeChatUser) {
             appendMessage(data.sender, data.message);
         } else {
-            // افزایش تعداد پیام‌های خوانده‌نشده
             unreadCounts[data.sender] = (unreadCounts[data.sender] || 0) + 1;
             const badge = document.getElementById(`badge-${data.sender}`);
             if (badge) {
