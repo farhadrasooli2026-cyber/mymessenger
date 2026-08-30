@@ -129,7 +129,7 @@
         <img id="previewImg" src="/girl.jpg" alt="پروفایل" class="avatar-preview">
     </div>
 
-    <!-- انتخاب از تصاویر پیش‌فرض یا گالری -->
+    <!-- انتخاب از تصاویر پیش‌فرض -->
     <div class="avatar-options">
         <img src="/girl.jpg" class="avatar-choice selected" onclick="selectAvatar('/girl.jpg')">
         <img src="/boy.jpg" class="avatar-choice" onclick="selectAvatar('/boy.jpg')">
@@ -142,6 +142,7 @@
 
     <textarea id="bioInput" placeholder="بیوگرافی خود را بنویسید...">سلام! من از MyMessenger استفاده می‌کنم.</textarea>
 
+    <!-- استفاده از type="button" برای جلوگیری از رفرش ناخواسته فرم -->
     <button type="button" class="btn" onclick="saveProfile()">ذخیره و ورود به چت</button>
 </div>
 
@@ -149,7 +150,6 @@
     let currentProfilePic = '/girl.jpg';
     let currentUser = null;
 
-    // خواندن اطلاعات کاربر ذخیره شده در localStorage هنگام لود صفحه
     window.onload = () => {
         const userData = localStorage.getItem('user');
         if (!userData) {
@@ -158,12 +158,14 @@
         }
         currentUser = JSON.parse(userData);
         
-        // تنظیم عکس پیش‌فرض بر اساس جنسیت ثبت‌نامی
         if (currentUser.gender === 'مرد') {
             currentProfilePic = '/boy.jpg';
             document.getElementById('previewImg').src = currentProfilePic;
-            document.querySelectorAll('.avatar-choice')[1].classList.add('selected');
-            document.querySelectorAll('.avatar-choice')[0].classList.remove('selected');
+            const choices = document.querySelectorAll('.avatar-choice');
+            if(choices.length > 1) {
+                choices[1].classList.add('selected');
+                choices[0].classList.remove('selected');
+            }
         }
         if (currentUser.profilePic) {
             currentProfilePic = currentUser.profilePic;
@@ -188,7 +190,7 @@
         if (file) {
             const reader = new FileReader();
             reader.onload = function(e) {
-                currentProfilePic = e.target.result; // تبدیل عکس به Base64
+                currentProfilePic = e.target.result;
                 document.getElementById('previewImg').src = currentProfilePic;
                 document.querySelectorAll('.avatar-choice').forEach(img => img.classList.remove('selected'));
             };
@@ -198,6 +200,12 @@
 
     async function saveProfile() {
         const bio = document.getElementById('bioInput').value.trim();
+
+        if (!currentUser || !currentUser.username) {
+            alert('اطلاعات کاربر یافت نشد. لطفاً دوباره وارد شوید.');
+            window.location.href = '/login.html';
+            return;
+        }
 
         try {
             const res = await fetch('/api/update-profile', {
@@ -212,13 +220,13 @@
 
             const data = await res.json();
             if (res.ok) {
-                // آپدیت اطلاعات جدید در localStorage و ورود به صفحه اصلی چت
                 localStorage.setItem('user', JSON.stringify(data.user));
                 window.location.href = '/chat.html';
             } else {
                 alert(data.error || 'خطا در ذخیره پروفایل.');
             }
         } catch (err) {
+            console.error('Fetch error:', err);
             alert('خطا در ارتباط با سرور.');
         }
     }
