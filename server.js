@@ -63,7 +63,11 @@ app.post('/api/register', (req, res) => {
     if (err) {
       return res.status(400).json({ error: 'این نام کاربری قبلاً ثبت شده است.' });
     }
-    res.json({ success: true, message: 'ثبت‌نام با موفقیت انجام شد.' });
+    res.json({ 
+      success: true, 
+      message: 'ثبت‌نام با موفقیت انجام شد.',
+      user: { username, gender } 
+    });
   });
   stmt.finalize();
 });
