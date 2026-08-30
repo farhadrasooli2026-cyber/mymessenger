@@ -8,10 +8,12 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-app.use(express.json());
+// افزایش محدودیت سایز برای آپلود عکس و ویس با حجم بالا
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// هدایت آدرس اصلی سایت به صفحه ورود (حل مشکل Cannot GET /)
+// هدایت آدرس اصلی سایت به صفحه ورود
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
@@ -22,7 +24,7 @@ const db = new sqlite3.Database('./database.db', (err) => {
     else console.log('Connected to SQLite database.');
 });
 
-// ساخت جدول‌ها
+// ساخت جدول‌ها (با فیلدهای جدید profilePic و bio)
 db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,7 +32,9 @@ db.serialize(() => {
         email TEXT,
         phone TEXT,
         password TEXT,
-        gender TEXT
+        gender TEXT,
+        profilePic TEXT,
+        bio TEXT
     )`);
 
     db.run(`CREATE TABLE IF NOT EXISTS messages (
@@ -49,29 +53,55 @@ app.post('/api/register', (req, res) => {
         return res.status(400).json({ error: 'نام کاربری و رمز عبور الزامی است.' });
     }
 
-    const stmt = db.prepare(`INSERT INTO users (username, email, phone, password, gender) VALUES (?, ?, ?, ?, ?)`);
-    stmt.run(username, email, phone, password, gender, function (err) {
+    // پیش‌فرض عکس و بیوگرافی در هنكام ثبت‌نام اولیه
+    const defaultPic = gender === 'زن' || gender === 'دختر' ? '/girl.jpg' : '/boy.jpg';
+    const defaultBio = 'سلام! من از MyMessenger استفاده می‌کنم.';
+
+    const stmt = db.prepare(`INSERT INTO users (username, email, phone, password, gender, profilePic, bio) VALUES (?, ?, ?, ?, ?, ?, ?)`);
+    stmt.run(username, email, phone, password, gender, defaultPic, defaultBio, function (err) {
         if (err) {
             return res.status(400).json({ error: 'این نام کاربری قبلاً ثبت شده است.' });
         }
-        res.json({ success: true, user: { username, gender } });
+        res.json({ success: true, user: { username, gender, profilePic: defaultPic, bio: defaultBio } });
     });
+});
+
+// آپدیت پروفایل (عکس و بیوگرافی)
+app.post('/api/update-profile', (req, res) => {
+    const { username, profilePic, bio } = req.body;
+    if (!username) {
+        return res.status(400).json({ error: 'نام کاربری نامعتبر است.' });
+    }
+
+    db.run(
+        `UPDATE users SET profilePic = ?, bio = ? WHERE username = ?`,
+        [profilePic, bio, username],
+        function (err) {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            db.get(`SELECT username, gender, profilePic, bio FROM users WHERE username = ?`, [username], (err, row) => {
+                if (err || !row) return res.status(400).json({ error: 'کاربر یافت نشد.' });
+                res.json({ success: true, user: row });
+            });
+        }
+    );
 });
 
 // ورود
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
-    db.get(`SELECT * FROM users WHERE username = ? AND password = ?`, [username, password], (err, row) => {
+    db.get(`SELECT username, gender, profilePic, bio FROM users WHERE username = ? AND password = ?`, [username, password], (err, row) => {
         if (err || !row) {
             return res.status(400).json({ error: 'نام کاربری یا رمز عبور اشتباه است.' });
         }
-        res.json({ success: true, user: { username: row.username, gender: row.gender } });
+        res.json({ success: true, user: row });
     });
 });
 
-// دریافت لیست کاربران
+// دریافت لیست کاربران (همراه با عکس و بیو)
 app.get('/api/users', (req, res) => {
-    db.all(`SELECT username, gender FROM users`, [], (err, rows) => {
+    db.all(`SELECT username, gender, profilePic, bio FROM users`, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
