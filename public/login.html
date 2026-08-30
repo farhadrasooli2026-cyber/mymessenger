@@ -1,0 +1,119 @@
+=<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MyMessenger - ورود / ثبت‌نام</title>
+  <style>
+    * { box-sizing: border-box; font-family: Tahoma, sans-serif; }
+    body {
+      margin: 0; padding: 0; display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; background: linear-gradient(135deg, #ffc0cb, #ffe6ea);
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.92); width: 90%; max-width: 400px;
+      padding: 25px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+    h2 { color: #d63384; margin-bottom: 20px; }
+    input {
+      width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ffccd5;
+      border-radius: 10px; outline: none; transition: 0.3s;
+    }
+    input:focus { border-color: #d63384; }
+    .gender-select { display: flex; gap: 10px; margin: 15px 0; }
+    .gender-btn {
+      flex: 1; padding: 10px; border: 1px solid #ffccd5; border-radius: 10px;
+      cursor: pointer; background: #fff; color: #555; font-weight: bold;
+    }
+    .gender-btn.active { background: #d63384; color: white; border-color: #d63384; }
+    .submit-btn {
+      width: 100%; padding: 12px; background: #d63384; border: none;
+      color: white; border-radius: 10px; font-size: 16px; font-weight: bold;
+      cursor: pointer; margin-top: 10px; transition: 0.3s;
+    }
+    .submit-btn:hover { background: #c2185b; }
+    .toggle-text { margin-top: 15px; font-size: 14px; color: #666; cursor: pointer; }
+    .toggle-text span { color: #d63384; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2 id="form-title">ساخت حساب</h2>
+    <form id="auth-form">
+      <input type="text" id="username" placeholder="نام کاربری" required>
+      <input type="email" id="email" placeholder="ایمیل">
+      <input type="tel" id="phone" placeholder="شماره تلفن">
+      <input type="password" id="password" placeholder="رمز عبور" required>
+      <input type="password" id="confirm_password" placeholder="تکرار رمز عبور">
+
+      <div class="gender-select" id="gender-box">
+        <button type="button" class="gender-btn active" onclick="setGender('female')">زن 👩</button>
+        <button type="button" class="gender-btn" onclick="setGender('male')">مرد 👨</button>
+      </div>
+
+      <button type="submit" class="submit-btn" id="submit-btn">ثبت نام</button>
+    </form>
+    <div class="toggle-text" id="toggle-text" onclick="toggleMode()">
+      حساب کاربری دارید؟ <span>ورود</span>
+    </div>
+  </div>
+
+  <script>
+    let isRegister = true;
+    let selectedGender = 'female';
+
+    function setGender(gender) {
+      selectedGender = gender;
+      document.querySelectorAll('.gender-btn').forEach(btn => btn.classList.remove('active'));
+      event.target.classList.add('active');
+    }
+
+    function toggleMode() {
+      isRegister = !isRegister;
+      document.getElementById('form-title').innerText = isRegister ? 'ساخت حساب' : 'ورود به حساب';
+      document.getElementById('email').style.display = isRegister ? 'block' : 'none';
+      document.getElementById('phone').style.display = isRegister ? 'block' : 'none';
+      document.getElementById('confirm_password').style.display = isRegister ? 'block' : 'none';
+      document.getElementById('gender-box').style.display = isRegister ? 'flex' : 'none';
+      document.getElementById('submit-btn').innerText = isRegister ? 'ثبت نام' : 'ورود';
+      document.getElementById('toggle-text').innerHTML = isRegister ? 
+        'حساب کاربری دارید؟ <span>ورود</span>' : 'حساب ندارید؟ <span>ثبت نام</span>';
+    }
+
+    document.getElementById('auth-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      const confirmPassword = document.getElementById('confirm_password').value;
+      const email = document.getElementById('email').value;
+      const phone = document.getElementById('phone').value;
+
+      if (isRegister && password !== confirmPassword) {
+        alert('رمز عبور و تکرار آن یکسان نیستند');
+        return;
+      }
+
+      const url = isRegister ? '/register' : '/login';
+      const bodyData = isRegister ? 
+        { username, email, phone, password, gender: selectedGender } : 
+        { username, password };
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bodyData)
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        localStorage.setItem('username', data.username || username);
+        localStorage.setItem('gender', data.gender || selectedGender);
+        window.location.href = '/chat.html';
+      } else {
+        alert(data.error || 'خطایی رخ داد');
+      }
+    };
+  </script>
+</body>
+</html>

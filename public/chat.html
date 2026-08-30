@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>چت روم</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    * { box-sizing: border-box; font-family: Tahoma, sans-serif; }
+    
+    html, body {
+      margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden;
+    }
+
+    body {
+      display: flex; align-items: center; justify-content: center;
+      background-size: cover; background-position: center; background-repeat: no-repeat;
+      transition: background 0.5s ease;
+    }
+
+    /* تم‌های پس‌زمینه */
+    body.theme-female { background-image: url('girl.jpg'); }
+    body.theme-male { background-image: url('boy.jpg'); }
+
+    /* کادر اصلی چت بدون لایه سفید مات (شفافیت بالا) */
+    .app-container {
+      display: flex; 
+      width: 95%; 
+      max-width: 1100px; 
+      height: 90vh;
+      background: rgba(0, 0, 0, 0.25); /* لایه بسیار ملایم برای مشخص بودن بک‌گراند */
+      border-radius: 16px;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+    }
+
+    /* سایبار مخاطبین */
+    .sidebar {
+      width: 280px; 
+      border-left: 1px solid rgba(255, 255, 255, 0.2);
+      display: flex; flex-direction: column; 
+      background: rgba(0, 0, 0, 0.35);
+    }
+
+    .sidebar-header {
+      padding: 16px; font-weight: bold; color: #fff;
+      background: rgba(0, 0, 0, 0.4); border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .user-item {
+      padding: 14px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      cursor: pointer; display: flex; align-items: center; justify-content: space-between;
+      font-weight: bold; color: #f0f0f0; transition: 0.2s;
+    }
+
+    .user-item:hover, .user-item.active { 
+      background: rgba(214, 51, 132, 0.5); 
+      color: #fff;
+    }
+
+    /* منطقه چت */
+    .chat-area { flex: 1; display: flex; flex-direction: column; background: transparent; }
+
+    .chat-header {
+      padding: 16px; background: rgba(0, 0, 0, 0.45); font-weight: bold; color: #fff;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.15); font-size: 15px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    .messages-container { 
+      flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; 
+    }
+
+    /* حباب پیام‌ها */
+    .message {
+      max-width: 75%; padding: 10px 14px; border-radius: 16px; word-break: break-word;
+      font-size: 14px; line-height: 1.4; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+
+    .message.sent { 
+      align-self: flex-start; 
+      background: #d63384; 
+      color: #fff; 
+      border-bottom-left-radius: 4px;
+    }
+
+    .message.received { 
+      align-self: flex-end; 
+      background: rgba(255, 255, 255, 0.92); 
+      color: #111; 
+      border-bottom-right-radius: 4px;
+    }
+
+    .message img { max-width: 100%; border-radius: 10px; cursor: pointer; margin-bottom: 5px; display: block; }
+
+    /* ورودی پیام پایین */
+    .input-area {
+      padding: 10px 14px; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; gap: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .input-area input[type="text"] {
+      flex: 1; padding: 10px 14px; border: none; border-radius: 20px; outline: none;
+      background: rgba(255, 255, 255, 0.9); font-size: 14px;
+    }
+
+    .send-btn { 
+      background: #d63384; color: white; border: none; padding: 10px 18px; border-radius: 20px; 
+      cursor: pointer; font-weight: bold; transition: 0.2s; white-space: nowrap;
+    }
+
+    .send-btn:hover { background: #c2185b; }
+    
+    .image-modal {
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.9); z-index: 1000; align-items: center; justify-content: center;
+    }
+    .image-modal img { max-width: 95%; max-height: 85vh; border-radius: 8px; }
+
+    .back-btn {
+      display: none; background: rgba(255,255,255,0.2); color: #fff; border: none;
+      padding: 5px 12px; border-radius: 12px; cursor: pointer; font-size: 12px;
+    }
+
+    /* 📱 استایل اختصاصی برای گوشی */
+    @media (max-width: 768px) {
+      .app-container {
+        width: 100%; height: 100vh; border-radius: 0; border: none;
+      }
+
+      .sidebar {
+        width: 100%; height: 100%; border-left: none;
+      }
+
+      .chat-area {
+        display: none; width: 100%; height: 100%;
+      }
+
+      .app-container.chat-open .sidebar { display: none; }
+      .app-container.chat-open .chat-area { display: flex; }
+
+      .back-btn { display: inline-block; }
+      .message { max-width: 85%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container" id="app-container">
+    <div class="sidebar">
+      <div class="sidebar-header">مخاطبین</div>
+      <div id="users-list" style="overflow-y: auto; flex: 1;"></div>
+    </div>
+
+    <div class="chat-area">
+      <div class="chat-header">
+        <button class="back-btn" onclick="closeChat()">❮ بازگشت</button>
+        <span id="chat-header-title">یک مخاطب را انتخاب کنید</span>
+        <div></div>
+      </div>
+      <div class="messages-container" id="messages-container"></div>
+      <div class="input-area">
+        <label style="cursor: pointer; font-size: 20px; color: #fff;">📎
+          <input type="file" id="image-input" accept="image/*" style="display: none;">
+        </label>
+        <input type="text" id="message-input" placeholder="پیام خود را بنویسید...">
+        <button class="send-btn" onclick="sendMessage()">ارسال</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="image-modal" id="image-modal" onclick="this.style.display='none'">
+    <img id="full-image" src="">
+  </div>
+
+  <script>
+    const socket = io();
+    const currentUser = localStorage.getItem('username');
+    const userGender = localStorage.getItem('gender') || 'female';
+    let activeReceiver = null;
+    let selectedImageBase64 = null;
+
+    if (!currentUser) window.location.href = '/';
+
+    if (userGender === 'male') {
+      document.body.classList.add('theme-male');
+    } else {
+      document.body.classList.add('theme-female');
+    }
+
+    socket.emit('register_user', currentUser);
+
+    async function loadUsers() {
+      const res = await fetch('/api/users');
+      const users = await res.json();
+      const list = document.getElementById('users-list');
+      list.innerHTML = '';
+      users.forEach(u => {
+        if (u.username !== currentUser) {
+          const div = document.createElement('div');
+          div.className = 'user-item';
+          div.innerHTML = `<span>${u.username} (${u.gender === 'female' ? '👩' : '👨'})</span>`;
+          div.onclick = () => selectUser(u.username, div);
+          list.appendChild(div);
+        }
+      });
+    }
+
+    function selectUser(username, element) {
+      activeReceiver = username;
+      document.querySelectorAll('.user-item').forEach(el => el.classList.remove('active'));
+      element.classList.add('active');
+      document.getElementById('chat-header-title').innerText = `گفتگو با ${username}`;
+      
+      // برای نمایش حالت چت در گوشی
+      document.getElementById('app-container').classList.add('chat-open');
+      loadMessages();
+    }
+
+    function closeChat() {
+      document.getElementById('app-container').classList.remove('chat-open');
+    }
+
+    async function loadMessages() {
+      if (!activeReceiver) return;
+      const res = await fetch(`/api/messages/${currentUser}/${activeReceiver}`);
+      const msgs = await res.json();
+      const container = document.getElementById('messages-container');
+      container.innerHTML = '';
+      msgs.forEach(displayMessage);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function displayMessage(data) {
+      const container = document.getElementById('messages-container');
+      const div = document.createElement('div');
+      const isMe = data.sender === currentUser;
+      div.className = `message ${isMe ? 'sent' : 'received'}`;
+
+      let content = '';
+      if (data.message.startsWith('data:image')) {
+        const parts = data.message.split('||caption||');
+        const imgSrc = parts[0];
+        const caption = parts[1] || '';
+        content = `<img src="${imgSrc}" onclick="openFullImage('${imgSrc}')">` + (caption ? `<div>${caption}</div>` : '');
+      } else {
+        content = data.message;
+      }
+
+      div.innerHTML = content;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    document.getElementById('image-input').onchange = (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          selectedImageBase64 = event.target.result;
+          document.getElementById('message-input').placeholder = "کپشن عکس را بنویسید (اختیاری)...";
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+
+    function sendMessage() {
+      const input = document.getElementById('message-input');
+      const text = input.value.trim();
+      if (!activeReceiver) return alert('لطفا ابتدا یک مخاطب انتخاب کنید');
+
+      let finalPayload = '';
+      if (selectedImageBase64) {
+        finalPayload = selectedImageBase64 + '||caption||' + text;
+        selectedImageBase64 = null;
+        document.getElementById('image-input').value = '';
+        input.placeholder = "پیام خود را بنویسید...";
+      } else if (text) {
+        finalPayload = text;
+      } else {
+        return;
+      }
+
+      socket.emit('send_private_message', {
+        sender: currentUser,
+        receiver: activeReceiver,
+        message: finalPayload
+      });
+
+      input.value = '';
+    }
+
+    socket.on('receive_private_message', (data) => {
+      if ((data.sender === activeReceiver && data.receiver === currentUser) ||
+          (data.sender === currentUser && data.receiver === activeReceiver)) {
+        displayMessage(data);
+      }
+    });
+
+    socket.on('message_sent', (data) => {
+      if (data.sender === currentUser) {
+        displayMessage(data);
+      }
+    });
+
+    function openFullImage(src) {
+      const modal = document.getElementById('image-modal');
+      document.getElementById('full-image').src = src;
+      modal.style.display = 'flex';
+    }
+
+    loadUsers();
+  </script>
+</body>
+</html>
