@@ -11,6 +11,11 @@ const io = new Server(server);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// هدایت آدرس اصلی سایت به صفحه ورود (حل مشکل Cannot GET /)
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
 // اتصال به دیتابیس SQLite
 const db = new sqlite3.Database('./database.db', (err) => {
     if (err) console.error('Database connection error:', err);
