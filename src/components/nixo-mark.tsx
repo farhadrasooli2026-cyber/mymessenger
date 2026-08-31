@@ -2,27 +2,15 @@ import { cn } from "@/lib/utils";
 
 export function NixoMark({ className, size = 40 }: { className?: string; size?: number }) {
   return (
-    <svg
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/nixo-logo.png"
+      alt=""
       width={size}
       height={size}
-      viewBox="0 0 48 48"
-      className={cn("shrink-0", className)}
+      className={cn("shrink-0 object-contain", className)}
       aria-hidden="true"
-    >
-      <rect x="1.5" y="1.5" width="45" height="45" rx="14" fill="#102824" stroke="#fbbf24" strokeWidth="1.5" />
-      <path
-        d="M14 14 L34 34 M34 14 L14 34"
-        stroke="#34d399"
-        strokeWidth="4.2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M14 14 L34 34 M34 14 L14 34"
-        stroke="#fbbf24"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-    </svg>
+    />
   );
 }
 
