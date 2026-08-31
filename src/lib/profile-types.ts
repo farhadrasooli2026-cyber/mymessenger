@@ -88,6 +88,8 @@ export function defaultUserFields(): {
   restrictShare: boolean;
   contactSyncEnabled: boolean;
   syncedContactHashes: string[];
+  contactOsPermission: "unknown" | "allow" | "deny" | "limited";
+  contactNotifyJoin: boolean;
   locationEnabled: boolean;
   lastSeenAt: number;
   typingUntil: number;
@@ -149,6 +151,8 @@ export function defaultUserFields(): {
     restrictShare: false,
     contactSyncEnabled: false,
     syncedContactHashes: [],
+    contactOsPermission: "unknown",
+    contactNotifyJoin: true,
     locationEnabled: false,
     lastSeenAt: 0,
     typingUntil: 0,

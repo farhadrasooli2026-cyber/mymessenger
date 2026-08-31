@@ -836,7 +836,19 @@ export function Messenger({
         setActiveId(existing.id);
         setMobileChat(true);
       } else {
-        toast.message("طبق حریم حساب به مخاطبین اضافه شد. گفتگوی جدید وقتی نخ وجود داشته باشد باز می‌شود.");
+        void fetch("/api/contacts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "open-chat", userId: hit.target.id }),
+        })
+          .then((r) => r.json())
+          .then(async (d) => {
+            if (d.thread?.id) {
+              await loadThreads();
+              setActiveId(d.thread.id);
+              setMobileChat(true);
+            } else toast.message(d.error ?? "طبق حریم، گفتگو باز نشد.");
+          });
       }
     }
   }
@@ -1004,6 +1016,13 @@ export function Messenger({
               <Search className="size-3.5" />
             </Button>
           </div>
+          <Link
+            href="/app/contacts"
+            className="inline-flex h-9 w-full items-center justify-center rounded-lg bg-amber-300 text-sm font-medium text-[#102824]"
+          >
+            <UserRound className="ml-1 size-3.5" />
+            مخاطبین و افراد
+          </Link>
           <Button
             type="button"
             className="h-9 w-full bg-amber-300 text-[#102824]"
@@ -1906,6 +1925,9 @@ export function Messenger({
             </Link>
             <Link href="/app/settings/chat-appearance" className="block text-sm text-amber-200">
               تنظیمات → ظاهر گفتگو → پس‌زمینه چت
+            </Link>
+            <Link href="/app/contacts" className="block text-sm text-amber-200">
+              مخاطبین و افراد
             </Link>
             <Link href="/app/settings/privacy" className="block text-sm text-amber-200">
               تنظیمات → حریم خصوصی

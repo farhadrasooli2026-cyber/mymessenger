@@ -121,6 +121,11 @@ function hydrateUser(user: UserRecord): UserRecord {
     restrictShare: Boolean(user.restrictShare),
     contactSyncEnabled: Boolean(user.contactSyncEnabled),
     syncedContactHashes: Array.isArray(user.syncedContactHashes) ? user.syncedContactHashes : [],
+    contactOsPermission:
+      user.contactOsPermission === "allow" || user.contactOsPermission === "deny" || user.contactOsPermission === "limited"
+        ? user.contactOsPermission
+        : "unknown",
+    contactNotifyJoin: user.contactNotifyJoin !== false,
     locationEnabled: Boolean(user.locationEnabled),
     lastSeenAt: user.lastSeenAt ?? 0,
     typingUntil: user.typingUntil ?? 0,
@@ -401,6 +406,8 @@ export type UserRecord = {
   restrictShare: boolean;
   contactSyncEnabled: boolean;
   syncedContactHashes: string[];
+  contactOsPermission: "unknown" | "allow" | "deny" | "limited";
+  contactNotifyJoin: boolean;
   locationEnabled: boolean;
   lastSeenAt: number;
   typingUntil: number;
@@ -574,6 +581,48 @@ export type FailedCycle = {
   identifierHash: string;
   count: number;
   lastAt: number;
+};
+
+export type ContactGroupKind = "family" | "friends" | "work" | "custom" | "";
+
+export type ContactRecord = {
+  id: string;
+  ownerUserId: string;
+  nixoUserId: string | null;
+  name: string;
+  phone: string;
+  email: string;
+  username: string;
+  notesCipher: string;
+  custom: Record<string, string>;
+  labels: string[];
+  group: ContactGroupKind;
+  favorite: boolean;
+  localPhoto: string;
+  source: "manual" | "sync" | "invite";
+  createdAt: number;
+  updatedAt: number;
+  lastContactedAt: number;
+  deviceStamp: string;
+};
+
+export type ContactInvite = {
+  id: string;
+  token: string;
+  ownerUserId: string;
+  maxUses: number | null;
+  uses: number;
+  expiresAt: number | null;
+  createdAt: number;
+};
+
+export type ContactRequest = {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  status: "pending" | "accepted" | "declined";
+  createdAt: number;
+  updatedAt: number;
 };
 
 export type ChatThread = {
@@ -1230,6 +1279,9 @@ export type StoreData = {
   notifications: NotifyRecord[];
   notifyPrefs: NotifyPrefs[];
   groupCalls: GroupCallRoom[];
+  contacts: ContactRecord[];
+  contactInvites: ContactInvite[];
+  contactRequests: ContactRequest[];
 };
 
 const EMPTY: StoreData = {
@@ -1306,6 +1358,9 @@ const EMPTY: StoreData = {
   notifications: [],
   notifyPrefs: [],
   groupCalls: [],
+  contacts: [],
+  contactInvites: [],
+  contactRequests: [],
 };
 
 const STORE_PATH = path.join(
@@ -1431,6 +1486,9 @@ async function readStore(): Promise<StoreData> {
       notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
       notifyPrefs: Array.isArray(parsed.notifyPrefs) ? parsed.notifyPrefs : [],
       groupCalls: Array.isArray(parsed.groupCalls) ? parsed.groupCalls : [],
+      contacts: Array.isArray(parsed.contacts) ? parsed.contacts : [],
+      contactInvites: Array.isArray(parsed.contactInvites) ? parsed.contactInvites : [],
+      contactRequests: Array.isArray(parsed.contactRequests) ? parsed.contactRequests : [],
     };
   } catch {
     return structuredClone(EMPTY);
@@ -1573,6 +1631,12 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.wallets = (data.wallets ?? []).filter((w) => w.userId !== uid);
   data.notifications = (data.notifications ?? []).filter((n) => n.userId !== uid);
   data.notifyPrefs = (data.notifyPrefs ?? []).filter((p) => p.userId !== uid);
+  data.contacts = (data.contacts ?? []).filter((c) => c.ownerUserId !== uid);
+  data.contactInvites = (data.contactInvites ?? []).filter((i) => i.ownerUserId !== uid);
+  data.contactRequests = (data.contactRequests ?? []).filter((r) => r.fromUserId !== uid && r.toUserId !== uid);
+  for (const c of data.contacts ?? []) {
+    if (c.nixoUserId === uid) c.nixoUserId = null;
+  }
   data.groupCalls = (data.groupCalls ?? []).map((c) => ({
     ...c,
     participants: c.participants.map((p) => (p.userId === uid && !p.leftAt ? { ...p, leftAt: now } : p)),

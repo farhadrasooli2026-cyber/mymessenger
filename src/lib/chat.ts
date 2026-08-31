@@ -429,6 +429,43 @@ export async function listSharedMedia(userId: string, threadId: string) {
   return { thread: listed.thread, items };
 }
 
+const PEER_COLORS = ["#34d399", "#7dd3fc", "#fbbf24", "#c4b5fd", "#fda4af", "#67e8f9"];
+
+export async function openDm(userId: string, peerId: string) {
+  return mutateStore((data) => {
+    seedInbox(data, userId);
+    if (!peerId || peerId === userId) return { ok: false as const, error: "کاربر نامعتبر است.", status: 400 };
+    const from = data.users.find((u) => u.id === userId);
+    const to = data.users.find((u) => u.id === peerId && u.status === "active");
+    if (!from || !to) return { ok: false as const, error: "کاربر پیدا نشد.", status: 404 };
+    const safety = blockState(data, userId, peerId);
+    if (!safety.messagesAllowed) {
+      return { ok: false as const, error: "پیام، تماس و تعامل با این شخص محدود شده است.", status: 403 };
+    }
+    if (!canMessageUser(data, userId, peerId)) {
+      return { ok: false as const, error: "این کاربر پیام مستقیم را محدود کرده است.", status: 403 };
+    }
+    const existing = data.threads.find((t) => t.ownerUserId === userId && t.peerKey === peerId);
+    const now = Date.now();
+    if (existing) {
+      existing.updatedAt = now;
+      existing.peerName = to.displayName || to.username || existing.peerName;
+      return { ok: true as const, thread: existing };
+    }
+    const thread = {
+      id: randomId(),
+      ownerUserId: userId,
+      peerKey: peerId,
+      peerName: to.displayName || to.username || "کاربر نیکسو",
+      peerTitle: to.username ? `@${to.username}` : "گفتگوی خصوصی",
+      color: PEER_COLORS[peerId.charCodeAt(0) % PEER_COLORS.length]!,
+      updatedAt: now,
+    };
+    data.threads.push(thread);
+    return { ok: true as const, thread };
+  });
+}
+
 export const NIXO_STORY = {
   id: "nixo-origin",
   title: "چرا نیکسو؟",

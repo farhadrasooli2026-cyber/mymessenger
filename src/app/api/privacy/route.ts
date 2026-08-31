@@ -49,7 +49,8 @@ export async function POST(request: Request) {
   }
   if (body.action === "contacts") {
     const hashes = Array.isArray(body.hashes) ? body.hashes.map(String) : [];
-    const result = await syncContacts(user.id, hashes);
+    const identifiers = Array.isArray(body.identifiers) ? body.identifiers.map(String) : undefined;
+    const result = await syncContacts(user.id, hashes, identifiers);
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
   }

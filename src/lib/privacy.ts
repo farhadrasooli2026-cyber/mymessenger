@@ -106,6 +106,8 @@ export function snapshotPrivacy(user: UserRecord) {
     restrictShare: user.restrictShare,
     contactSyncEnabled: user.contactSyncEnabled,
     syncedCount: user.syncedContactHashes.length,
+    contactOsPermission: user.contactOsPermission,
+    contactNotifyJoin: user.contactNotifyJoin,
     locationEnabled: user.locationEnabled,
     lastSeenAt: user.lastSeenAt,
     deletionRequestedAt: user.deletionRequestedAt,
@@ -205,6 +207,10 @@ export async function updatePrivacy(userId: string, patch: Record<string, unknow
     if (typeof patch.restrictSave === "boolean") me.restrictSave = patch.restrictSave;
     if (typeof patch.restrictShare === "boolean") me.restrictShare = patch.restrictShare;
     if (typeof patch.contactSyncEnabled === "boolean") me.contactSyncEnabled = patch.contactSyncEnabled;
+    if (typeof patch.contactNotifyJoin === "boolean") me.contactNotifyJoin = patch.contactNotifyJoin;
+    if (patch.contactOsPermission === "allow" || patch.contactOsPermission === "deny" || patch.contactOsPermission === "limited" || patch.contactOsPermission === "unknown") {
+      me.contactOsPermission = patch.contactOsPermission;
+    }
     if (typeof patch.locationEnabled === "boolean") me.locationEnabled = patch.locationEnabled;
     me.lastSeenAt = Date.now();
     return { ok: true as const, settings: snapshotPrivacy(me), checkup: privacyCheckup(me) };
@@ -287,12 +293,21 @@ export async function findByIdentifier(viewerId: string, raw: string) {
   });
 }
 
-export async function syncContacts(userId: string, hashes: string[]) {
+export async function syncContacts(userId: string, hashes: string[], identifiers?: string[]) {
   return mutateStore((data) => {
     const me = data.users.find((u) => u.id === userId);
     if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
     if (!me.contactSyncEnabled) return { ok: false as const, error: "همگام‌سازی مخاطب خاموش است.", status: 403 };
-    me.syncedContactHashes = [...new Set(hashes.map(String).filter((h) => /^[a-f0-9]{16,64}$/i.test(h)))].slice(0, 400);
+    if (me.contactOsPermission === "deny") {
+      return { ok: false as const, error: "مجوز مخاطبین گوشی رد شده است.", status: 403 };
+    }
+    const fromIds = (identifiers ?? [])
+      .slice(0, 200)
+      .map((raw) => normalizePhone(String(raw)) ?? normalizeEmail(String(raw)))
+      .filter((v): v is string => Boolean(v))
+      .map((n) => hmacIdentifier(n));
+    const incoming = [...hashes.map(String).filter((h) => /^[a-f0-9]{16,64}$/i.test(h)), ...fromIds];
+    me.syncedContactHashes = [...new Set(incoming)].slice(0, 400);
     const matches = data.users.filter(
       (u) =>
         u.id !== userId &&

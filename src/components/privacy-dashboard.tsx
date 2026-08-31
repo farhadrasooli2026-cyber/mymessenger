@@ -281,6 +281,13 @@ export function PrivacyDashboard() {
 
         <section className="rounded-2xl bg-white/5 p-4 text-sm">
           <h2 className="font-medium">مخاطبین گوشی</h2>
+          <p className="mt-1 text-[11px] leading-5 opacity-70">
+            دفترچهٔ نیکسو در{" "}
+            <a href="/app/contacts" className="text-amber-200">
+              مخاطبین و افراد
+            </a>
+            است. هش همگام‌سازی شمارهٔ دیگران را در اختیار کاربران دیگر نمی‌گذارد.
+          </p>
           <label className="mt-2 flex items-center gap-2 text-xs">
             <input type="checkbox" checked={bool("contactSyncEnabled")} onChange={(e) => void save({ contactSyncEnabled: e.target.checked })} />
             Contact Sync (فقط با اجازه تو؛ هش شماره نه خود شماره)
