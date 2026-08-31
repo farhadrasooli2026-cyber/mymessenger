@@ -28,6 +28,9 @@ import {
   type CipherEnvelope,
   type LocalChatMessage,
 } from "@/lib/e2ee";
+import { VoiceComposer } from "@/components/voice-composer";
+import { VoicePlayer } from "@/components/voice-player";
+import { setVoiceSaveAllowed } from "@/lib/voice";
 
 type Thread = {
   id: string;
@@ -35,6 +38,7 @@ type Thread = {
   peerName: string;
   peerTitle: string;
   color: string;
+  lastKind?: "text" | "voice" | null;
   lastEnc: "e2ee-v1" | "purged" | null;
   lastCiphertext: string | null;
   lastNonce: string | null;
@@ -56,9 +60,81 @@ type Message = {
   createdAt: number;
   locked?: boolean;
   local?: boolean;
+  kind?: "text" | "voice";
+  ciphertext?: string;
+  nonce?: string;
+  enc?: string;
+  durationMs?: number | null;
+  viewOnce?: boolean;
+  expired?: boolean;
+  forwarded?: boolean;
+  disappearAfterMs?: number | null;
 };
 
 type Tab = "chats" | "calls" | "spaces" | "shop" | "me";
+
+type WireMsg = {
+  id: string;
+  sender: "me" | "peer";
+  createdAt: number;
+  enc: string;
+  ciphertext: string;
+  nonce: string;
+  kind?: "text" | "voice";
+  durationMs?: number | null;
+  viewOnce?: boolean;
+  expired?: boolean;
+  forwarded?: boolean;
+  disappearAfterMs?: number | null;
+};
+
+async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> {
+  const key = await loadOrCreateThreadKey(threadId);
+  const remote: Message[] = [];
+  for (const raw of raws) {
+    if (raw.kind === "voice") {
+      remote.push({
+        id: raw.id,
+        sender: raw.sender,
+        createdAt: raw.createdAt,
+        text: "",
+        kind: "voice",
+        enc: raw.enc,
+        ciphertext: raw.ciphertext,
+        nonce: raw.nonce,
+        durationMs: raw.durationMs,
+        viewOnce: raw.viewOnce,
+        expired: raw.expired || raw.enc !== "e2ee-v1",
+        forwarded: raw.forwarded,
+        disappearAfterMs: raw.disappearAfterMs,
+      });
+      continue;
+    }
+    if (raw.enc !== "e2ee-v1") {
+      remote.push({
+        id: raw.id,
+        sender: raw.sender,
+        createdAt: raw.createdAt,
+        text: "•••• این پیام روی این دستگاه قابل خواندن نیست.",
+        locked: true,
+      });
+      continue;
+    }
+    try {
+      const text = await decryptText(key, { enc: "e2ee-v1", ciphertext: raw.ciphertext, nonce: raw.nonce });
+      remote.push({ id: raw.id, sender: raw.sender, createdAt: raw.createdAt, text, kind: "text" });
+    } catch {
+      remote.push({
+        id: raw.id,
+        sender: raw.sender,
+        createdAt: raw.createdAt,
+        text: "•••• کلید این دستگاه برای این پیام موجود نیست.",
+        locked: true,
+      });
+    }
+  }
+  return remote;
+}
 
 async function decryptEnvelope(threadId: string, envelope: CipherEnvelope | null): Promise<string | null> {
   if (!envelope?.ciphertext || !envelope.nonce || envelope.enc !== "e2ee-v1") return null;
@@ -122,6 +198,8 @@ export function Messenger({
   const [reportCategory, setReportCategory] = useState<ReportCategory>("spam");
   const [reportDetails, setReportDetails] = useState("");
   const [blockedList, setBlockedList] = useState<{ peerKey: string; peerName: string; threadId: string | null }[]>([]);
+  const [voiceRec, setVoiceRec] = useState(false);
+  const [saveVoice, setSaveVoice] = useState(true);
   const endRef = useRef<HTMLDivElement>(null);
 
   const active = threads.find((t) => t.id === activeId) ?? null;
@@ -137,7 +215,10 @@ export function Messenger({
         );
         return {
           ...thread,
-          lastPreview: preview ?? (thread.lastCiphertext ? "•••• پیام رمزنگاری‌شده" : "گفتگوی خصوصی"),
+          lastPreview:
+            thread.lastKind === "voice"
+              ? "پیام صوتی"
+              : preview ?? (thread.lastCiphertext ? "•••• پیام رمزنگاری‌شده" : "گفتگوی خصوصی"),
         };
       }),
     );
@@ -197,20 +278,7 @@ export function Messenger({
       .then(async (data) => {
         if (!data) return;
         const threadMeta = data.thread as Thread;
-        const key = await loadOrCreateThreadKey(threadId);
-        const remote: Message[] = [];
-        for (const raw of data.messages as { id: string; sender: "me" | "peer"; createdAt: number; enc: string; ciphertext: string; nonce: string }[]) {
-          if (raw.enc !== "e2ee-v1") {
-            remote.push({ id: raw.id, sender: raw.sender, createdAt: raw.createdAt, text: "•••• این پیام روی این دستگاه قابل خواندن نیست.", locked: true });
-            continue;
-          }
-          try {
-            const text = await decryptText(key, { enc: "e2ee-v1", ciphertext: raw.ciphertext, nonce: raw.nonce });
-            remote.push({ id: raw.id, sender: raw.sender, createdAt: raw.createdAt, text });
-          } catch {
-            remote.push({ id: raw.id, sender: raw.sender, createdAt: raw.createdAt, text: "•••• کلید این دستگاه برای این پیام موجود نیست.", locked: true });
-          }
-        }
+        const remote = await mapRemote(threadId, data.messages as WireMsg[]);
         const local = await ensureIntros({
           ...threadMeta,
           id: threadId,
@@ -263,18 +331,8 @@ export function Messenger({
         toast.error("ارسال انجام نشد.");
         return;
       }
-      const data = (await res.json()) as {
-        messages: { id: string; sender: "me" | "peer"; createdAt: number; enc: string; ciphertext: string; nonce: string }[];
-      };
-      const remote: Message[] = [];
-      for (const raw of data.messages) {
-        try {
-          const text = await decryptText(key, { enc: "e2ee-v1", ciphertext: raw.ciphertext, nonce: raw.nonce });
-          remote.push({ id: raw.id, sender: raw.sender, createdAt: raw.createdAt, text });
-        } catch {
-          remote.push({ id: raw.id, sender: raw.sender, createdAt: raw.createdAt, text: "••••", locked: true });
-        }
-      }
+      const data = (await res.json()) as { messages: WireMsg[] };
+      const remote = await mapRemote(activeId, data.messages);
       let local = await loadLocalMessages(activeId, key);
       if (active.peerKey === "nixo") {
         const reply: LocalChatMessage = {
@@ -476,8 +534,9 @@ export function Messenger({
           mobileChat ? "flex" : "hidden md:flex",
         )}
       >
-        {tab === "chats" && active && (
-          <>
+        {active && (
+          <div className={cn("relative min-w-0 flex-1 flex-col", tab === "chats" ? "flex" : "hidden")}
+          >
             <header className="flex items-center gap-3 border-b border-white/10 px-4 py-3">
               <Button
                 type="button"
@@ -581,9 +640,9 @@ export function Messenger({
                       key={msg.id}
                       className={cn("flex", msg.sender === "me" ? "justify-start" : "justify-end")}
                     >
-                      <p
+                      <div
                         className={cn(
-                          "max-w-[80%] px-3",
+                          "max-w-[80%]",
                           bubbleClass(appearance.bubbleStyle),
                           textClass(appearance.textSize),
                           msg.locked
@@ -593,34 +652,94 @@ export function Messenger({
                               : "bg-black/35 text-[var(--nixo-text,#ecfdf5)]",
                         )}
                       >
-                        {msg.text}
-                      </p>
+                        {msg.kind === "voice" ? (
+                          <VoicePlayer
+                            msg={{
+                              id: msg.id,
+                              sender: msg.sender,
+                              createdAt: msg.createdAt,
+                              enc: msg.enc ?? "e2ee-v1",
+                              ciphertext: msg.ciphertext ?? "",
+                              nonce: msg.nonce ?? "",
+                              durationMs: msg.durationMs,
+                              viewOnce: msg.viewOnce,
+                              expired: msg.expired,
+                              forwarded: msg.forwarded,
+                              disappearAfterMs: msg.disappearAfterMs,
+                            }}
+                            threadId={active.id}
+                            threads={threads}
+                            onGone={async () => {
+                              const res = await fetch(`/api/chats/${active.id}`, { cache: "no-store" });
+                              if (!res.ok) return;
+                              const data = (await res.json()) as { messages: WireMsg[] };
+                              const remote = await mapRemote(active.id, data.messages);
+                              const key = await loadOrCreateThreadKey(active.id);
+                              const local = await loadLocalMessages(active.id, key);
+                              setMessages(
+                                [...local.map((m) => ({ ...m, local: true as const })), ...remote].sort(
+                                  (a, b) => a.createdAt - b.createdAt,
+                                ),
+                              );
+                            }}
+                          />
+                        ) : (
+                          <p className="px-3">{msg.text}</p>
+                        )}
+                      </div>
                     </div>
                   ))}
                   <div ref={endRef} />
                 </div>
               </ScrollArea>
             </div>
-            <form onSubmit={onSend} className="flex gap-2 border-t border-white/10 p-3">
-              <Input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder={active.messagesAllowed ? "پیام رمزنگاری‌شده بنویس..." : "ارسال پیام محدود شده است"}
-                className="h-11 flex-1 border-white/10 bg-black/20"
-                maxLength={2000}
-                disabled={!active.messagesAllowed}
-              />
-              <Button
-                type="submit"
-                size="lg"
-                className="h-11 bg-amber-300 text-[#102824] hover:bg-amber-200"
-                disabled={busy || !draft.trim() || !active.messagesAllowed}
-              >
-                <Send className="size-4" />
-                ارسال
-              </Button>
-            </form>
-          </>
+            <VoiceComposer
+              threadId={active.id}
+              disabled={!active.messagesAllowed || busy}
+              onRecordingChange={setVoiceRec}
+              onSent={async () => {
+                const res = await fetch(`/api/chats/${active.id}`, { cache: "no-store" });
+                if (!res.ok) return;
+                const data = (await res.json()) as { messages: WireMsg[] };
+                const remote = await mapRemote(active.id, data.messages);
+                const key = await loadOrCreateThreadKey(active.id);
+                let local = await loadLocalMessages(active.id, key);
+                if (active.peerKey === "nixo") {
+                  const reply: LocalChatMessage = {
+                    id: `local-reply-${Date.now()}`,
+                    sender: "peer",
+                    text: nixoLocalReply("پیام صوتی"),
+                    createdAt: Date.now() + 1,
+                    local: true,
+                  };
+                  local = [...local, reply];
+                  await saveLocalMessages(active.id, key, local);
+                }
+                setMessages([...local.map((m) => ({ ...m, local: true as const })), ...remote].sort((a, b) => a.createdAt - b.createdAt));
+                await loadThreads();
+              }}
+            >
+              <form onSubmit={onSend} className="flex gap-2">
+                <Input
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder={active.messagesAllowed ? "پیام رمزنگاری‌شده بنویس..." : "ارسال پیام محدود شده است"}
+                  className="h-11 flex-1 border-white/10 bg-black/20"
+                  maxLength={2000}
+                  disabled={!active.messagesAllowed}
+                />
+                <Button
+                  type="submit"
+                  size="lg"
+                  className="h-11 bg-amber-300 text-[#102824] hover:bg-amber-200"
+                  disabled={busy || !draft.trim() || !active.messagesAllowed}
+                >
+                  <Send className="size-4" />
+                  ارسال
+                </Button>
+              </form>
+            </VoiceComposer>
+          </div>
         )}
 
         {tab === "calls" && (
@@ -638,7 +757,7 @@ export function Messenger({
           <div className="flex-1 overflow-auto p-5">
             <h2 className="text-xl font-semibold">فضاهای نیکسو</h2>
             <p className="mt-2 max-w-2xl text-sm leading-7 text-emerald-100/70">
-              همهٔ سرویس‌ها در یک هویت جمع می‌شوند. الان گفتگوی خصوصی، مسدودسازی، گزارش و مسیر E2EE زنده‌اند؛ ویس، مدیا، View Once، پیام محو و تماس در بخش‌های جداگانه کامل می‌شوند.
+              همهٔ سرویس‌ها در یک هویت جمع می‌شوند. گفتگوی خصوصی، پیام صوتی، مسدودسازی، گزارش و E2EE زنده‌اند. مدیا، تماس و گروه روی نقشه می‌مانند.
             </p>
             <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {nixoSpaces.map((space) => (
@@ -691,6 +810,20 @@ export function Messenger({
             <Link href="/app/settings/chat-appearance" className="block text-sm text-amber-200">
               تنظیمات → ظاهر گفتگو → پس‌زمینه چت
             </Link>
+            <button
+              type="button"
+              className="block text-sm text-amber-200"
+              onClick={() => {
+                const next = !saveVoice;
+                setSaveVoice(next);
+                setVoiceSaveAllowed(next);
+              }}
+            >
+              ذخیرهٔ پیام صوتی روی دستگاه: {saveVoice ? "مجاز" : "غیرفعال"}
+            </button>
+            {voiceRec && tab === "me" && (
+              <p className="text-xs text-amber-200">ضبط صوتی در پس‌زمینهٔ همین برنامه ادامه دارد.</p>
+            )}
             <div className="max-w-xl rounded-2xl border border-white/10 bg-white/5 p-4">
               <p className="flex items-center gap-2 text-sm font-medium">
                 <Lock className="size-4 text-amber-200" />

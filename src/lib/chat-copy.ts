@@ -42,7 +42,7 @@ export const REPORT_CATEGORIES = [
 export type ReportCategory = (typeof REPORT_CATEGORIES)[number]["id"];
 
 export function nixoLocalReply(text: string): string {
-  if (/امن|هک|hack|security|رمز/i.test(text)) {
+  if (/صوت|ویس|voice|امن|هک|hack|security|رمز/i.test(text)) {
     return "امنیت نیکسو تضمین مطلق نیست؛ لایه‌لایه است: احراز هویت سخت، کمترین دسترسی، و رمزنگاری سرتاسری روی دستگاه تو. متن پیام روی سرور نمی‌ماند. هر ادعای «هرگز هک نمی‌شویم» را باور نکن.";
   }
   if (/گروه|کانال|فروش|کیف|پرداخت|ai|ربات|بلاک|گزارش/i.test(text)) {

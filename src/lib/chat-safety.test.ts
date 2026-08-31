@@ -4,7 +4,7 @@ import { hashIp } from "./crypto-utils";
 import { completeProfile } from "./profile";
 import { ackHumanChallenge, issueHumanChallenge, startRegistration, verifyOtp } from "./registration";
 import { getOutbox } from "./outbox";
-import { listMessages, listThreads, parseCipherPayload, sendMessage } from "./chat";
+import { deleteMessage, listMessages, listThreads, parseCipherPayload, sendMessage, markVoicePlayed } from "./chat";
 import { fileReport, setBlocked } from "./safety";
 import { readStoreSnapshot, resetStoreForTests } from "./store";
 
@@ -117,5 +117,45 @@ describe("private chat safety", () => {
     const snapshot = await readStoreSnapshot();
     expect(snapshot.reports).toHaveLength(2);
     expect(snapshot.reports.map((r) => r.category).sort()).toEqual(["harassment", "spam"]);
+  });
+
+  it("stores encrypted voice without audio plaintext and honors view-once plus delete", async () => {
+    const userId = await activeUser("voice_user");
+    const threads = await listThreads(userId);
+    const thread = threads.find((t) => t.peerKey === "arya")!;
+    const key = await generateThreadKey();
+    const secret = "SECRET_VOICE_PAYLOAD_NIXO";
+    const envelope = await encryptText(
+      key,
+      JSON.stringify({ mime: "audio/webm", audio: btoa(secret), durationMs: 1500, peaks: [0.4, 0.8] }),
+    );
+    const sent = await sendMessage(userId, thread.id, {
+      ...envelope,
+      kind: "voice",
+      durationMs: 1500,
+      viewOnce: true,
+    });
+    expect(sent.ok).toBe(true);
+    const snap = await readStoreSnapshot();
+    expect(JSON.stringify(snap.messages)).not.toContain(secret);
+    expect(snap.messages.some((m) => m.kind === "voice" && m.viewOnce)).toBe(true);
+
+    const listed = await listMessages(userId, thread.id);
+    const voice = listed?.messages.find((m) => m.kind === "voice");
+    expect(voice?.ciphertext.length).toBeGreaterThan(8);
+    const played = await markVoicePlayed(userId, thread.id, voice!.id);
+    expect(played.ok).toBe(true);
+    const afterPlay = await listMessages(userId, thread.id);
+    const spent = afterPlay?.messages.find((m) => m.id === voice!.id);
+    expect(spent?.ciphertext).toBe("");
+    expect(spent?.expired).toBe(true);
+
+    const second = await sendMessage(userId, thread.id, { ...envelope, kind: "voice", durationMs: 900 });
+    expect(second.ok).toBe(true);
+    const keep = (await listMessages(userId, thread.id))?.messages.filter((m) => m.kind === "voice" && m.ciphertext)[0];
+    expect(keep).toBeTruthy();
+    await deleteMessage(userId, thread.id, keep!.id, "me");
+    const hidden = await listMessages(userId, thread.id);
+    expect(hidden?.messages.some((m) => m.id === keep!.id)).toBe(false);
   });
 });

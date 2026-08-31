@@ -27,6 +27,18 @@ function hydrateUser(user: UserRecord): UserRecord {
 }
 
 function hydrateMessage(message: ChatMessage & { text?: string }): ChatMessage {
+  const extra = {
+    kind: message.kind === "voice" ? ("voice" as const) : ("text" as const),
+    durationMs: message.durationMs,
+    viewOnce: Boolean(message.viewOnce),
+    disappearAfterMs: message.disappearAfterMs ?? null,
+    expiresAt: message.expiresAt ?? null,
+    viewedAt: message.viewedAt ?? null,
+    playCount: message.playCount ?? 0,
+    hiddenFor: Array.isArray(message.hiddenFor) ? message.hiddenFor : [],
+    deletedEverywhere: Boolean(message.deletedEverywhere),
+    forwarded: Boolean(message.forwarded),
+  };
   if (message.enc === "e2ee-v1" && message.ciphertext && message.nonce) {
     return {
       id: message.id,
@@ -37,6 +49,7 @@ function hydrateMessage(message: ChatMessage & { text?: string }): ChatMessage {
       ciphertext: message.ciphertext,
       nonce: message.nonce,
       createdAt: message.createdAt,
+      ...extra,
     };
   }
   return {
@@ -48,6 +61,7 @@ function hydrateMessage(message: ChatMessage & { text?: string }): ChatMessage {
     ciphertext: "",
     nonce: "",
     createdAt: message.createdAt,
+    ...extra,
   };
 }
 
@@ -139,6 +153,16 @@ export type ChatMessage = {
   ciphertext: string;
   nonce: string;
   createdAt: number;
+  kind: "text" | "voice";
+  durationMs?: number;
+  viewOnce?: boolean;
+  disappearAfterMs?: number | null;
+  expiresAt?: number | null;
+  viewedAt?: number | null;
+  playCount?: number;
+  hiddenFor?: string[];
+  deletedEverywhere?: boolean;
+  forwarded?: boolean;
 };
 
 export type SafetyReport = {

@@ -35,7 +35,7 @@ export async function POST(request: Request, ctx: Ctx) {
   }
   const payload = parseCipherPayload(body);
   if (!payload) {
-    return jsonError("فقط پاکت رمزنگاری‌شده پذیرفته می‌شود. متن خام روی سرور ذخیره نمی‌شود.");
+    return jsonError("فقط پاکت رمزنگاری‌شده پذیرفته می‌شود. سرور محتوای صوت یا متن را نمی‌بیند.");
   }
   const result = await sendMessage(user.id, id, payload);
   if (!result.ok) return jsonError(result.error, result.status);

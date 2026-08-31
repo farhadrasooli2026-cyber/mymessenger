@@ -26,7 +26,7 @@ export const brand = {
 } as const;
 
 export const nixoSpaces = [
-  { id: "chat", title: "گفتگوی خصوصی", detail: "فعال: ارسال پیام، مسدودسازی، گزارش، E2EE روی دستگاه", live: true },
+  { id: "chat", title: "گفتگوی خصوصی", detail: "فعال: متن، پیام صوتی، مسدودسازی، گزارش، E2EE", live: true },
   { id: "group", title: "گروه", detail: "گفتگوی چندنفره با کنترل دسترسی", live: false },
   { id: "community", title: "جامعه", detail: "فضای موضوعی برای جمع‌های بزرگ", live: false },
   { id: "channel", title: "کانال", detail: "انتشار یک‌طرفه با هویت تأییدشده", live: false },
