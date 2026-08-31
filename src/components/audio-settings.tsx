@@ -15,17 +15,20 @@ type Prefs = {
   speed: number;
   dataSaver: boolean;
   notifyPlayback: boolean;
+  backgroundPlayback?: boolean;
 };
 
 export function AudioSettings() {
   const [prefs, setPrefs] = useState<Prefs | null>(null);
-  const [stats, setStats] = useState<{ audio: number; cache: number; count: number } | null>(null);
+  const [stats, setStats] = useState<{ audio: number; music?: number; voice?: number; files?: number; cache: number; count: number } | null>(null);
+  const [cleanup, setCleanup] = useState<{ large: { title: string; size: number }[]; cacheBytes: number } | null>(null);
 
   async function load() {
     const res = await fetch("/api/music", { cache: "no-store" });
     const data = await res.json();
     setPrefs(data.prefs ?? null);
     setStats(data.stats ?? null);
+    setCleanup(data.cleanup ?? null);
   }
 
   useEffect(() => {
@@ -58,6 +61,7 @@ export function AudioSettings() {
           <label className="flex items-center justify-between"><span>Mobile Data</span><input type="checkbox" checked={prefs.autoMobile} onChange={(e) => void save({ autoMobile: e.target.checked })} /></label>
           <label className="flex items-center justify-between"><span>Roaming</span><input type="checkbox" checked={prefs.autoRoaming} onChange={(e) => void save({ autoRoaming: e.target.checked })} /></label>
           <label className="flex items-center justify-between"><span>Data Saver</span><input type="checkbox" checked={prefs.dataSaver} onChange={(e) => void save({ dataSaver: e.target.checked })} /></label>
+          <label className="flex items-center justify-between"><span>Background Playback</span><input type="checkbox" checked={prefs.backgroundPlayback !== false} onChange={(e) => void save({ backgroundPlayback: e.target.checked })} /></label>
         </section>
         <section className="space-y-2 rounded-2xl bg-white/5 p-4 text-sm">
           <h2 className="font-medium">کیفیت و سرعت پخش</h2>
@@ -78,7 +82,9 @@ export function AudioSettings() {
         {stats && (
           <section className="rounded-2xl bg-white/5 p-4 text-sm">
             <h2 className="font-medium">Storage</h2>
-            <p>صوت {formatBytes(stats.audio)} · Cache {formatBytes(stats.cache)} · {stats.count} مورد</p>
+            <p>Music {formatBytes(stats.music ?? 0)} · Voice {formatBytes(stats.voice ?? 0)} · Files {formatBytes(stats.files ?? 0)} · Cache {formatBytes(stats.cache)}</p>
+            <p className="mt-1 text-xs opacity-60">جمع {formatBytes(stats.audio)}. Clear Cache فایل دائمی را پاک نمی‌کند. Backup صوت طبق Backup حساب. همگام پخش روی دستگاه‌های Login‌شده ازPrefs سرور است.</p>
+            {cleanup && cleanup.large?.length ? <p className="mt-1 text-xs">پیشنهاد: فایل حجیم {cleanup.large[0]!.title} · {formatBytes(cleanup.large[0]!.size)}</p> : null}
             <Button type="button" size="sm" className="mt-2" variant="secondary" onClick={() => void fetch("/api/music", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "clear-cache" }) }).then(load)}>Clear Cache</Button>
           </section>
         )}

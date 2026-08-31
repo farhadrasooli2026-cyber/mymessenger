@@ -27,6 +27,7 @@ function prefsOf(data: StoreData, userId: string): MusicPrefs {
     row = { userId, ...DEFAULT_MUSIC_PREFS };
     data.musicPrefs.push(row);
   }
+  if (typeof row.backgroundPlayback !== "boolean") row.backgroundPlayback = true;
   return row;
 }
 
@@ -121,16 +122,37 @@ export async function listMusic(
   }
   if (opts?.filter === "favorites") items = items.filter((i) => i.favorite);
   const playlists = (data.musicPlaylists ?? []).filter((p) => p.ownerUserId === userId && !p.deletedAt);
-  if (opts?.filter === "playlists") {
-    /* list still returns tracks; playlists separate */
-  }
+  const playlistHits = opts?.q
+    ? playlists.filter((p) => p.name.toLowerCase().includes(opts.q!.toLowerCase()))
+    : playlists;
   const stats = {
     audio: live.reduce((n, i) => n + i.size, 0),
+    music: live.filter((i) => i.kind === "music" || i.kind === "song").reduce((n, i) => n + i.size, 0),
+    voice: live.filter((i) => i.kind === "voice").reduce((n, i) => n + i.size, 0),
+    files: live.filter((i) => i.kind === "file" || i.kind === "podcast").reduce((n, i) => n + i.size, 0),
     cache: live.filter((i) => i.cache).reduce((n, i) => n + i.size, 0),
     count: live.length,
   };
+  const large = live.filter((i) => i.size > 400_000).slice(0, 8).map((i) => ({ id: i.id, title: i.title, size: i.size, reason: "large" as const }));
+  const old = live.filter((i) => Date.now() - i.createdAt > 14 * 24 * 60 * 60 * 1000).slice(0, 8).map((i) => ({ id: i.id, title: i.title, size: i.size, reason: "old" as const }));
+  const voices = (data.messages ?? [])
+    .filter((m) => m.ownerUserId === userId && m.kind === "voice" && !m.deletedEverywhere)
+    .slice(-40)
+    .reverse()
+    .map((m) => ({
+      id: m.id,
+      kind: "voice" as const,
+      peer: data.threads.find((t) => t.id === m.threadId)?.peerName ?? "چت",
+      createdAt: m.createdAt,
+      e2ee: true,
+    }));
   const artists = [...new Set(live.map((i) => i.artist).filter(Boolean))];
   const albums = [...new Set(live.map((i) => i.album).filter(Boolean))];
+  const byId = new Map(live.map((i) => [i.id, i]));
+  const recentlyNamed = (prefs.recentlyPlayed ?? []).slice(0, 12).map((r) => ({
+    ...r,
+    title: r.catalog ? catalogPublic().find((c) => c.id === r.id)?.title ?? r.id : byId.get(r.id)?.title ?? r.id,
+  }));
   return {
     ok: true as const,
     items: items.slice(0, 160).map((i) => publicTrack(i, userId)),
@@ -139,7 +161,7 @@ export async function listMusic(
       const n = opts.q.toLowerCase();
       return `${c.title} ${c.artist} ${c.album}`.toLowerCase().includes(n);
     }),
-    playlists: playlists.map((p) => ({ id: p.id, name: p.name, trackIds: p.trackIds, createdAt: p.createdAt })),
+    playlists: playlistHits.map((p) => ({ id: p.id, name: p.name, trackIds: p.trackIds, createdAt: p.createdAt })),
     prefs: {
       autoWifi: prefs.autoWifi,
       autoMobile: prefs.autoMobile,
@@ -148,12 +170,15 @@ export async function listMusic(
       speed: prefs.speed,
       dataSaver: prefs.dataSaver,
       notifyPlayback: prefs.notifyPlayback,
+      backgroundPlayback: prefs.backgroundPlayback !== false,
       lastTrackId: prefs.lastTrackId,
       lastPositionMs: prefs.lastPositionMs,
       lastQueue: prefs.lastQueue,
-      recentlyPlayed: prefs.recentlyPlayed,
+      recentlyPlayed: recentlyNamed,
     },
     stats,
+    cleanup: { large, old, cacheBytes: stats.cache },
+    voices,
     artists,
     albums,
   };
@@ -330,7 +355,7 @@ export async function markPlayed(userId: string, id: string, catalog: boolean, p
 
 export async function updateMusicPrefs(
   userId: string,
-  patch: Partial<Pick<MusicPrefs, "autoWifi" | "autoMobile" | "autoRoaming" | "quality" | "speed" | "dataSaver" | "notifyPlayback" | "lastQueue">>,
+  patch: Partial<Pick<MusicPrefs, "autoWifi" | "autoMobile" | "autoRoaming" | "quality" | "speed" | "dataSaver" | "notifyPlayback" | "backgroundPlayback" | "lastQueue">>,
 ) {
   return mutateStore((data) => {
     const p = prefsOf(data, userId);
@@ -341,6 +366,7 @@ export async function updateMusicPrefs(
     if (typeof patch.speed === "number" && [0.5, 1, 1.5, 2].includes(patch.speed)) p.speed = patch.speed;
     if (typeof patch.dataSaver === "boolean") p.dataSaver = patch.dataSaver;
     if (typeof patch.notifyPlayback === "boolean") p.notifyPlayback = patch.notifyPlayback;
+    if (typeof patch.backgroundPlayback === "boolean") p.backgroundPlayback = patch.backgroundPlayback;
     if (Array.isArray(patch.lastQueue)) p.lastQueue = patch.lastQueue.map(String).slice(0, 80);
     return { ok: true as const };
   });

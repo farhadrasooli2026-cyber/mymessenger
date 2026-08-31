@@ -44,6 +44,7 @@ export async function POST(request: Request) {
       speed: typeof body.speed === "number" ? body.speed : undefined,
       dataSaver: typeof body.dataSaver === "boolean" ? body.dataSaver : undefined,
       notifyPlayback: typeof body.notifyPlayback === "boolean" ? body.notifyPlayback : undefined,
+      backgroundPlayback: typeof body.backgroundPlayback === "boolean" ? body.backgroundPlayback : undefined,
       lastQueue: Array.isArray(body.lastQueue) ? body.lastQueue.map(String) : undefined,
     });
     return json(result);

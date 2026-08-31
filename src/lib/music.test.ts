@@ -85,6 +85,10 @@ describe("NIXO music", () => {
     expect(ok.ok).toBe(true);
     const pl = await savePlaylist(owner, { name: "Workout", trackIds: [created.item.id] });
     expect(pl.ok).toBe(true);
+    const found = await listMusic(owner, { q: "workout" });
+    expect(found.playlists.some((p) => p.name === "Workout")).toBe(true);
+    expect(listed.stats.music).toBeGreaterThan(0);
+    expect(listed.cleanup).toBeDefined();
     const fav = await toggleFavorite(owner, created.item.id);
     expect(fav.ok && fav.favorite).toBe(true);
     expect(listed.catalog.some((c) => c.licensed)).toBe(true);

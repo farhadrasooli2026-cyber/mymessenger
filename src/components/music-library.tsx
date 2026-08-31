@@ -31,12 +31,17 @@ export function MusicLibrary() {
   const [playlists, setPlaylists] = useState<{ id: string; name: string; trackIds: string[] }[]>([]);
   const [artists, setArtists] = useState<string[]>([]);
   const [albums, setAlbums] = useState<string[]>([]);
-  const [stats, setStats] = useState<{ audio: number; cache: number; count: number } | null>(null);
-  const [prefs, setPrefs] = useState<{ lastTrackId: string | null; lastPositionMs: number; recentlyPlayed: { id: string; catalog: boolean; at: number }[] } | null>(null);
+  const [stats, setStats] = useState<{ audio: number; music?: number; voice?: number; files?: number; cache: number; count: number } | null>(null);
+  const [prefs, setPrefs] = useState<{ lastTrackId: string | null; lastPositionMs: number; recentlyPlayed: { id: string; catalog: boolean; at: number; title?: string }[] } | null>(null);
   const [plName, setPlName] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [progress, setProgress] = useState<number | null>(null);
+  const [upBytes, setUpBytes] = useState({ sent: 0, total: 0 });
   const [dl, setDl] = useState<number | null>(null);
+  const [dlBytes, setDlBytes] = useState({ got: 0, total: 0 });
+  const [dlFail, setDlFail] = useState<Track | null>(null);
+  const [voices, setVoices] = useState<{ id: string; peer: string; createdAt: number }[]>([]);
+  const [cleanup, setCleanup] = useState<{ large: { id: string; title: string; size: number }[]; old: { id: string; title: string; size: number }[]; cacheBytes: number } | null>(null);
   const [detail, setDetail] = useState<Track | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const abort = useRef(false);
@@ -54,6 +59,8 @@ export function MusicLibrary() {
     setAlbums(data.albums ?? []);
     setStats(data.stats ?? null);
     setPrefs(data.prefs ?? null);
+    setVoices(data.voices ?? []);
+    setCleanup(data.cleanup ?? null);
   }, [kind, q, filter]);
 
   useEffect(() => {
@@ -69,9 +76,11 @@ export function MusicLibrary() {
 
   async function upload(files: FileList) {
     abort.current = false;
-    setProgress(0);
     const list = Array.from(files);
-    let i = 0;
+    const total = list.reduce((n, f) => n + f.size, 0);
+    let sent = 0;
+    setProgress(0);
+    setUpBytes({ sent: 0, total });
     try {
       for (const file of list) {
         if (abort.current) break;
@@ -99,8 +108,9 @@ export function MusicLibrary() {
         });
         const data = await res.json();
         if (!res.ok) toast.error(data.error ?? "آپلود نشد.");
-        i += 1;
-        setProgress(Math.round((i / list.length) * 100));
+        sent += file.size;
+        setUpBytes({ sent, total });
+        setProgress(total ? Math.round((sent / total) * 100) : 100);
       }
       await load();
     } catch {
@@ -122,21 +132,55 @@ export function MusicLibrary() {
     if (!t.streamUrl) return;
     abort.current = false;
     setDl(0);
+    setDlFail(null);
+    setDlBytes({ got: 0, total: t.size ?? 0 });
     try {
       const res = await fetch(t.streamUrl, { cache: "no-store" });
       if (!res.ok) {
         toast.error("دانلود مجاز نیست.");
+        setDlFail(t);
         setDl(null);
         return;
       }
-      const blob = await res.blob();
+      const total = Number(res.headers.get("content-length") || t.size || 0);
+      const reader = res.body?.getReader();
+      const chunks: Uint8Array[] = [];
+      let got = 0;
+      if (reader) {
+        for (;;) {
+          if (abort.current) {
+            await reader.cancel();
+            break;
+          }
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            chunks.push(value);
+            got += value.byteLength;
+            setDlBytes({ got, total });
+            setDl(total ? Math.round((got / total) * 100) : 50);
+          }
+        }
+      } else {
+        const blob = await res.blob();
+        chunks.push(new Uint8Array(await blob.arrayBuffer()));
+        got = blob.size;
+      }
       if (abort.current) return;
+      const blob = new Blob(chunks as BlobPart[], { type: t.mime || "audio/wav" });
+      try {
+        const cache = await caches.open("nixo-audio");
+        await cache.put(t.streamUrl, new Response(blob, { headers: { "Content-Type": blob.type } }));
+      } catch {
+        /* optional offline cache */
+      }
       setDl(100);
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `${t.title}.wav`;
+      a.download = `${t.title}.${t.format || "audio"}`;
       a.click();
     } catch {
+      setDlFail(t);
       toast.error("دانلود شکست. Retry بزن.");
     } finally {
       setDl(null);
@@ -187,22 +231,57 @@ export function MusicLibrary() {
           <input ref={fileRef} type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.flac" multiple className="hidden" onChange={(e) => e.target.files && void upload(e.target.files)} />
         </div>
         {progress !== null && (
-          <p className="text-xs">Uploading... {progress}% <button type="button" className="text-rose-200" onClick={() => { abort.current = true; }}>Cancel</button> <button type="button" onClick={() => fileRef.current?.click()}>Retry</button></p>
+          <p className="text-xs">
+            Uploading... {progress}% · {formatBytes(upBytes.sent)} از {formatBytes(upBytes.total)} · باقی {formatBytes(Math.max(0, upBytes.total - upBytes.sent))}
+            <button type="button" className="text-rose-200" onClick={() => { abort.current = true; }}> Cancel</button>
+            <button type="button" onClick={() => fileRef.current?.click()}> Retry</button>
+          </p>
         )}
         {dl !== null && (
-          <p className="text-xs">Downloading... {dl}% <button type="button" className="text-rose-200" onClick={() => { abort.current = true; }}>Cancel</button></p>
+          <p className="text-xs">
+            Downloading... {dl}% · {formatBytes(dlBytes.got)} از {formatBytes(dlBytes.total)} · باقی {formatBytes(Math.max(0, dlBytes.total - dlBytes.got))}
+            <button type="button" className="text-rose-200" onClick={() => { abort.current = true; }}> Cancel</button>
+          </p>
         )}
-        {stats && <p className="text-xs opacity-60">Storage صوت {formatBytes(stats.audio)} · Cache {formatBytes(stats.cache)} · {stats.count} فایل</p>}
+        {dlFail && (
+          <button type="button" className="text-xs text-amber-200" onClick={() => void download(dlFail)}>Retry Download</button>
+        )}
+        {stats && (
+          <p className="text-xs opacity-60">
+            Storage: Music {formatBytes(stats.music ?? stats.audio)} · Voice {formatBytes(stats.voice ?? 0)} · Files {formatBytes(stats.files ?? 0)} · Cache {formatBytes(stats.cache)} · {stats.count} فایل
+          </p>
+        )}
+        {cleanup && (cleanup.large.length > 0 || cleanup.old.length > 0 || cleanup.cacheBytes > 0) && (
+          <section className="rounded-2xl bg-white/5 p-3 text-xs">
+            <p className="font-medium">پیشنهاد پاک‌سازی</p>
+            <p>Cache {formatBytes(cleanup.cacheBytes)}</p>
+            {cleanup.large.slice(0, 3).map((f) => <p key={f.id}>حجیم: {f.title} · {formatBytes(f.size)}</p>)}
+            {cleanup.old.slice(0, 3).map((f) => <p key={`o-${f.id}`}>قدیمی: {f.title}</p>)}
+          </section>
+        )}
         {continueTrack && (
           <button type="button" className="w-full rounded-2xl bg-white/10 p-3 text-right text-sm" onClick={() => music.play(continueTrack, queueOf(), { startMs: prefs?.lastPositionMs })}>
             Continue Listening · {continueTrack.title}
           </button>
         )}
         {filter === "artists" && (
-          <div className="text-sm">{artists.map((a) => <p key={a}>{a}</p>)}</div>
+          <div className="text-sm">{artists.map((a) => (
+            <button key={a} type="button" className="block" onClick={() => setQ(a)}>{a}</button>
+          ))}</div>
         )}
         {filter === "albums" && (
-          <div className="text-sm">{albums.map((a) => <p key={a}>{a}</p>)}</div>
+          <div className="text-sm">{albums.map((a) => (
+            <button key={a} type="button" className="block" onClick={() => setQ(a)}>{a}</button>
+          ))}</div>
+        )}
+        {voices.length > 0 && (filter === "voice" || filter === "all") && (
+          <section className="rounded-2xl bg-white/5 p-3 text-xs">
+            <h2 className="font-medium">Voice Messages چت (E2EE)</h2>
+            <p className="opacity-55">فایل رمزشده فقط در گفتگو با کلید دستگاه باز می‌شود.</p>
+            {voices.slice(0, 8).map((v) => (
+              <p key={v.id}>{v.peer} · {new Date(v.createdAt).toLocaleDateString("fa-IR")}</p>
+            ))}
+          </section>
         )}
         <div className="flex flex-wrap gap-2">
           <Input value={plName} onChange={(e) => setPlName(e.target.value)} placeholder="Favorites / Workout" className="h-8 max-w-40 bg-black/20" />
@@ -232,7 +311,7 @@ export function MusicLibrary() {
           </div>
         ) : null}
         {prefs?.recentlyPlayed?.length ? (
-          <p className="text-[11px] opacity-60">Recently Played: {prefs.recentlyPlayed.slice(0, 5).map((r) => r.id).join(" · ")}</p>
+          <p className="text-[11px] opacity-60">Recently Played: {prefs.recentlyPlayed.slice(0, 5).map((r) => r.title ?? r.id).join(" · ")}</p>
         ) : null}
         <ul className="space-y-1">
           {filtered.map((t) => (
@@ -245,7 +324,7 @@ export function MusicLibrary() {
               {!t.catalog && (
                 <button type="button" className="text-xs" onClick={() => void act({ action: "favorite", id: t.id })}>{t.favorite ? "♥" : "♡"}</button>
               )}
-              <button type="button" className="text-[11px]" onClick={() => { music.play(t, [...music.queue, t]); toast.message("به Queue اضافه شد."); }}>+Q</button>
+              <button type="button" className="text-[11px]" onClick={() => music.enqueue(t)}>+Q</button>
             </li>
           ))}
         </ul>

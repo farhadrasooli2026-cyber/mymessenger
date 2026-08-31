@@ -44,6 +44,9 @@ type Ctx = {
   setQueue: (q: Playable[]) => void;
   setFull: (v: boolean) => void;
   armSleep: (mins: number | null) => void;
+  enqueue: (item: Playable) => void;
+  removeFromQueue: (i: number) => void;
+  clearQueue: () => void;
   error: string | null;
 };
 
@@ -77,6 +80,7 @@ export function MusicShell({ children }: { children: React.ReactNode }) {
   const [volume, setVolumeState] = useState(1);
   const [full, setFull] = useState(false);
   const [sleepLeft, setSleepLeft] = useState<number | null>(null);
+  const [customSleep, setCustomSleep] = useState("45");
   const [error, setError] = useState<string | null>(null);
   const sleepUntil = useRef<number | null>(null);
   const orderRef = useRef<number[]>([]);
@@ -90,20 +94,39 @@ export function MusicShell({ children }: { children: React.ReactNode }) {
       setError(null);
       const el = audioRef.current;
       if (!el) return;
-      el.src = item.streamUrl;
-      const resume = startMs ?? (item.lastPositionMs && item.lastPositionMs > 1500 ? item.lastPositionMs / 1000 : 0);
-      el.onloadedmetadata = () => {
-        if (resume && Number.isFinite(el.duration)) el.currentTime = Math.min(resume, el.duration * 0.97);
+      const start = () => {
+        const resume = startMs ?? (item.lastPositionMs && item.lastPositionMs > 1500 ? item.lastPositionMs / 1000 : 0);
+        el.onloadedmetadata = () => {
+          if (resume && Number.isFinite(el.duration)) el.currentTime = Math.min(resume, el.duration * 0.97);
+        };
+        el.playbackRate = speed;
+        el.volume = volume;
+        el.play()
+          .then(() => setPlaying(true))
+          .catch(() => {
+            setPlaying(false);
+            setError("این فایل پخش نشد. ناقص، ناسازگار یا بدون مجوز است.");
+            toast.error("پخش انجام نشد؛ برنامه متوقف نمی‌شود.");
+          });
       };
-      el.playbackRate = speed;
-      el.volume = volume;
-      el.play()
-        .then(() => setPlaying(true))
-        .catch(() => {
-          setPlaying(false);
-          setError("این فایل پخش نشد. ناقص، ناسازگار یا بدون مجوز است.");
-          toast.error("پخش انجام نشد؛ برنامه متوقف نمی‌شود.");
-        });
+      el.preload = "metadata";
+      const applySrc = (src: string) => {
+        el.src = src;
+        start();
+      };
+      if (typeof caches === "undefined") {
+        applySrc(item.streamUrl);
+      } else {
+        void caches
+          .open("nixo-audio")
+          .then((c) => c.match(item.streamUrl))
+          .then((hit) => {
+            if (hit) return hit.blob().then((b) => URL.createObjectURL(b));
+            return item.streamUrl;
+          })
+          .catch(() => item.streamUrl)
+          .then(applySrc);
+      }
       void fetch("/api/music", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -172,6 +195,32 @@ export function MusicShell({ children }: { children: React.ReactNode }) {
     } else {
       el.play().then(() => setPlaying(true)).catch(() => setError("پخش انجام نشد."));
     }
+  }
+
+  function enqueue(item: Playable) {
+    setQueueState((q) => (q.some((x) => x.id === item.id && x.catalog === item.catalog) ? q : [...q, item]));
+    toast.message("به Queue اضافه شد.");
+  }
+
+  function removeFromQueue(i: number) {
+    setQueueState((q) => {
+      const nextQ = q.filter((_, idx) => idx !== i);
+      if (i === index && nextQ.length) playAt(Math.min(i, nextQ.length - 1), nextQ);
+      if (!nextQ.length) {
+        audioRef.current?.pause();
+        setPlaying(false);
+        setCurrent(null);
+      }
+      return nextQ;
+    });
+  }
+
+  function clearQueue() {
+    audioRef.current?.pause();
+    setPlaying(false);
+    setCurrent(null);
+    setQueueState([]);
+    setFull(false);
   }
 
   function seek(ratio: number) {
@@ -292,6 +341,9 @@ export function MusicShell({ children }: { children: React.ReactNode }) {
     setQueue: setQueueState,
     setFull,
     armSleep,
+    enqueue,
+    removeFromQueue,
+    clearQueue,
     error,
   };
 
@@ -365,13 +417,23 @@ export function MusicShell({ children }: { children: React.ReactNode }) {
             </label>
             <div className="text-xs">
               <p className="mb-1">Sleep Timer {sleepLeft != null ? `· ${Math.ceil(sleepLeft / 60)} min` : ""}</p>
-              {[15, 30, 60].map((m) => (
+              {[15, 30, 45, 60].map((m) => (
                 <Button key={m} type="button" size="sm" variant="ghost" className="text-white" onClick={() => armSleep(m)}>{m} min</Button>
               ))}
+              <input
+                className="ml-1 w-16 rounded bg-black/30 px-1 text-xs"
+                value={customSleep}
+                onChange={(e) => setCustomSleep(e.target.value)}
+                aria-label="دقیقه سفارشی"
+              />
+              <Button type="button" size="sm" variant="ghost" className="text-white" onClick={() => armSleep(Math.max(1, Math.min(180, Number(customSleep) || 10)))}>Custom</Button>
               <Button type="button" size="sm" variant="ghost" className="text-white" onClick={() => armSleep(null)}>Off</Button>
             </div>
             <section>
-              <h2 className="text-sm font-medium">Queue</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-medium">Queue</h2>
+                <Button type="button" size="sm" variant="ghost" className="text-white" onClick={clearQueue}>پاک کردن Queue</Button>
+              </div>
               <ul className="mt-1 space-y-1 text-xs">
                 {queue.map((q, i) => (
                   <li key={`${q.catalog}-${q.id}`} className={`flex items-center justify-between rounded-lg px-2 py-1 ${i === index ? "bg-white/10" : ""}`}>
@@ -391,6 +453,7 @@ export function MusicShell({ children }: { children: React.ReactNode }) {
                         nextQ.splice(i + 1, 0, row!);
                         setQueueState(nextQ);
                       }}>↓</button>
+                      <button type="button" className="text-rose-200" onClick={() => removeFromQueue(i)}>×</button>
                     </span>
                   </li>
                 ))}

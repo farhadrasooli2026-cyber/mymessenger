@@ -39,6 +39,7 @@ export type MusicPrefs = {
   speed: number;
   dataSaver: boolean;
   notifyPlayback: boolean;
+  backgroundPlayback: boolean;
   lastTrackId: string | null;
   lastPositionMs: number;
   lastQueue: string[];
@@ -53,6 +54,7 @@ export const DEFAULT_MUSIC_PREFS: Omit<MusicPrefs, "userId"> = {
   speed: 1,
   dataSaver: false,
   notifyPlayback: true,
+  backgroundPlayback: true,
   lastTrackId: null,
   lastPositionMs: 0,
   lastQueue: [],

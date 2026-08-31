@@ -425,7 +425,23 @@ export function MediaDock({
                 <div className="p-4 text-sm">
                   <p>{current.file.name}</p>
                   <p className="text-xs text-emerald-100/60">{current.file.type || "file"} · {formatBytes(current.file.size)}</p>
-                  {current.file.type.startsWith("audio/") && <audio src={current.url} controls className="mt-2 w-full" />}
+                  {current.file.type.startsWith("audio/") && (
+                    <div className="mt-2">
+                      <audio
+                        src={current.url}
+                        controls
+                        className="w-full"
+                        onLoadedMetadata={(e) => {
+                          const d = e.currentTarget.duration;
+                          if (Number.isFinite(d)) e.currentTarget.setAttribute("data-dur", String(Math.round(d)));
+                        }}
+                      />
+                      <p className="mt-1 text-[11px] opacity-70">
+                        {current.file.name} · {formatBytes(current.file.size)} · {current.file.type.split("/")[1] || "audio"}
+                        {quality === "original" ? " · Original" : " · فشرده‌سازی در صورت پشتیبانی"}
+                      </p>
+                    </div>
+                  )}
                   {current.file.type === "application/pdf" && <iframe title="preview" src={current.url} className="mt-2 h-48 w-full rounded bg-white" />}
                   {current.file.type.startsWith("text/") && <p className="mt-2 text-xs">پیش‌نمایش متن پس از ارسال در حباب فایل.</p>}
                 </div>
