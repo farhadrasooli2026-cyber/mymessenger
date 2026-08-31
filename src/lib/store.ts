@@ -56,12 +56,40 @@ export type FailedCycle = {
   lastAt: number;
 };
 
+export type ChatThread = {
+  id: string;
+  ownerUserId: string;
+  peerKey: string;
+  peerName: string;
+  peerTitle: string;
+  color: string;
+  updatedAt: number;
+};
+
+export type ChatMessage = {
+  id: string;
+  threadId: string;
+  ownerUserId: string;
+  sender: "me" | "peer";
+  text: string;
+  createdAt: number;
+};
+
+export type StoryView = {
+  ownerUserId: string;
+  storyId: string;
+  viewedAt: number;
+};
+
 export type StoreData = {
   users: UserRecord[];
   challenges: ChallengeRecord[];
   rateBuckets: RateBucket[];
   humanChallenges: HumanChallenge[];
   failedCycles: FailedCycle[];
+  threads: ChatThread[];
+  messages: ChatMessage[];
+  storyViews: StoryView[];
 };
 
 const EMPTY: StoreData = {
@@ -70,9 +98,16 @@ const EMPTY: StoreData = {
   rateBuckets: [],
   humanChallenges: [],
   failedCycles: [],
+  threads: [],
+  messages: [],
+  storyViews: [],
 };
 
-const STORE_PATH = path.join(process.cwd(), ".data", "nixo-store.json");
+const STORE_PATH = path.join(
+  process.cwd(),
+  ".data",
+  process.env.VITEST ? "nixo-store.test.json" : "nixo-store.json",
+);
 
 let queue: Promise<unknown> = Promise.resolve();
 
@@ -95,6 +130,9 @@ async function readStore(): Promise<StoreData> {
       rateBuckets: parsed.rateBuckets ?? [],
       humanChallenges: parsed.humanChallenges ?? [],
       failedCycles: parsed.failedCycles ?? [],
+      threads: parsed.threads ?? [],
+      messages: parsed.messages ?? [],
+      storyViews: parsed.storyViews ?? [],
     };
   } catch {
     return structuredClone(EMPTY);

@@ -23,6 +23,7 @@ import {
   verifyIpLimit,
 } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
+import { seedInbox } from "@/lib/chat";
 import type { StoreData, UserRecord } from "@/lib/store";
 
 const GENERIC_SENT =
@@ -340,6 +341,7 @@ export async function completeProfile(userId: string, displayName: string) {
     user.displayName = displayName;
     user.status = "active";
     user.activatedAt = now;
+    seedInbox(data, user.id, now);
     return {
       ok: true as const,
       status: 200,

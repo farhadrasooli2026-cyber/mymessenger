@@ -75,7 +75,7 @@ export function RegisterFlow() {
       const session = (await sessionRes.json()) as SessionPayload;
       if (cancelled) return;
       if (session.step === "complete") {
-        router.replace("/welcome");
+        router.replace("/app");
         return;
       }
       setStep(session.step);
@@ -198,7 +198,7 @@ export function RegisterFlow() {
       const data = (await res.json()) as { alreadyActive?: boolean; next?: string };
       if (data.alreadyActive) {
         toast.message("این شناسه قبلاً به یک حساب فعال متصل است.");
-        router.push("/welcome");
+        router.push("/app");
         return;
       }
       setStep("profile");
@@ -243,7 +243,7 @@ export function RegisterFlow() {
         setError(await parseError(res));
         return;
       }
-      router.push("/welcome");
+      router.push("/app");
     } finally {
       setBusy(false);
     }

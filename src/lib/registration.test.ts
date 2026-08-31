@@ -37,7 +37,7 @@ describe("identifiers", () => {
 describe("registration security", () => {
   afterEach(async () => {
     const { rm } = await import("node:fs/promises");
-    await rm(path.join(process.cwd(), ".data"), { recursive: true, force: true });
+    await rm(path.join(process.cwd(), ".data", "nixo-store.test.json"), { force: true });
   });
 
   it("does not create an active user before OTP verification and profile", async () => {
@@ -113,6 +113,7 @@ describe("registration security", () => {
     const after = await readStoreSnapshot();
     expect(after.users[0]?.status).toBe("active");
     expect(after.users[0]?.verifiedAt).toBeTruthy();
+    expect(after.threads.filter((t) => t.ownerUserId === after.users[0]?.id).length).toBeGreaterThan(0);
   });
 
   it("invalidates the code after too many attempts", async () => {

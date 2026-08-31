@@ -36,5 +36,5 @@ export const config = {
     tokenTtlMs: 15 * 60 * 1000,
   },
   cookieName: "nixo_reg",
-  cookieMaxAgeSec: 60 * 60,
+  cookieMaxAgeSec: 7 * 24 * 60 * 60,
 } as const;

@@ -26,5 +26,5 @@ export async function POST(request: Request) {
     userId: session.userId,
   });
 
-  return json({ ok: true, next: "/welcome", user: result.user });
+  return json({ ok: true, next: "/app", user: result.user });
 }

@@ -9,8 +9,9 @@ const vazirmatn = Vazirmatn({
 });
 
 export const metadata: Metadata = {
-  title: "NIXO — ثبت‌نام",
-  description: "ثبت‌نام امن با تأیید شماره موبایل یا ایمیل",
+  title: "NIXO نیکسو — اتصال. تبادل. فراتر از مرزها.",
+  description:
+    "نیکسو پیام‌رسان و پلتفرم ارتباطی نسل جدید است: خصوصی، سریع، امن و قابل توسعه — نه کپی واتساپ یا تلگرام.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

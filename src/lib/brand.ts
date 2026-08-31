@@ -1,0 +1,44 @@
+export const brand = {
+  name: "NIXO",
+  fa: "نیکسو",
+  slogan: "Connect. Exchange. Beyond Borders.",
+  sloganFa: "اتصال. تبادل. فراتر از مرزها.",
+  tagline: "پیام‌رسان و پلتفرم ارتباطی نسل جدید",
+  xMeanings: [
+    { en: "Connection", fa: "اتصال" },
+    { en: "Exchange", fa: "تبادل" },
+    { en: "Cross-border", fa: "ارتباط بدون مرز" },
+    { en: "Next", fa: "نسل بعدی" },
+  ],
+  pillars: [
+    { key: "Privacy", fa: "حریم خصوصی" },
+    { key: "Security", fa: "امنیت" },
+    { key: "Connection", fa: "اتصال" },
+    { key: "Speed", fa: "سرعت" },
+    { key: "Simplicity", fa: "سادگی" },
+    { key: "Modern Design", fa: "طراحی مدرن" },
+    { key: "Reliability", fa: "پایداری" },
+    { key: "Global Communication", fa: "ارتباط جهانی" },
+  ],
+  surfaces: ["Android", "iPhone", "Tablet", "Windows", "macOS", "Linux", "Web"],
+  securityNote:
+    "نیکسو ادعا نمی‌کند که هرگز قابل نفوذ نیست؛ هیچ سامانهٔ متصل به اینترنت را نمی‌توان مطلقاً غیرقابل‌هک تضمین کرد. به‌جای آن از ابتدا با Security by Design، Privacy by Design، Zero Trust، Least Privilege، احراز هویت امن، رمزنگاری سرتاسری و زیرساخت امن طراحی می‌شود.",
+} as const;
+
+export const nixoSpaces = [
+  { id: "chat", title: "گفتگوی خصوصی", detail: "فعال در این نسخه", live: true },
+  { id: "group", title: "گروه", detail: "گفتگوی چندنفره با کنترل دسترسی", live: false },
+  { id: "community", title: "جامعه", detail: "فضای موضوعی برای جمع‌های بزرگ", live: false },
+  { id: "channel", title: "کانال", detail: "انتشار یک‌طرفه با هویت تأییدشده", live: false },
+  { id: "story", title: "استوری", detail: "لحظه‌های کوتاه و موقت", live: true },
+  { id: "voice", title: "تماس صوتی", detail: "تماس با معماری Zero Trust", live: false },
+  { id: "video", title: "تماس تصویری", detail: "ارتباط چهره به چهره", live: false },
+  { id: "files", title: "اشتراک فایل", detail: "ارسال امن پرونده", live: false },
+  { id: "ai", title: "هوش مصنوعی", detail: "دستیار داخل گفتگو، نه جایگزین انسان", live: false },
+  { id: "business", title: "کسب‌وکار", detail: "حساب تجاری و پاسخگویی", live: false },
+  { id: "bot", title: "ربات", detail: "اتوماسیون با کمترین دسترسی", live: false },
+  { id: "mini", title: "مینی‌اپ", detail: "ابزارهای کوچک داخل نیکسو", live: false },
+  { id: "shop", title: "فروشگاه", detail: "خرید داخل پلتفرم ارتباطی", live: false },
+  { id: "pay", title: "پرداخت", detail: "تراکنش با تأیید چندلایه", live: false },
+  { id: "wallet", title: "کیف پول", detail: "نگهداری ارزش، جدا از گفتگو", live: false },
+] as const;

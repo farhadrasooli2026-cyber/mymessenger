@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     return json({
       ok: true,
       alreadyActive: true,
-      next: "/welcome",
+      next: "/app",
       masked: result.masked,
     });
   }
