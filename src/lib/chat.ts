@@ -8,6 +8,7 @@ import type { ChatMessage, StoreData } from "@/lib/store";
 import { DELETE_EVERYONE_MS, VOICE_CIPHER_MAX, VOICE_MAX_MS } from "@/lib/voice";
 import { MEDIA_MAX_CHUNKS, MEDIA_MAX_BYTES } from "@/lib/media";
 import { deleteMediaBlob } from "@/lib/media-files";
+import { emitNotification } from "@/lib/notify";
 import {
   DISAPPEAR_MAX_MS,
   expireFromForKind,
@@ -272,6 +273,25 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
     };
     data.messages.push(mine);
     thread.updatedAt = now;
+    const peer = data.users.find((u) => u.id === thread.peerKey && u.status === "active");
+    if (peer) {
+      const peerThread = data.threads.find((t) => t.ownerUserId === peer.id && t.peerKey === userId);
+      const sender = data.users.find((u) => u.id === userId);
+      const label = sender?.displayName || sender?.username || "مخاطب";
+      emitNotification(data, {
+        userId: peer.id,
+        category: "messages",
+        kind: "message",
+        title: label,
+        senderName: label,
+        body: "پیام رمزنگاری‌شده جدید",
+        e2ee: true,
+        sourceId: `chat:${userId}`,
+        muteType: "chat",
+        muteId: peerThread?.id ?? thread.id,
+        target: { type: "chat", id: peerThread?.id ?? thread.id },
+      });
+    }
     const messages = data.messages
       .filter((m) => m.threadId === threadId && m.ownerUserId === userId)
       .sort((a, b) => a.createdAt - b.createdAt)

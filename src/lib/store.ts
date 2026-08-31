@@ -48,6 +48,7 @@ import type {
   UserAddress,
   WalletRecord,
 } from "@/lib/shop-types";
+import type { NotifyPrefs, NotifyRecord } from "@/lib/notify-types";
 
 export type { CatalogCategory, CatalogItem };
 
@@ -522,6 +523,7 @@ export type ChatThread = {
   background?: import("@/lib/appearance-types").BackgroundSpec;
   disappearAfterMs?: number | null;
   updatedAt: number;
+  muteUntil?: number | null;
 };
 
 export type ChatMessage = {
@@ -993,6 +995,8 @@ export type StoreData = {
   shopNotices: ShopNotice[];
   disputes: DisputeRecord[];
   shopAudit: ShopAudit[];
+  notifications: NotifyRecord[];
+  notifyPrefs: NotifyPrefs[];
 };
 
 const EMPTY: StoreData = {
@@ -1059,6 +1063,8 @@ const EMPTY: StoreData = {
   shopNotices: [],
   disputes: [],
   shopAudit: [],
+  notifications: [],
+  notifyPrefs: [],
 };
 
 const STORE_PATH = path.join(
@@ -1146,6 +1152,8 @@ async function readStore(): Promise<StoreData> {
       shopNotices: Array.isArray(parsed.shopNotices) ? parsed.shopNotices : [],
       disputes: Array.isArray(parsed.disputes) ? parsed.disputes : [],
       shopAudit: Array.isArray(parsed.shopAudit) ? parsed.shopAudit : [],
+      notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
+      notifyPrefs: Array.isArray(parsed.notifyPrefs) ? parsed.notifyPrefs : [],
     };
   } catch {
     return structuredClone(EMPTY);
@@ -1277,6 +1285,8 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.addresses = (data.addresses ?? []).filter((a) => a.userId !== uid);
   data.payments = (data.payments ?? []).filter((p) => p.userId !== uid && !ownedBiz.includes(p.businessId));
   data.wallets = (data.wallets ?? []).filter((w) => w.userId !== uid);
+  data.notifications = (data.notifications ?? []).filter((n) => n.userId !== uid);
+  data.notifyPrefs = (data.notifyPrefs ?? []).filter((p) => p.userId !== uid);
   data.ledger = (data.ledger ?? []).filter((t) => t.userId !== uid);
   data.shopNotices = (data.shopNotices ?? []).filter((n) => n.userId !== uid);
 }

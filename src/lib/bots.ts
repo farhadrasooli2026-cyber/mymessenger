@@ -6,6 +6,7 @@ import { hitRateLimit } from "@/lib/rate-limit";
 import { decodeDataUrl, saveUserPhoto } from "@/lib/photo-files";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { StoreData } from "@/lib/store";
+import { emitNotification } from "@/lib/notify";
 import { normalizeUsername } from "@/lib/username";
 import {
   BOT_API_MAX,
@@ -526,6 +527,21 @@ export async function botSendToUser(
     const msg = pushMessage(data, chat, "bot", input.text ?? "", kind, input.buttons ?? []);
     log(data, bot.id, "api", `send ${kind}`);
     queueWebhook(data, bot, { type: "sent", chatId: chat.id });
+    if (chat.notify !== "off") {
+      emitNotification(data, {
+        userId: user.id,
+        category: "bots",
+        kind: kind === "notification" ? "bot_push" : "bot_message",
+        title: bot.name,
+        senderName: bot.name,
+        body: (input.text ?? "پیام ربات").slice(0, 120),
+        sourceId: `bot:${bot.id}`,
+        muteType: "bot",
+        muteId: bot.id,
+        forceSuppress: chat.notify === "mute",
+        target: { type: "bot", id: bot.id, href: `/app/bots/chat/${bot.id}` },
+      });
+    }
     return { ok: true as const, messageId: msg.id };
   });
 }

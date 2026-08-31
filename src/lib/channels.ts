@@ -3,6 +3,7 @@ import { randomId } from "@/lib/crypto-utils";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { ChannelPost, ChannelStaff, PubChannelRecord, StoreData } from "@/lib/store";
+import { emitNotification } from "@/lib/notify";
 import { canChannelInvite } from "@/lib/privacy";
 import { rankRole } from "@/lib/group-types";
 import {
@@ -590,6 +591,33 @@ export async function createPost(
     };
     data.channelPosts.push(post);
     channel.updatedAt = now;
+    if (status === "published") {
+      const mentionNeedle = /@([a-z][a-z0-9_]{2,23})/gi;
+      const mentioned = new Set<string>();
+      let m: RegExpExecArray | null;
+      const blob = `${body} ${caption}`;
+      while ((m = mentionNeedle.exec(blob))) mentioned.add(m[1].toLowerCase());
+      for (const s of channel.subscribers) {
+        if (s.leftAt || s.userId === userId) continue;
+        if (s.notify === "off") continue;
+        const user = data.users.find((u) => u.id === s.userId);
+        const isMention = Boolean(user?.username && mentioned.has(user.username));
+        if (s.notify === "important" && !isMention) continue;
+        emitNotification(data, {
+          userId: s.userId,
+          category: "channels",
+          kind: isMention ? "mention" : "channel_post",
+          title: channel.name,
+          senderName: me!.name,
+          body: (caption || body || kind).slice(0, 120),
+          mention: isMention,
+          sourceId: `channel:${channel.id}`,
+          muteType: "channel",
+          muteId: channel.id,
+          target: { type: "channel", id: channel.id },
+        });
+      }
+    }
     return { ok: true as const, post, channel: publicChannel(channel, userId, data) };
   });
 }

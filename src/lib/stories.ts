@@ -3,6 +3,7 @@ import { randomId } from "@/lib/crypto-utils";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { StoreData, UserStory } from "@/lib/store";
+import { emitNotification } from "@/lib/notify";
 import { STORY_MAX_MEDIA, STORY_TTL_MS } from "@/lib/story-types";
 
 function blocked(data: StoreData, a: string, b: string) {
@@ -192,6 +193,28 @@ export async function createStory(
       deletedAt: null,
     };
     data.userStories.push(story);
+    const owner = data.users.find((u) => u.id === userId);
+    const candidates = new Set([...(owner?.contactIds ?? []), ...story.allowIds, ...story.mentions]);
+    for (const vid of candidates) {
+      if (vid === userId) continue;
+      const viewer = data.users.find((u) => u.id === vid && u.status === "active");
+      if (!viewer) continue;
+      if (viewer.mutedStoryUserIds.includes(userId) || viewer.storyNotifyOffIds.includes(userId)) continue;
+      if (!canViewStory(data, story, vid, now)) continue;
+      emitNotification(data, {
+        userId: vid,
+        category: "stories",
+        kind: story.mentions.includes(vid) ? "mention" : "story",
+        title: owner?.displayName || owner?.username || "استوری",
+        senderName: owner?.displayName || "",
+        body: "استوری جدید",
+        mention: story.mentions.includes(vid),
+        sourceId: `story:${userId}`,
+        muteType: "user",
+        muteId: userId,
+        target: { type: "story", id: story.id },
+      });
+    }
     return { ok: true as const, story: publicStory(story) };
   });
 }

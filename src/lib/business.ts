@@ -10,6 +10,7 @@ import { runAiEngine } from "@/lib/ai-engine";
 import { seedShop } from "@/lib/shop-types";
 import type { ProductDiscount, VariantDef, VariantRow } from "@/lib/business-types";
 import { createStory } from "@/lib/stories";
+import { emitNotification } from "@/lib/notify";
 import {
   ALL_BIZ_PERMS,
   DEFAULT_HOURS,
@@ -427,6 +428,16 @@ export async function customerMessage(customerId: string, businessId: string, te
     const qr = (data.bizReplies ?? []).find((r) => r.businessId === businessId && r.command === cmd);
     if (qr) replies.push({ id: randomId(), threadId: thread.id, from: "business", text: qr.text, createdAt: Date.now() + 3 });
     data.bizMessages.push(...replies);
+    emitNotification(data, {
+      userId: biz.ownerUserId,
+      category: "business",
+      kind: "biz_message",
+      title: biz.name,
+      senderName: "مشتری",
+      body: "پیام جدید صندوق",
+      sourceId: `biz:${businessId}:${customerId}`,
+      target: { type: "business", id: businessId, href: `/app/business/b/${businessId}` },
+    });
     return { ok: true as const, threadId: thread.id };
   });
 }
@@ -440,6 +451,15 @@ export async function staffReply(userId: string, threadId: string, text: string)
     thread.unread = false;
     thread.updatedAt = Date.now();
     thread.label = thread.label ?? "Support";
+    emitNotification(data, {
+      userId: thread.customerId,
+      category: "business",
+      kind: "support",
+      title: "پشتیبانی",
+      body: "پاسخ کسب‌وکار",
+      sourceId: `bizstaff:${thread.businessId}`,
+      target: { type: "business", id: thread.businessId, href: `/app/business/b/${thread.businessId}/chat` },
+    });
     return { ok: true as const };
   });
 }

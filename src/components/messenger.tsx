@@ -7,6 +7,8 @@ import { Ban, Bookmark, Flag, Globe, Lock, MessageCircle, Phone, Plus, Radio, Se
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { nixoSpaces } from "@/lib/brand";
+import { NotifyBell } from "@/components/notify-bell";
+import { MUTE_CHAT_PRESETS } from "@/lib/notify-types";
 import { blobMatches } from "@/lib/search-match";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -83,6 +85,7 @@ type Thread = {
   lastPreview?: string;
   background?: BackgroundSpec;
   disappearAfterMs?: number | null;
+  muteUntil?: number | null;
   blocked: boolean;
   blockedByMe: boolean;
   messagesAllowed: boolean;
@@ -907,7 +910,9 @@ export function Messenger({
               <p className="text-[11px] text-emerald-100/60">نیکسو</p>
             </div>
           </div>
-          <button
+          <div className="flex items-center gap-2">
+            <NotifyBell onOpen={(href) => router.push(href)} />
+            <button
             type="button"
             onClick={openStory}
             className={cn(
@@ -918,6 +923,7 @@ export function Messenger({
           >
             <Sparkles className="size-4 text-amber-200" />
           </button>
+          </div>
         </div>
 
         <div className="flex gap-3 overflow-x-auto px-4 pb-3">
@@ -1904,6 +1910,9 @@ export function Messenger({
             <Link href="/app/settings/security" className="block text-sm text-amber-200">
               تنظیمات → امنیت
             </Link>
+            <Link href="/app/settings/notifications" className="block text-sm text-amber-200">
+              تنظیمات → اعلان‌ها
+            </Link>
             <Link href="/app/settings/account" className="block text-sm text-amber-200">
               تنظیمات → حساب و پشتیبان
             </Link>
@@ -2324,6 +2333,61 @@ export function Messenger({
             {!active.callsAllowed && (
               <p className="mt-3 text-center text-xs text-rose-200">مسدودسازی تماس را قطع کرده است.</p>
             )}
+            <p className="mt-4 text-xs text-emerald-100/60">Mute Chat</p>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {MUTE_CHAT_PRESETS.map((p) => (
+                <Button
+                  key={p.id}
+                  type="button"
+                  size="xs"
+                  variant="secondary"
+                  onClick={async () => {
+                    await fetch("/api/notify", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "mute", targetType: "chat", targetId: active.id, ms: p.ms, forever: p.ms == null }),
+                    });
+                    toast.success("Mute ذخیره شد.");
+                  }}
+                >
+                  {p.label}
+                </Button>
+              ))}
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost"
+                className="text-amber-200"
+                onClick={async () => {
+                  await fetch("/api/notify", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "unmute", targetType: "chat", targetId: active.id }),
+                  });
+                  toast.success("اعلان چت روشن شد.");
+                }}
+              >
+                Unmute
+              </Button>
+            </div>
+            <p className="mt-3 text-[11px] text-emerald-100/50">Custom: پیش‌نمایش این گفتگو</p>
+            <div className="mt-1 flex gap-1">
+              <Button
+                type="button"
+                size="xs"
+                variant="secondary"
+                onClick={async () => {
+                  await fetch("/api/notify", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "override", targetType: "chat", targetId: active.id, preview: false }),
+                  });
+                  toast.success("پیش‌نمایش این چت خاموش شد.");
+                }}
+              >
+                Hide preview
+              </Button>
+            </div>
             <Button type="button" variant="ghost" className="mt-3 w-full text-white" onClick={() => setPeerSheet(false)}>
               بستن
             </Button>

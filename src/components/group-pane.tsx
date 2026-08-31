@@ -574,8 +574,12 @@ export function GroupPane({
               </div>
             )}
             <div className="flex flex-wrap gap-2">
-              <Button type="button" size="sm" variant="secondary" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "notify", ms: 86400000 }) })}>بی‌صدا ۱ روز</Button>
-              <Button type="button" size="sm" variant="secondary" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "notify", ms: null }) })}>باصدا</Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "notify", ms: 3600000 }) })}>Mute 1 Hour</Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "notify", ms: 8 * 3600000 }) })}>8 Hours</Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "notify", ms: 86400000 }) })}>1 Day</Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "notify", ms: 7 * 86400000 }) })}>1 Week</Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => void fetch(`/api/notify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "mute", targetType: "group", targetId: groupId, forever: true }) })}>Until I Turn It Back On</Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "notify", ms: null }) })}>Unmute</Button>
               <Button type="button" size="sm" variant="secondary" onClick={() => setBgOpen(true)}>پس‌زمینه این گروه</Button>
             </div>
             <div className="flex flex-wrap items-center gap-2">

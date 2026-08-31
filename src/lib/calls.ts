@@ -5,6 +5,7 @@ import { blockState } from "@/lib/safety";
 import { audienceAllows } from "@/lib/privacy";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { CallDirection, CallKind, CallRecord, CallStatus, StoreData } from "@/lib/store";
+import { emitNotification } from "@/lib/notify";
 
 export const CALL_RING_MS = 30_000;
 
@@ -24,10 +25,24 @@ export type PublicCall = {
   declineWithMessage: boolean;
 };
 
-function expireRinging(call: CallRecord, now: number): CallRecord {
+function expireRinging(call: CallRecord, now: number, data?: StoreData): CallRecord {
   if (call.status === "ringing" && now - call.createdAt >= CALL_RING_MS) {
     call.status = "missed";
     call.endedAt = call.createdAt + CALL_RING_MS;
+    if (data && call.direction === "in") {
+      emitNotification(data, {
+        userId: call.ownerUserId,
+        category: "calls",
+        kind: "missed",
+        title: "Missed Call",
+        senderName: call.peerName,
+        body: call.kind === "video" ? "Incoming Video Call از دست رفت" : "Incoming Voice Call از دست رفت",
+        sourceId: `call:${call.peerKey}`,
+        muteType: "chat",
+        muteId: call.threadId,
+        target: { type: "call", id: call.id },
+      });
+    }
   }
   return call;
 }
@@ -81,7 +96,7 @@ function busyCall(data: StoreData, userId: string) {
 export async function listCalls(userId: string, filter?: string) {
   return mutateStore((data) => {
     const now = Date.now();
-    let rows = data.calls.filter((c) => c.ownerUserId === userId).map((c) => publicCall(c, now));
+    let rows = data.calls.filter((c) => c.ownerUserId === userId).map((c) => publicCall(expireRinging(c, now, data), now));
     if (filter === "missed") rows = rows.filter((c) => c.status === "missed");
     else if (filter === "incoming") rows = rows.filter((c) => c.direction === "in");
     else if (filter === "outgoing") rows = rows.filter((c) => c.direction === "out");
@@ -162,6 +177,19 @@ export async function startIncomingDemo(userId: string, kind: CallKind) {
       createdAt: now,
     };
     data.calls.push(call);
+    const hide = Boolean(data.users.find((u) => u.id === userId)?.hideCallOnLockScreen);
+    emitNotification(data, {
+      userId,
+      category: "calls",
+      kind: kind === "video" ? "incoming_video" : "incoming_voice",
+      title: kind === "video" ? "Incoming Video Call" : "Incoming Voice Call",
+      senderName: hide ? "NIXO" : call.peerName,
+      body: hide ? "تماس ورودی" : call.peerName,
+      sourceId: `call:${call.peerKey}`,
+      muteType: "chat",
+      muteId: thread.id,
+      target: { type: "call", id: call.id },
+    });
     return { ok: true as const, call: publicCall(call, now) };
   });
 }
@@ -175,7 +203,7 @@ export async function actOnCall(
     const call = data.calls.find((c) => c.id === callId && c.ownerUserId === userId);
     if (!call) return { ok: false as const, error: "تماس یافت نشد.", status: 404 };
     const now = Date.now();
-    expireRinging(call, now);
+    expireRinging(call, now, data);
     if (action === "connect") {
       if (call.direction !== "out" || call.status !== "ringing") {
         return { ok: false as const, error: "این تماس قابل اتصال نیست.", status: 400 };

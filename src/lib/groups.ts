@@ -4,6 +4,7 @@ import { SEED_PEERS } from "@/lib/chat-copy";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { GroupMember, GroupMessage, GroupRecord, StoreData } from "@/lib/store";
+import { emitNotification } from "@/lib/notify";
 import { canAddToGroup } from "@/lib/privacy";
 import {
   DEFAULT_GROUP_PERMS,
@@ -508,6 +509,20 @@ export async function moderateMember(
       if (prev !== "admin" && role === "admin") pushSystem(data, group, `${target.name} ادمین شد.`, now);
       if (prev === "admin" && role !== "admin") pushSystem(data, group, `${target.name} دیگر ادمین نیست.`, now);
     }
+    if (target.kind === "user") {
+      emitNotification(data, {
+        userId: target.key,
+        category: "groups",
+        kind: "admin",
+        title: group.name,
+        body: `اقدام مدیر: ${action}`,
+        senderName: me.name,
+        sourceId: `groupadmin:${group.id}`,
+        muteType: "group",
+        muteId: group.id,
+        target: { type: "group", id: group.id },
+      });
+    }
     return { ok: true as const, group: publicGroup(group, userId) };
   });
 }
@@ -610,6 +625,21 @@ export async function sendGroupMessage(
       };
       data.groupMessages.push(msg);
       group.updatedAt = now;
+      for (const member of group.members) {
+        if (member.leftAt || member.key === userId || member.kind !== "user") continue;
+        emitNotification(data, {
+          userId: member.key,
+          category: "groups",
+          kind: "poll",
+          title: group.name,
+          senderName: me.name,
+          body: question.slice(0, 80),
+          sourceId: `group:${group.id}:${userId}`,
+          muteType: "group",
+          muteId: group.id,
+          target: { type: "group", id: group.id },
+        });
+      }
       return { ok: true as const, message: publicGroupMessage(msg) };
     }
     const ciphertext = typeof payload.ciphertext === "string" ? payload.ciphertext.trim() : "";
@@ -638,6 +668,30 @@ export async function sendGroupMessage(
     };
     data.groupMessages.push(msg);
     group.updatedAt = now;
+    for (const member of group.members) {
+      if (member.leftAt || member.key === userId || member.kind !== "user") continue;
+      const mentioned = (msg.mentions ?? []).includes(member.key);
+      const replied =
+        Boolean(msg.replyToId) &&
+        data.groupMessages.some((g) => g.id === msg.replyToId && g.senderKey === member.key);
+      if (member.notifyMutedUntil && member.notifyMutedUntil > now && !mentioned && !replied) continue;
+      const kind = mentioned ? "mention" : replied ? "reply" : "group_message";
+      emitNotification(data, {
+        userId: member.key,
+        category: "groups",
+        kind,
+        title: group.name,
+        senderName: me.name,
+        body: mentioned ? `@${member.name} در ${group.name}` : "پیام جدید در گروه",
+        e2ee: true,
+        mention: mentioned,
+        reply: replied,
+        sourceId: `group:${group.id}:${userId}`,
+        muteType: "group",
+        muteId: group.id,
+        target: { type: "group", id: group.id, href: "/app" },
+      });
+    }
     return { ok: true as const, message: publicGroupMessage(msg) };
   });
 }

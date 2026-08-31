@@ -4,6 +4,7 @@ import { config } from "@/lib/config";
 import { randomId } from "@/lib/crypto-utils";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot, type StoreData } from "@/lib/store";
+import { emitNotification } from "@/lib/notify";
 import { can } from "@/lib/business";
 import type { BizOrder, BizProduct } from "@/lib/business-types";
 import {
@@ -42,6 +43,16 @@ function notice(data: StoreData, userId: string, kind: "payment" | "refund" | "t
   data.shopNotices ??= [];
   data.shopNotices.unshift({ id: randomId(), userId, kind, text, createdAt: Date.now(), read: false });
   data.shopNotices = data.shopNotices.slice(0, 200);
+  emitNotification(data, {
+    userId,
+    category: "payments",
+    kind,
+    title: kind === "refund" ? "Refund" : kind === "transfer" ? "Transfer" : "Order Payment",
+    body: text,
+    senderName: "NIXO Pay",
+    sourceId: `pay:${kind}:${userId}`,
+    target: { type: "order", id: userId, href: "/app/orders" },
+  });
 }
 
 function audit(data: StoreData, userId: string, kind: string, detail: string) {

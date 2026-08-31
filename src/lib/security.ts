@@ -5,6 +5,7 @@ import { APP_VERSION, DEVICE_INACTIVE_MS, deviceKindFa, parseUserAgent } from "@
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { AuditEvent, DeviceSession, SecurityEventKind, StoreData, UserRecord } from "@/lib/store";
+import { emitNotification } from "@/lib/notify";
 
 export const PASSWORD_MIN = 10;
 
@@ -40,6 +41,20 @@ export function appendAudit(
     detail: opts.detail?.slice(0, 280),
   };
   data.audit = [event, ...(data.audit ?? [])].slice(0, 400);
+  const skip: SecurityEventKind[] = ["logout", "backup", "vuln_report"];
+  if (!skip.includes(kind)) {
+    emitNotification(data, {
+      userId,
+      category: "security",
+      kind,
+      title: publicAudit(event).title,
+      body: opts.detail || publicAudit(event).title,
+      senderName: "NIXO Security",
+      priority: "high",
+      sourceId: `sec:${kind}`,
+      target: { type: "security", id: event.id, href: "/app/settings/security" },
+    });
+  }
   return event;
 }
 
