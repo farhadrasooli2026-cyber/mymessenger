@@ -1,6 +1,7 @@
 import type { Appearance } from "@/lib/appearance-types";
 import { defaultAppearance } from "@/lib/appearance-types";
 
+export type Visibility3 = "everyone" | "contacts" | "nobody";
 export type Visibility = "everyone" | "contacts" | "nobody" | "selected";
 
 export type PhotoKind = "default" | "upload" | "catalog";
@@ -57,6 +58,38 @@ export function defaultUserFields(): {
   statusAllowIds: string[];
   defaultStoryPrivacy: "everyone" | "contacts" | "closeFriends" | "selected";
   searchHistory: string[];
+  privacyPhone: Visibility3;
+  privacyFindPhone: Visibility3;
+  privacyEmail: Visibility3;
+  phoneAllowIds: string[];
+  emailAllowIds: string[];
+  findPhoneAllowIds: string[];
+  privacyLastSeen: Visibility;
+  lastSeenAllowIds: string[];
+  privacyOnline: Visibility;
+  onlineAllowIds: string[];
+  readReceipts: boolean;
+  showTyping: boolean;
+  showVoiceRecording: boolean;
+  privacyMessages: Visibility;
+  messageAllowIds: string[];
+  privacyGroups: Visibility;
+  groupAllowIds: string[];
+  privacyCommunities: Visibility;
+  communityAllowIds: string[];
+  privacyChannels: Visibility;
+  channelAllowIds: string[];
+  restrictForward: boolean;
+  restrictSave: boolean;
+  restrictShare: boolean;
+  contactSyncEnabled: boolean;
+  syncedContactHashes: string[];
+  locationEnabled: boolean;
+  lastSeenAt: number;
+  typingUntil: number;
+  typingThreadId: string;
+  recordingUntil: number;
+  deletionRequestedAt: number | null;
 } {
   return {
     usernameHistory: [],
@@ -82,5 +115,37 @@ export function defaultUserFields(): {
     statusAllowIds: [],
     defaultStoryPrivacy: "everyone",
     searchHistory: [],
+    privacyPhone: "contacts",
+    privacyFindPhone: "contacts",
+    privacyEmail: "nobody",
+    phoneAllowIds: [],
+    emailAllowIds: [],
+    findPhoneAllowIds: [],
+    privacyLastSeen: "everyone",
+    lastSeenAllowIds: [],
+    privacyOnline: "everyone",
+    onlineAllowIds: [],
+    readReceipts: true,
+    showTyping: true,
+    showVoiceRecording: true,
+    privacyMessages: "everyone",
+    messageAllowIds: [],
+    privacyGroups: "everyone",
+    groupAllowIds: [],
+    privacyCommunities: "everyone",
+    communityAllowIds: [],
+    privacyChannels: "everyone",
+    channelAllowIds: [],
+    restrictForward: false,
+    restrictSave: false,
+    restrictShare: false,
+    contactSyncEnabled: false,
+    syncedContactHashes: [],
+    locationEnabled: false,
+    lastSeenAt: 0,
+    typingUntil: 0,
+    typingThreadId: "",
+    recordingUntil: 0,
+    deletionRequestedAt: null,
   };
 }

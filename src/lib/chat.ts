@@ -2,6 +2,7 @@ import "server-only";
 import { randomId } from "@/lib/crypto-utils";
 import { SEED_PEERS } from "@/lib/chat-copy";
 import { blockState } from "@/lib/safety";
+import { canMessageUser } from "@/lib/privacy";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { ChatMessage, StoreData } from "@/lib/store";
 import { DELETE_EVERYONE_MS, VOICE_CIPHER_MAX, VOICE_MAX_MS } from "@/lib/voice";
@@ -223,6 +224,9 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
         error: "پیام، تماس و تعامل با این شخص محدود شده است.",
         status: 403,
       };
+    }
+    if (!canMessageUser(data, userId, thread.peerKey)) {
+      return { ok: false as const, error: "این کاربر پیام مستقیم را محدود کرده است.", status: 403 };
     }
     if (payload.viewOnce && payload.kind !== "voice" && payload.kind !== "photo" && payload.kind !== "video") {
       return { ok: false as const, error: "View Once فقط برای صوت، عکس و ویدیو است.", status: 400 };

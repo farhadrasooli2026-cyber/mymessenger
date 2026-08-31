@@ -2,6 +2,7 @@ import "server-only";
 import { randomId } from "@/lib/crypto-utils";
 import { SEED_PEERS } from "@/lib/chat-copy";
 import { blockState } from "@/lib/safety";
+import { audienceAllows } from "@/lib/privacy";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { CallDirection, CallKind, CallRecord, CallStatus, StoreData } from "@/lib/store";
 
@@ -64,13 +65,8 @@ export function canReceiveCall(data: StoreData, userId: string, fromPeerKey: str
   if (!user) return false;
   const safety = blockState(data, userId, fromPeerKey);
   if (!safety.callsAllowed) return false;
-  const privacy = user.callPrivacy ?? "everyone";
-  if (privacy === "everyone") return true;
-  if (privacy === "nobody") return false;
-  if (privacy === "contacts") {
-    return user.contactIds.includes(fromPeerKey) || seedIsContact(fromPeerKey);
-  }
-  return (user.callAllowIds ?? []).includes(fromPeerKey);
+  return audienceAllows(user.callPrivacy ?? "everyone", user.contactIds, user.callAllowIds ?? [], fromPeerKey) ||
+    ((user.callPrivacy ?? "everyone") === "contacts" && seedIsContact(fromPeerKey));
 }
 
 function busyCall(data: StoreData, userId: string) {

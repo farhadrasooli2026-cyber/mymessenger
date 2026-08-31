@@ -4,6 +4,7 @@ import { SEED_PEERS } from "@/lib/chat-copy";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { GroupMember, GroupMessage, GroupRecord, StoreData } from "@/lib/store";
+import { canAddToGroup } from "@/lib/privacy";
 import {
   DEFAULT_GROUP_PERMS,
   GROUP_FLOOD_MAX,
@@ -197,6 +198,7 @@ export async function createGroup(
       }
       const other = data.users.find((u) => u.id === raw || u.username === raw.replace(/^@/, ""));
       if (!other || other.id === userId) continue;
+      if (!canAddToGroup(data, userId, other.id)) continue;
       members.push({
         key: other.id,
         kind: "user",
@@ -429,6 +431,7 @@ export async function addMembers(userId: string, groupId: string, keys: string[]
       }
       const other = data.users.find((u) => u.id === key);
       if (!other) continue;
+      if (!canAddToGroup(data, userId, other.id)) continue;
       group.members.push({
         key: other.id,
         kind: "user",

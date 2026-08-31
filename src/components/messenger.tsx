@@ -543,6 +543,19 @@ export function Messenger({
 
   useEffect(() => {
     if (!activeId) return;
+    const typing = draft.trim().length > 0;
+    const t = window.setTimeout(() => {
+      void fetch("/api/privacy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "presence", threadId: activeId, typing, recording: voiceRec }),
+      });
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [draft, activeId, voiceRec]);
+
+  useEffect(() => {
+    if (!activeId) return;
     const tick = window.setInterval(() => {
       void fetch(`/api/chats/${activeId}`, { cache: "no-store" })
         .then((res) => (res.ok ? res.json() : null))
@@ -1754,6 +1767,9 @@ export function Messenger({
             </Link>
             <Link href="/app/settings/chat-appearance" className="block text-sm text-amber-200">
               تنظیمات → ظاهر گفتگو → پس‌زمینه چت
+            </Link>
+            <Link href="/app/settings/privacy" className="block text-sm text-amber-200">
+              تنظیمات → حریم خصوصی
             </Link>
             <Link href="/app/settings/story" className="block text-sm text-amber-200">
               تنظیمات → حریم خصوصی → استوری

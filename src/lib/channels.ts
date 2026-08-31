@@ -3,6 +3,7 @@ import { randomId } from "@/lib/crypto-utils";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { ChannelPost, ChannelStaff, PubChannelRecord, StoreData } from "@/lib/store";
+import { canChannelInvite } from "@/lib/privacy";
 import { rankRole } from "@/lib/group-types";
 import {
   CHANNEL_FLOOD_MAX,
@@ -430,6 +431,7 @@ export async function inviteDirect(userId: string, channelId: string, keys: stri
     for (const raw of keys.slice(0, 20)) {
       const other = data.users.find((u) => u.id === raw || u.username === raw.replace(/^@/, "").toLowerCase());
       if (!other || isBanned(channel, other.id)) continue;
+      if (!canChannelInvite(data, userId, other.id)) continue;
       addSubscriber(channel, { id: other.id, displayName: other.displayName, username: other.username }, now);
     }
     channel.updatedAt = now;

@@ -4,6 +4,7 @@ import { SEED_PEERS } from "@/lib/chat-copy";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { CommunityMember, CommunityRecord, StoreData } from "@/lib/store";
+import { canAddToCommunity } from "@/lib/privacy";
 import { rankRole, type GroupRole } from "@/lib/group-types";
 import {
   COMMUNITY_FLOOD_MAX,
@@ -358,6 +359,7 @@ export async function addMembers(userId: string, communityId: string, keys: stri
       }
       const other = data.users.find((u) => u.id === key);
       if (!other) continue;
+      if (!canAddToCommunity(data, userId, other.id)) continue;
       community.members.push({
         key: other.id,
         kind: "user",

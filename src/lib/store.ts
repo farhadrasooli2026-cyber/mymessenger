@@ -42,6 +42,38 @@ function hydrateUser(user: UserRecord): UserRecord {
     statusAllowIds: Array.isArray(user.statusAllowIds) ? user.statusAllowIds : [],
     defaultStoryPrivacy: user.defaultStoryPrivacy ?? "everyone",
     searchHistory: Array.isArray(user.searchHistory) ? user.searchHistory : [],
+    privacyPhone: user.privacyPhone ?? "contacts",
+    privacyFindPhone: user.privacyFindPhone ?? "contacts",
+    privacyEmail: user.privacyEmail ?? "nobody",
+    phoneAllowIds: Array.isArray(user.phoneAllowIds) ? user.phoneAllowIds : [],
+    emailAllowIds: Array.isArray(user.emailAllowIds) ? user.emailAllowIds : [],
+    findPhoneAllowIds: Array.isArray(user.findPhoneAllowIds) ? user.findPhoneAllowIds : [],
+    privacyLastSeen: user.privacyLastSeen ?? "everyone",
+    lastSeenAllowIds: Array.isArray(user.lastSeenAllowIds) ? user.lastSeenAllowIds : [],
+    privacyOnline: user.privacyOnline ?? "everyone",
+    onlineAllowIds: Array.isArray(user.onlineAllowIds) ? user.onlineAllowIds : [],
+    readReceipts: user.readReceipts !== false,
+    showTyping: user.showTyping !== false,
+    showVoiceRecording: user.showVoiceRecording !== false,
+    privacyMessages: user.privacyMessages ?? "everyone",
+    messageAllowIds: Array.isArray(user.messageAllowIds) ? user.messageAllowIds : [],
+    privacyGroups: user.privacyGroups ?? "everyone",
+    groupAllowIds: Array.isArray(user.groupAllowIds) ? user.groupAllowIds : [],
+    privacyCommunities: user.privacyCommunities ?? "everyone",
+    communityAllowIds: Array.isArray(user.communityAllowIds) ? user.communityAllowIds : [],
+    privacyChannels: user.privacyChannels ?? "everyone",
+    channelAllowIds: Array.isArray(user.channelAllowIds) ? user.channelAllowIds : [],
+    restrictForward: Boolean(user.restrictForward),
+    restrictSave: Boolean(user.restrictSave),
+    restrictShare: Boolean(user.restrictShare),
+    contactSyncEnabled: Boolean(user.contactSyncEnabled),
+    syncedContactHashes: Array.isArray(user.syncedContactHashes) ? user.syncedContactHashes : [],
+    locationEnabled: Boolean(user.locationEnabled),
+    lastSeenAt: user.lastSeenAt ?? 0,
+    typingUntil: user.typingUntil ?? 0,
+    typingThreadId: user.typingThreadId ?? "",
+    recordingUntil: user.recordingUntil ?? 0,
+    deletionRequestedAt: user.deletionRequestedAt ?? null,
   };
 }
 
@@ -211,6 +243,38 @@ export type UserRecord = {
   statusAllowIds: string[];
   defaultStoryPrivacy: "everyone" | "contacts" | "closeFriends" | "selected";
   searchHistory: string[];
+  privacyPhone: import("@/lib/profile-types").Visibility3;
+  privacyFindPhone: import("@/lib/profile-types").Visibility3;
+  privacyEmail: import("@/lib/profile-types").Visibility3;
+  phoneAllowIds: string[];
+  emailAllowIds: string[];
+  findPhoneAllowIds: string[];
+  privacyLastSeen: Visibility;
+  lastSeenAllowIds: string[];
+  privacyOnline: Visibility;
+  onlineAllowIds: string[];
+  readReceipts: boolean;
+  showTyping: boolean;
+  showVoiceRecording: boolean;
+  privacyMessages: Visibility;
+  messageAllowIds: string[];
+  privacyGroups: Visibility;
+  groupAllowIds: string[];
+  privacyCommunities: Visibility;
+  communityAllowIds: string[];
+  privacyChannels: Visibility;
+  channelAllowIds: string[];
+  restrictForward: boolean;
+  restrictSave: boolean;
+  restrictShare: boolean;
+  contactSyncEnabled: boolean;
+  syncedContactHashes: string[];
+  locationEnabled: boolean;
+  lastSeenAt: number;
+  typingUntil: number;
+  typingThreadId: string;
+  recordingUntil: number;
+  deletionRequestedAt: number | null;
   createdAt: number;
   verifiedAt?: number;
   activatedAt?: number;

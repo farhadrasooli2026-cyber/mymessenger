@@ -4,11 +4,11 @@ import { config } from "@/lib/config";
 import { randomId } from "@/lib/crypto-utils";
 import { DEFAULT_AVATAR_SVG, svgDataUri } from "@/lib/default-avatar";
 import { deleteUserPhoto, decodeDataUrl, saveUserPhoto } from "@/lib/photo-files";
-import type { Visibility } from "@/lib/profile-types";
 import { seedInbox } from "@/lib/chat";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { UserRecord } from "@/lib/store";
 import { normalizeUsername } from "@/lib/username";
+import { audienceAllows } from "@/lib/privacy";
 
 export const visibilitySchema = z.enum(["everyone", "contacts", "nobody", "selected"]);
 
@@ -38,13 +38,22 @@ function fullName(first: string, last?: string) {
 
 export function publicProfile(user: UserRecord, viewerId?: string | null) {
   const own = viewerId === user.id;
-  const photoVisible = own || canSee(user.privacyPhoto, user.photoAllowIds, user.contactIds, viewerId);
-  const bioVisible = own || canSee(user.privacyBio, user.bioAllowIds, user.contactIds, viewerId);
+  const blocked = Boolean(viewerId && viewerId !== user.id && (user.blockedPeerKeys.includes(viewerId)));
+  const photoVisible = own || (!blocked && audienceAllows(user.privacyPhoto, user.contactIds, user.photoAllowIds, viewerId));
+  const bioVisible = own || (!blocked && audienceAllows(user.privacyBio, user.contactIds, user.bioAllowIds, viewerId));
+  const phoneVisible =
+    own || (!blocked && user.channel === "phone" && audienceAllows(user.privacyPhone, user.contactIds, user.phoneAllowIds, viewerId));
+  const emailVisible =
+    own || (!blocked && user.channel === "email" && audienceAllows(user.privacyEmail, user.contactIds, user.emailAllowIds, viewerId));
+  const lastSeenVisible =
+    own || (!blocked && audienceAllows(user.privacyLastSeen, user.contactIds, user.lastSeenAllowIds, viewerId));
+  const onlineVisible =
+    own || (!blocked && audienceAllows(user.privacyOnline, user.contactIds, user.onlineAllowIds, viewerId));
   return {
     id: user.id,
     status: user.status,
-    channel: user.channel,
-    identifierMasked: own ? user.identifierMasked : undefined,
+    channel: own || phoneVisible || emailVisible ? user.channel : undefined,
+    identifierMasked: own || phoneVisible || emailVisible ? user.identifierMasked : undefined,
     firstName: user.firstName ?? "",
     lastName: user.lastName ?? "",
     displayName: fullName(user.firstName ?? user.displayName ?? "کاربر نیکسو", user.lastName),
@@ -66,6 +75,13 @@ export function publicProfile(user: UserRecord, viewerId?: string | null) {
     callPrivacy: own ? (user.callPrivacy ?? "everyone") : undefined,
     hideCallOnLockScreen: own ? Boolean(user.hideCallOnLockScreen) : undefined,
     lowDataCalls: own ? Boolean(user.lowDataCalls) : undefined,
+    lastSeenAt: lastSeenVisible ? user.lastSeenAt || null : null,
+    online: onlineVisible && user.lastSeenAt > 0 && Date.now() - user.lastSeenAt < 90_000,
+    readReceipts: user.readReceipts,
+    restrictForward: user.restrictForward,
+    restrictSave: user.restrictSave,
+    restrictShare: user.restrictShare,
+    showTyping: own ? user.showTyping : undefined,
   };
 }
 
@@ -77,19 +93,6 @@ function photoUrlFor(user: UserRecord): string {
     return `/api/media/photo/${user.id}`;
   }
   return svgDataUri(DEFAULT_AVATAR_SVG);
-}
-
-function canSee(
-  visibility: Visibility,
-  allowIds: string[],
-  contactIds: string[],
-  viewerId?: string | null,
-): boolean {
-  if (visibility === "everyone") return true;
-  if (visibility === "nobody") return false;
-  if (!viewerId) return false;
-  if (visibility === "contacts") return contactIds.includes(viewerId);
-  return allowIds.includes(viewerId);
 }
 
 export async function checkUsername(raw: string, selfId?: string) {
