@@ -108,6 +108,7 @@ export async function globalSearch(userId: string, input: SearchQuery) {
 
     const hits: SearchHit[] = [];
     const wantPeople = kind === "all" || kind === "users";
+    const wantBots = kind === "all" || kind === "bots" || kind === "users";
     const wantGroups = kind === "all" || kind === "groups";
     const wantChannels = kind === "all" || kind === "channels";
     const wantCommunities = kind === "all" || kind === "communities";
@@ -137,6 +138,25 @@ export async function globalSearch(userId: string, input: SearchQuery) {
           date: u.activatedAt ?? u.createdAt,
           kind: "user",
           target: { type: "user", id: u.id },
+        });
+      }
+    }
+
+    if (wantBots) {
+      for (const b of data.bots ?? []) {
+        if (b.status !== "active") continue;
+        const blob = `${b.username} ${b.name} ${b.description}`.toLowerCase();
+        if (!blob.includes(q)) continue;
+        hits.push({
+          id: `bot:${b.id}`,
+          scope: "bot",
+          title: `${b.name}${b.verified ? " ✓" : ""}`,
+          preview: `@${b.username} · ربات`,
+          sender: b.name,
+          chatName: "ربات‌ها",
+          date: b.createdAt,
+          kind: "bot",
+          target: { type: "bot", id: b.id },
         });
       }
     }

@@ -799,6 +799,10 @@ export function Messenger({
       setMobileChat(true);
       return;
     }
+    if (hit.target.type === "bot") {
+      router.push(`/app/bots/chat/${hit.target.id}`);
+      return;
+    }
     if (hit.target.type === "user") {
       void fetch("/api/users/search", {
         method: "POST",
@@ -1761,6 +1765,16 @@ export function Messenger({
                       ساخت کانال
                     </Button>
                   )}
+                  {space.id === "bot" && (
+                    <a href="/app/bots" className="mt-3 inline-flex h-8 items-center rounded-lg bg-amber-300 px-3 text-sm font-medium text-[#102824]">
+                      ربات‌ها و Directory
+                    </a>
+                  )}
+                  {space.id === "mini" && (
+                    <a href="/app/bots" className="mt-3 inline-flex h-8 items-center rounded-lg bg-amber-300 px-3 text-sm font-medium text-[#102824]">
+                      Mini Apps
+                    </a>
+                  )}
                 </article>
               ))}
             </div>
@@ -1810,6 +1824,12 @@ export function Messenger({
             </Link>
             <Link href="/app/settings/devices" className="block text-sm text-amber-200">
               تنظیمات → دستگاه‌ها
+            </Link>
+            <Link href="/app/bots" className="block text-sm text-amber-200">
+              تنظیمات → ربات‌ها و مینی‌اپ
+            </Link>
+            <Link href="/app/settings/bots" className="block text-sm text-amber-200">
+              تنظیمات → Developer Dashboard
             </Link>
             <Link href="/app/settings/story" className="block text-sm text-amber-200">
               تنظیمات → حریم خصوصی → استوری

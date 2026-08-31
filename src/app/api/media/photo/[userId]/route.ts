@@ -10,6 +10,20 @@ type Ctx = { params: Promise<{ userId: string }> };
 export async function GET(_request: Request, ctx: Ctx) {
   const { userId } = await ctx.params;
   const viewer = await requireActiveUser();
+  const { readStoreSnapshot } = await import("@/lib/store");
+  const snap = await readStoreSnapshot();
+  const asBot = (snap.bots ?? []).find((b) => b.id === userId);
+  if (asBot) {
+    const file = await readUserPhoto(userId);
+    if (!file) {
+      return new NextResponse(DEFAULT_AVATAR_SVG, {
+        headers: { "Content-Type": "image/svg+xml; charset=utf-8" },
+      });
+    }
+    return new NextResponse(new Uint8Array(file), {
+      headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=60" },
+    });
+  }
   const owner = await getUserById(userId);
   if (!owner) return new NextResponse("not found", { status: 404 });
   const view = publicProfile(owner, viewer?.id ?? null);

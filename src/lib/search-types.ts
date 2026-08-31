@@ -16,6 +16,7 @@ export const SEARCH_KINDS = [
   "links",
   "voice",
   "music",
+  "bots",
 ] as const;
 
 export type SearchKind = (typeof SEARCH_KINDS)[number];
@@ -25,7 +26,7 @@ export const SAVED_MAX_MEDIA = 420_000;
 
 export type SearchHit = {
   id: string;
-  scope: "user" | "group" | "channel" | "community" | "channelPost" | "communityPost" | "saved" | "chatLocal";
+  scope: "user" | "group" | "channel" | "community" | "channelPost" | "communityPost" | "saved" | "chatLocal" | "bot";
   title: string;
   preview: string;
   sender: string;
@@ -33,7 +34,7 @@ export type SearchHit = {
   date: number;
   kind: string;
   target: {
-    type: "user" | "group" | "channel" | "community" | "chat" | "saved";
+    type: "user" | "group" | "channel" | "community" | "chat" | "saved" | "bot";
     id: string;
     messageId?: string;
   };

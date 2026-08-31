@@ -1,0 +1,186 @@
+export const BOT_API_WINDOW_MS = 60_000;
+export const BOT_API_MAX = 60;
+export const BOT_MSG_MAX = 20;
+export const BOT_CREATE_MAX_DAY = 8;
+
+export const DEFAULT_BOT_PERMS = {
+  sendMessage: true,
+  receiveMessage: true,
+  sendPhoto: false,
+  sendVideo: false,
+  sendFile: false,
+  sendButton: true,
+  sendNotification: false,
+  inline: true,
+  readContacts: false,
+  readPrivateChats: false,
+  gallery: false,
+  microphone: false,
+  camera: false,
+  location: false,
+  moderateSpam: false,
+  groupMessages: false,
+  channelPost: false,
+};
+
+export type BotApiPerms = typeof DEFAULT_BOT_PERMS;
+
+export const BOT_PERM_FA: Record<keyof BotApiPerms, string> = {
+  sendMessage: "ارسال پیام در گفتگوی ربات",
+  receiveMessage: "دریافت پیام همان گفتگو",
+  sendPhoto: "ارسال عکس",
+  sendVideo: "ارسال ویدیو",
+  sendFile: "ارسال فایل",
+  sendButton: "دکمهٔ تعاملی",
+  sendNotification: "اعلان",
+  inline: "نتیجهٔ اینلاین",
+  readContacts: "مخاطبین",
+  readPrivateChats: "چت خصوصی E2EE",
+  gallery: "گالری",
+  microphone: "میکروفون",
+  camera: "دوربین",
+  location: "موقعیت",
+  moderateSpam: "مدیریت هرزنامه در گروه (سمت سرور)",
+  groupMessages: "پیام در گروه پس از افزودن ادمین",
+  channelPost: "پست کانال پس از اجازهٔ ادمین",
+};
+
+export const FORBIDDEN_DEFAULTS: (keyof BotApiPerms)[] = [
+  "readContacts",
+  "readPrivateChats",
+  "gallery",
+  "microphone",
+  "camera",
+  "location",
+];
+
+export const DEFAULT_BOT_COMMANDS = [
+  { command: "start", description: "شروع گفتگو با ربات" },
+  { command: "help", description: "راهنما" },
+  { command: "settings", description: "تنظیمات اعلان" },
+  { command: "search", description: "جستجو در قابلیت‌های ربات" },
+];
+
+export const MINI_CATEGORIES = [
+  { id: "games", label: "بازی", emoji: "🎮" },
+  { id: "shopping", label: "فروشگاه", emoji: "🛒" },
+  { id: "education", label: "آموزش", emoji: "📘" },
+  { id: "productivity", label: "بهره‌وری", emoji: "📋" },
+  { id: "business", label: "کسب‌وکار", emoji: "📊" },
+  { id: "entertainment", label: "سرگرمی", emoji: "📅" },
+  { id: "booking", label: "رزرو", emoji: "📅" },
+  { id: "payment", label: "پرداخت", emoji: "💳" },
+] as const;
+
+export type MiniCategory = (typeof MINI_CATEGORIES)[number]["id"];
+
+export const BOT_REPORT_CATEGORIES = [
+  { id: "spam", label: "هرزنامه (Spam)" },
+  { id: "scam", label: "کلاهبرداری (Scam)" },
+  { id: "fraud", label: "تقلب (Fraud)" },
+  { id: "malicious", label: "مخرب (Malicious)" },
+  { id: "harassment", label: "آزار (Harassment)" },
+  { id: "other", label: "سایر (Other)" },
+] as const;
+
+export type BotReportCategory = (typeof BOT_REPORT_CATEGORIES)[number]["id"];
+
+export type BotCommand = { command: string; description: string };
+
+export type BotButton = { id: string; label: string; payload: string };
+
+export type BotRecord = {
+  id: string;
+  ownerUserId: string;
+  name: string;
+  username: string;
+  description: string;
+  photoKind: "default" | "upload";
+  verified: boolean;
+  status: "active" | "disabled" | "deleted";
+  perms: BotApiPerms;
+  commands: BotCommand[];
+  tokenSalt: string;
+  tokenHash: string;
+  tokenHint: string;
+  tokenRevokedAt: number | null;
+  webhookUrl: string | null;
+  webhookSecret: string | null;
+  webhookLastStatus: string | null;
+  webhookLastAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+  startMessage: string;
+};
+
+export type BotChat = {
+  id: string;
+  botId: string;
+  userId: string;
+  startedAt: number;
+  stoppedAt: number | null;
+  notify: "on" | "off" | "mute";
+  updatedAt: number;
+};
+
+export type BotMessage = {
+  id: string;
+  chatId: string;
+  botId: string;
+  userId: string;
+  from: "user" | "bot";
+  kind: "text" | "photo" | "video" | "file" | "notification" | "system";
+  text: string;
+  buttons: BotButton[];
+  createdAt: number;
+};
+
+export type MiniAppRecord = {
+  id: string;
+  botId: string;
+  title: string;
+  category: MiniCategory;
+  description: string;
+  html: string;
+  paymentHint: boolean;
+  createdAt: number;
+};
+
+export type MiniGrant = {
+  id: string;
+  miniAppId: string;
+  userId: string;
+  profile: boolean;
+  createdAt: number;
+};
+
+export type BotPlacement = {
+  id: string;
+  botId: string;
+  groupId?: string;
+  channelId?: string;
+  canSend: boolean;
+  canModerate: boolean;
+  canPost: boolean;
+  addedBy: string;
+  addedAt: number;
+};
+
+export type BotLog = {
+  id: string;
+  botId: string;
+  at: number;
+  kind: "api" | "error" | "webhook" | "abuse" | "auth";
+  summary: string;
+};
+
+export type BotUpdate = {
+  id: string;
+  botId: string;
+  userId: string;
+  type: "message" | "callback" | "inline";
+  text: string;
+  payload?: string;
+  createdAt: number;
+  consumedAt: number | null;
+};

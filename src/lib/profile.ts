@@ -104,7 +104,9 @@ export async function checkUsername(raw: string, selfId?: string) {
     return { ok: false as const, available: false, reason: "invalid" as const, username: null };
   }
   const data = await readStoreSnapshot();
-  const taken = data.users.some((u) => u.username === username && u.id !== selfId);
+  const takenUser = data.users.some((u) => u.username === username && u.id !== selfId);
+  const takenBot = (data.bots ?? []).some((b) => b.username === username && b.status !== "deleted");
+  const taken = takenUser || takenBot;
   return { ok: true as const, available: !taken, username, reason: taken ? ("taken" as const) : ("free" as const) };
 }
 
@@ -157,7 +159,7 @@ export async function updateProfile(userId: string, input: Partial<ProfileInput>
     if (input.username && input.username !== user.username) {
       const next = normalizeUsername(input.username);
       if (!next) return { ok: false as const, status: 400, error: "نام کاربری معتبر نیست." };
-      if (data.users.some((u) => u.username === next && u.id !== userId)) {
+      if (data.users.some((u) => u.username === next && u.id !== userId) || (data.bots ?? []).some((b) => b.username === next && b.status !== "deleted")) {
         return { ok: false as const, status: 409, error: "این نام کاربری گرفته شده است." };
       }
       const windowStart = now - 30 * 24 * 60 * 60 * 1000;

@@ -412,6 +412,9 @@ export async function addMembers(userId: string, groupId: string, keys: string[]
     for (const raw of keys.slice(0, 40)) {
       if (group.members.filter(liveMember).length >= group.maxMembers) break;
       const seed = SEED_PEERS.find((p) => p.peerKey === raw);
+      const uname = raw.replace(/^@/, "").toLowerCase();
+      const bot = (data.bots ?? []).find((b) => b.status === "active" && (b.id === raw || b.username === uname || raw === `bot:${b.id}`));
+      if (bot) continue;
       const key = seed ? `seed:${seed.peerKey}` : data.users.find((u) => u.id === raw || u.username === raw.replace(/^@/, ""))?.id;
       if (!key || findMember(group, key) || isBanned(group, key)) continue;
       if (seed) {

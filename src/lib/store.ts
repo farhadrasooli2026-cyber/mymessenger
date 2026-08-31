@@ -13,6 +13,16 @@ import { DEFAULT_CHANNEL_ADMIN_PERMS } from "@/lib/channel-types";
 import { DEFAULT_CATEGORIES, seedCatalogItems } from "@/lib/avatar-catalog";
 import { BG_CATEGORIES, seedBackgroundItems } from "@/lib/background-catalog";
 import { randomId } from "@/lib/crypto-utils";
+import type {
+  BotChat,
+  BotLog,
+  BotMessage,
+  BotPlacement,
+  BotRecord,
+  BotUpdate,
+  MiniAppRecord,
+  MiniGrant,
+} from "@/lib/bot-types";
 
 export type { CatalogCategory, CatalogItem };
 
@@ -520,7 +530,7 @@ export type ChatMessage = {
 export type SafetyReport = {
   id: string;
   reporterId: string;
-  targetKind: "user" | "chat" | "group" | "community" | "channel" | "story";
+  targetKind: "user" | "chat" | "group" | "community" | "channel" | "story" | "bot" | "miniapp";
   targetKey: string;
   threadId?: string;
   messageIds: string[];
@@ -607,7 +617,7 @@ export type CallRecord = {
 
 export type GroupMember = {
   key: string;
-  kind: "user" | "seed";
+  kind: "user" | "seed" | "bot";
   role: GroupRole;
   name: string;
   joinedAt: number;
@@ -886,6 +896,14 @@ export type StoreData = {
   vulnReports: VulnReport[];
   backups: EncryptedBackup[];
   closedAccounts: ClosedAccount[];
+  bots: BotRecord[];
+  botChats: BotChat[];
+  botMessages: BotMessage[];
+  miniApps: MiniAppRecord[];
+  miniGrants: MiniGrant[];
+  botPlacements: BotPlacement[];
+  botLogs: BotLog[];
+  botUpdates: BotUpdate[];
 };
 
 const EMPTY: StoreData = {
@@ -919,6 +937,14 @@ const EMPTY: StoreData = {
   vulnReports: [],
   backups: [],
   closedAccounts: [],
+  bots: [],
+  botChats: [],
+  botMessages: [],
+  miniApps: [],
+  miniGrants: [],
+  botPlacements: [],
+  botLogs: [],
+  botUpdates: [],
 };
 
 const STORE_PATH = path.join(
@@ -973,6 +999,14 @@ async function readStore(): Promise<StoreData> {
       vulnReports: Array.isArray(parsed.vulnReports) ? parsed.vulnReports : [],
       backups: Array.isArray(parsed.backups) ? parsed.backups : [],
       closedAccounts: Array.isArray(parsed.closedAccounts) ? parsed.closedAccounts : [],
+      bots: Array.isArray(parsed.bots) ? parsed.bots : [],
+      botChats: Array.isArray(parsed.botChats) ? parsed.botChats : [],
+      botMessages: Array.isArray(parsed.botMessages) ? parsed.botMessages : [],
+      miniApps: Array.isArray(parsed.miniApps) ? parsed.miniApps : [],
+      miniGrants: Array.isArray(parsed.miniGrants) ? parsed.miniGrants : [],
+      botPlacements: Array.isArray(parsed.botPlacements) ? parsed.botPlacements : [],
+      botLogs: Array.isArray(parsed.botLogs) ? parsed.botLogs : [],
+      botUpdates: Array.isArray(parsed.botUpdates) ? parsed.botUpdates : [],
     };
   } catch {
     return structuredClone(EMPTY);
@@ -1078,4 +1112,12 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
     ch.subscribers = ch.subscribers.filter((s) => s.userId !== uid);
     ch.staff = ch.staff.filter((s) => s.userId !== uid);
   }
+  for (const bot of data.bots ?? []) {
+    if (bot.ownerUserId === uid && bot.status === "active") {
+      bot.status = "disabled";
+      bot.tokenRevokedAt = now;
+    }
+  }
+  data.botChats = (data.botChats ?? []).filter((c) => c.userId !== uid);
+  data.miniGrants = (data.miniGrants ?? []).filter((g) => g.userId !== uid);
 }

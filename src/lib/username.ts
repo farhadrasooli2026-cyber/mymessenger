@@ -8,6 +8,7 @@ const RESERVED = new Set([
   "system",
   "official",
   "security",
+  "nixo_bot",
 ]);
 
 export const USERNAME_MIN = 3;
