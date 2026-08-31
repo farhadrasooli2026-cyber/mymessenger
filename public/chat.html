@@ -56,6 +56,12 @@
       color: #fff;
     }
 
+    .user-status-dot {
+      width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-left: 5px;
+    }
+    .dot-online { background-color: #2ecc71; }
+    .dot-offline { background-color: #e74c3c; }
+
     .chat-area { flex: 1; display: flex; flex-direction: column; background: transparent; }
 
     .chat-header {
@@ -63,6 +69,9 @@
       border-bottom: 1px solid rgba(255, 255, 255, 0.15); font-size: 15px;
       display: flex; align-items: center; justify-content: space-between;
     }
+
+    .chat-header-info { display: flex; flex-direction: column; }
+    .chat-header-status { font-size: 11px; color: #ccc; font-weight: normal; margin-top: 2px; }
 
     .messages-container { 
       flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; 
@@ -88,6 +97,7 @@
     }
 
     .message img { max-width: 100%; border-radius: 10px; cursor: pointer; margin-bottom: 5px; display: block; }
+    .message audio { max-width: 100%; outline: none; }
 
     .input-area {
       padding: 10px 14px; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; gap: 8px;
@@ -97,6 +107,15 @@
     .input-area input[type="text"] {
       flex: 1; padding: 10px 14px; border: none; border-radius: 20px; outline: none;
       background: rgba(255, 255, 255, 0.9); font-size: 14px;
+    }
+
+    .action-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #fff; padding: 0; }
+    .action-btn.recording { color: #e74c3c; animation: pulse 1s infinite; }
+
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.4; }
+      100% { opacity: 1; }
     }
 
     .send-btn { 
@@ -118,21 +137,11 @@
     }
 
     @media (max-width: 768px) {
-      .app-container {
-        width: 100%; height: 100vh; border-radius: 0; border: none;
-      }
-
-      .sidebar {
-        width: 100%; height: 100%; border-left: none;
-      }
-
-      .chat-area {
-        display: none; width: 100%; height: 100%;
-      }
-
+      .app-container { width: 100%; height: 100vh; border-radius: 0; border: none; }
+      .sidebar { width: 100%; height: 100%; border-left: none; }
+      .chat-area { display: none; width: 100%; height: 100%; }
       .app-container.chat-open .sidebar { display: none; }
       .app-container.chat-open .chat-area { display: flex; }
-
       .back-btn { display: inline-block; }
       .message { max-width: 85%; }
     }
@@ -147,15 +156,21 @@
 
     <div class="chat-area">
       <div class="chat-header">
-        <button class="back-btn" onclick="closeChat()">❮ بازگشت</button>
-        <span id="chat-header-title">یک مخاطب را انتخاب کنید</span>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <button class="back-btn" onclick="closeChat()">❮ بازگشت</button>
+          <div class="chat-header-info">
+            <span id="chat-header-title">یک مخاطب را انتخاب کنید</span>
+            <span id="chat-header-status" class="chat-header-status"></span>
+          </div>
+        </div>
         <div></div>
       </div>
       <div class="messages-container" id="messages-container"></div>
       <div class="input-area">
-        <label style="cursor: pointer; font-size: 20px; color: #fff;">📎
+        <label class="action-btn" title="ارسال عکس">📎
           <input type="file" id="image-input" accept="image/*" style="display: none;">
         </label>
+        <button id="mic-btn" class="action-btn" onclick="toggleRecordVoice()" title="ضبط صدا">🎤</button>
         <input type="text" id="message-input" placeholder="پیام خود را بنویسید...">
         <button class="send-btn" onclick="sendMessage()">ارسال</button>
       </div>
@@ -169,7 +184,6 @@
   <script>
     const socket = io();
     
-    // خواندن صحیح اطلاعات کاربر از localStorage
     const userDataStr = localStorage.getItem('user');
     if (!userDataStr) {
         window.location.href = '/login.html';
@@ -180,7 +194,13 @@
     const userGender = currentUserObj.gender === 'مرد' ? 'male' : 'female';
 
     let activeReceiver = null;
+    let activeReceiverData = null;
     let selectedImageBase64 = null;
+    let usersListCache = [];
+
+    let mediaRecorder;
+    let audioChunks = [];
+    let isRecording = false;
 
     if (!currentUser) window.location.href = '/login.html';
 
@@ -195,31 +215,65 @@
     async function loadUsers() {
       try {
         const res = await fetch('/api/users');
-        const users = await res.json();
-        const list = document.getElementById('users-list');
-        list.innerHTML = '';
-        users.forEach(u => {
-          if (u.username !== currentUser) {
-            const div = document.createElement('div');
-            div.className = 'user-item';
-            div.innerHTML = `<span>${u.username} (${u.gender === 'مرد' ? '👨' : '👩'})</span>`;
-            div.onclick = () => selectUser(u.username, div);
-            list.appendChild(div);
-          }
-        });
+        usersListCache = await res.json();
+        renderUsersList();
       } catch (err) {
         console.error('Error loading users:', err);
       }
     }
 
+    function renderUsersList() {
+      const list = document.getElementById('users-list');
+      list.innerHTML = '';
+      usersListCache.forEach(u => {
+        if (u.username !== currentUser) {
+          const div = document.createElement('div');
+          div.className = `user-item ${activeReceiver === u.username ? 'active' : ''}`;
+          
+          const dotClass = u.status === 'online' ? 'dot-online' : 'dot-offline';
+          div.innerHTML = `
+            <span>${u.username} (${u.gender === 'مرد' ? '👨' : '👩'})</span>
+            <span class="user-status-dot ${dotClass}" title="${u.status === 'online' ? 'آنلاین' : 'آفلاین'}"></span>
+          `;
+          div.onclick = () => selectUser(u.username, div);
+          list.appendChild(div);
+        }
+      });
+    }
+
     function selectUser(username, element) {
       activeReceiver = username;
+      activeReceiverData = usersListCache.find(u => u.username === username);
+      
       document.querySelectorAll('.user-item').forEach(el => el.classList.remove('active'));
-      element.classList.add('active');
+      if (element) element.classList.add('active');
+      
       document.getElementById('chat-header-title').innerText = `گفتگو با ${username}`;
+      updateHeaderStatus();
       
       document.getElementById('app-container').classList.add('chat-open');
       loadMessages();
+    }
+
+    function updateHeaderStatus() {
+      const statusSpan = document.getElementById('chat-header-status');
+      if (!activeReceiverData) {
+        statusSpan.innerText = '';
+        return;
+      }
+      if (activeReceiverData.status === 'online') {
+        statusSpan.innerText = 'آنلاین';
+        statusSpan.style.color = '#2ecc71';
+      } else {
+        if (activeReceiverData.lastSeen) {
+          const date = new Date(activeReceiverData.lastSeen);
+          const timeStr = date.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
+          statusSpan.innerText = `آخرین بازدید: ${timeStr}`;
+        } else {
+          statusSpan.innerText = 'آفلاین';
+        }
+        statusSpan.style.color = '#ccc';
+      }
     }
 
     function closeChat() {
@@ -252,6 +306,8 @@
         const imgSrc = parts[0];
         const caption = parts[1] || '';
         content = `<img src="${imgSrc}" onclick="openFullImage('${imgSrc}')">` + (caption ? `<div>${caption}</div>` : '');
+      } else if (data.message && data.message.startsWith('data:audio')) {
+        content = `<audio controls src="${data.message}"></audio>`;
       } else {
         content = data.message;
       }
@@ -272,6 +328,55 @@
         reader.readAsDataURL(file);
       }
     };
+
+    async function toggleRecordVoice() {
+      const micBtn = document.getElementById('mic-btn');
+      if (!isRecording) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaRecorder = new MediaRecorder(stream);
+          audioChunks = [];
+
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+              audioChunks.push(event.data);
+            }
+          };
+
+          mediaRecorder.onstop = () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const reader = new FileReader();
+            reader.readAsDataURL(audioBlob);
+            reader.onloadend = () => {
+              const base64Audio = reader.result;
+              if (activeReceiver) {
+                socket.emit('send_private_message', {
+                  sender: currentUser,
+                  receiver: activeReceiver,
+                  message: base64Audio
+                });
+              } else {
+                alert('لطفاً ابتدا یک مخاطب انتخاب کنید');
+              }
+            };
+            stream.getTracks().forEach(track => track.stop());
+          };
+
+          mediaRecorder.start();
+          isRecording = true;
+          micBtn.classList.add('recording');
+          micBtn.title = "در حال ضبط... (برای توقف کلیک کنید)";
+        } catch (err) {
+          alert('دسترسی به میکروفون امکان‌پذیر نیست یا مرورگر شما پشتیبانی نمی‌کند.');
+          console.error(err);
+        }
+      } else {
+        mediaRecorder.stop();
+        isRecording = false;
+        micBtn.classList.remove('recording');
+        micBtn.title = "ضبط صدا";
+      }
+    }
 
     function sendMessage() {
       const input = document.getElementById('message-input');
@@ -298,6 +403,21 @@
 
       input.value = '';
     }
+
+    socket.on('user_status_changed', (data) => {
+      const userObj = usersListCache.find(u => u.username === data.username);
+      if (userObj) {
+        userObj.status = data.status;
+        if (data.lastSeen) {
+          userObj.lastSeen = data.lastSeen;
+        }
+      }
+      renderUsersList();
+      if (activeReceiver === data.username) {
+        activeReceiverData = userObj;
+        updateHeaderStatus();
+      }
+    });
 
     socket.on('receive_private_message', (data) => {
       if ((data.sender === activeReceiver && data.receiver === currentUser) ||
