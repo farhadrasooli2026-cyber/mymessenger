@@ -72,6 +72,10 @@ export function publicAudit(e: AuditEvent) {
     backup: "کلید پشتیبان E2EE",
     suspicious: "ورود مشکوک",
     vuln_report: "گزارش آسیب‌پذیری ثبت شد",
+    account_delete: "درخواست حذف حساب",
+    account_cancel: "لغو حذف حساب",
+    identifier_change: "تغییر شماره یا ایمیل",
+    restore: "بازیابی پشتیبان",
   };
   return {
     id: e.id,
@@ -200,6 +204,20 @@ export async function revokeDevice(userId: string, deviceId: string, actorIp?: s
       detail: `خروج از ${d.label}`,
     });
     return true;
+  });
+}
+
+export async function revokeAllDevices(userId: string, actorIp?: string) {
+  return mutateStore((data) => {
+    let n = 0;
+    for (const d of data.devices ?? []) {
+      if (d.userId === userId && !d.revokedAt) {
+        d.revokedAt = Date.now();
+        n += 1;
+      }
+    }
+    appendAudit(data, userId, "revoke", { ip: actorIp, detail: "خروج از همهٔ دستگاه‌ها" });
+    return n;
   });
 }
 

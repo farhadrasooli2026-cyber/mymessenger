@@ -82,6 +82,9 @@ export function publicProfile(user: UserRecord, viewerId?: string | null) {
     restrictSave: user.restrictSave,
     restrictShare: user.restrictShare,
     showTyping: own ? user.showTyping : undefined,
+    accountStatus: own ? (user.accountStatus ?? "active") : undefined,
+    deletionRequestedAt: own ? user.deletionRequestedAt : undefined,
+    deletionFinalizeAt: own ? (user.deletionFinalizeAt ?? null) : undefined,
   };
 }
 

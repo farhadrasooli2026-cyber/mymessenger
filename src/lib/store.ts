@@ -12,6 +12,7 @@ import type { ChannelAdminPerms, ChannelNotify, ChannelPostKind, ChannelPostStat
 import { DEFAULT_CHANNEL_ADMIN_PERMS } from "@/lib/channel-types";
 import { DEFAULT_CATEGORIES, seedCatalogItems } from "@/lib/avatar-catalog";
 import { BG_CATEGORIES, seedBackgroundItems } from "@/lib/background-catalog";
+import { randomId } from "@/lib/crypto-utils";
 
 export type { CatalogCategory, CatalogItem };
 
@@ -74,6 +75,20 @@ function hydrateUser(user: UserRecord): UserRecord {
     typingThreadId: user.typingThreadId ?? "",
     recordingUntil: user.recordingUntil ?? 0,
     deletionRequestedAt: user.deletionRequestedAt ?? null,
+    accountStatus: user.accountStatus === "pending_deletion" || user.accountStatus === "closed" ? user.accountStatus : "active",
+    deletionFinalizeAt: user.deletionFinalizeAt ?? null,
+    backupPrefs: user.backupPrefs ?? {
+      auto: false,
+      schedule: "weekly",
+      includePhotos: true,
+      includeVideos: true,
+      includeFiles: true,
+      includeVoice: false,
+    },
+    backupPasswordSalt: user.backupPasswordSalt,
+    backupPasswordHash: user.backupPasswordHash,
+    backupRecoveryHash: user.backupRecoveryHash,
+    pendingIdentifier: user.pendingIdentifier,
     twoStepEnabled: Boolean(user.twoStepEnabled),
     passwordHash: user.passwordHash,
     passwordSalt: user.passwordSalt,
@@ -281,6 +296,13 @@ export type UserRecord = {
   typingThreadId: string;
   recordingUntil: number;
   deletionRequestedAt: number | null;
+  accountStatus?: "active" | "pending_deletion" | "closed";
+  deletionFinalizeAt?: number | null;
+  backupPrefs?: BackupPrefs;
+  backupPasswordSalt?: string;
+  backupPasswordHash?: string;
+  backupRecoveryHash?: string;
+  pendingIdentifier?: { channel: Channel; challengeId: string; masked: string } | null;
   createdAt: number;
   verifiedAt?: number;
   activatedAt?: number;
@@ -290,6 +312,47 @@ export type UserRecord = {
   recoveryCodeHashes?: string[];
   passkeys?: PasskeyRecord[];
   e2eeBackupVerifier?: string;
+};
+
+export type BackupPrefs = {
+  auto: boolean;
+  schedule: "daily" | "weekly" | "monthly";
+  includePhotos: boolean;
+  includeVideos: boolean;
+  includeFiles: boolean;
+  includeVoice: boolean;
+};
+
+export type EncryptedBackup = {
+  id: string;
+  userId: string;
+  createdAt: number;
+  sizeBytes: number;
+  status: "complete" | "failed" | "incomplete";
+  error?: string;
+  errorCode?: "storage" | "network" | "permission" | "integrity" | "empty";
+  integrity: string;
+  salt: string;
+  nonce: string;
+  ciphertext: string;
+  include: {
+    chats: boolean;
+    settings: boolean;
+    photos: boolean;
+    videos: boolean;
+    files: boolean;
+    voice: boolean;
+  };
+  encryption: "aes-gcm-v1";
+  location: "nixo-vault";
+  version: 1;
+};
+
+export type ClosedAccount = {
+  id: string;
+  closedAt: number;
+  reason: "user_request" | "tos" | "legal";
+  userIdHint: string;
 };
 
 export type PasskeyRecord = {
@@ -323,7 +386,11 @@ export type SecurityEventKind =
   | "passkey"
   | "backup"
   | "suspicious"
-  | "vuln_report";
+  | "vuln_report"
+  | "account_delete"
+  | "account_cancel"
+  | "identifier_change"
+  | "restore";
 
 export type AuditEvent = {
   id: string;
@@ -797,6 +864,8 @@ export type StoreData = {
   audit: AuditEvent[];
   passkeyChallenges: PasskeyChallenge[];
   vulnReports: VulnReport[];
+  backups: EncryptedBackup[];
+  closedAccounts: ClosedAccount[];
 };
 
 const EMPTY: StoreData = {
@@ -828,6 +897,8 @@ const EMPTY: StoreData = {
   audit: [],
   passkeyChallenges: [],
   vulnReports: [],
+  backups: [],
+  closedAccounts: [],
 };
 
 const STORE_PATH = path.join(
@@ -880,6 +951,8 @@ async function readStore(): Promise<StoreData> {
       audit: Array.isArray(parsed.audit) ? parsed.audit : [],
       passkeyChallenges: Array.isArray(parsed.passkeyChallenges) ? parsed.passkeyChallenges : [],
       vulnReports: Array.isArray(parsed.vulnReports) ? parsed.vulnReports : [],
+      backups: Array.isArray(parsed.backups) ? parsed.backups : [],
+      closedAccounts: Array.isArray(parsed.closedAccounts) ? parsed.closedAccounts : [],
     };
   } catch {
     return structuredClone(EMPTY);
@@ -944,4 +1017,45 @@ function prune(data: StoreData, now: number): void {
     }))
     .filter((b) => b.hits.length > 0 || (b.blockedUntil !== null && b.blockedUntil > now));
   data.failedCycles = data.failedCycles.filter((f) => now - f.lastAt < 24 * 60 * 60 * 1000);
+  // Accounts are never removed for inactivity. Only a confirmed pending deletion past its grace period is purged.
+  finalizeDueAccounts(data, now);
+}
+
+export function finalizeDueAccounts(data: StoreData, now: number) {
+  const keep: UserRecord[] = [];
+  for (const user of data.users) {
+    if (user.accountStatus === "pending_deletion" && user.deletionFinalizeAt && user.deletionFinalizeAt <= now) {
+      purgeUserData(data, user, now);
+      continue;
+    }
+    keep.push(user);
+  }
+  data.users = keep;
+}
+
+function purgeUserData(data: StoreData, user: UserRecord, now: number) {
+  const uid = user.id;
+  data.closedAccounts = [
+    { id: randomId(), closedAt: now, reason: "user_request" as const, userIdHint: uid.slice(0, 8) },
+    ...(data.closedAccounts ?? []),
+  ].slice(0, 200);
+  data.threads = data.threads.filter((t) => t.ownerUserId !== uid);
+  data.messages = data.messages.filter((m) => m.ownerUserId !== uid);
+  data.savedItems = (data.savedItems ?? []).filter((s) => s.ownerUserId !== uid);
+  data.backups = (data.backups ?? []).filter((b) => b.userId !== uid);
+  data.calls = (data.calls ?? []).filter((c) => c.ownerUserId !== uid && c.peerKey !== uid);
+  data.userStories = (data.userStories ?? []).filter((s) => s.ownerUserId !== uid);
+  for (const d of data.devices ?? []) {
+    if (d.userId === uid && !d.revokedAt) d.revokedAt = now;
+  }
+  for (const g of data.groups ?? []) {
+    g.members = g.members.filter((m) => m.key !== uid);
+  }
+  for (const c of data.communities ?? []) {
+    c.members = c.members.filter((m) => m.key !== uid);
+  }
+  for (const ch of data.pubChannels ?? []) {
+    ch.subscribers = ch.subscribers.filter((s) => s.userId !== uid);
+    ch.staff = ch.staff.filter((s) => s.userId !== uid);
+  }
 }

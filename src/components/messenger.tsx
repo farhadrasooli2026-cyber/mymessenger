@@ -282,6 +282,7 @@ export function Messenger({
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("chats");
+  const [pendingDeletion, setPendingDeletion] = useState(false);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -472,6 +473,7 @@ export function Messenger({
     fetch("/api/me", { cache: "no-store", signal: ac.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
+        if (d?.user?.accountStatus === "pending_deletion") setPendingDeletion(true);
         const notices = (d?.notices ?? []) as { id: string; title: string; detail?: string }[];
         if (!notices.length) return;
         const ids = notices.map((n) => n.id).join(",");
@@ -837,6 +839,14 @@ export function Messenger({
       }}
     >
       <ThemeApplicator appearance={appearance} />
+      {pendingDeletion && (
+        <div className="fixed inset-x-0 top-0 z-40 bg-amber-300 px-3 py-2 text-center text-xs text-[#102824]">
+          حساب در دورهٔ بازیابی حذف است. از تنظیمات ← حساب می‌توانید لغو کنید.{" "}
+          <Link href="/app/settings/account" className="underline">
+            باز کردن
+          </Link>
+        </div>
+      )}
       <nav className="hidden w-20 flex-col items-center gap-3 border-l border-white/10 bg-[#0b2421] py-4 md:flex">
         <NavBtn icon={MessageCircle} label="گفتگو" active={tab === "chats"} onClick={() => setTab("chats")} />
         <NavBtn icon={Phone} label="تماس" active={tab === "calls"} onClick={() => setTab("calls")} />
@@ -1794,6 +1804,9 @@ export function Messenger({
             </Link>
             <Link href="/app/settings/security" className="block text-sm text-amber-200">
               تنظیمات → امنیت
+            </Link>
+            <Link href="/app/settings/account" className="block text-sm text-amber-200">
+              تنظیمات → حساب و پشتیبان
             </Link>
             <Link href="/app/settings/story" className="block text-sm text-amber-200">
               تنظیمات → حریم خصوصی → استوری

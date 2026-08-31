@@ -145,6 +145,75 @@ export async function saveLocalMessages(threadId: string, key: CryptoKey, messag
   store.setItem(`${LOCAL_PREFIX}${threadId}`, JSON.stringify(envelope));
 }
 
+export function listStoredThreadKeys(): { threadId: string; raw: string }[] {
+  const store = storage();
+  if (!store) return [];
+  const out: { threadId: string; raw: string }[] = [];
+  for (let i = 0; i < store.length; i += 1) {
+    const k = store.key(i);
+    if (!k?.startsWith(THREAD_PREFIX)) continue;
+    const raw = store.getItem(k);
+    if (raw) out.push({ threadId: k.slice(THREAD_PREFIX.length), raw });
+  }
+  return out;
+}
+
+export async function collectDeviceVault(settings?: unknown) {
+  const store = storage();
+  const keys = listStoredThreadKeys();
+  const localChats: { threadId: string; messages: LocalChatMessage[] }[] = [];
+  for (const k of keys) {
+    try {
+      const key = await importRawKey(k.raw);
+      const messages = await loadLocalMessages(k.threadId, key);
+      localChats.push({ threadId: k.threadId, messages });
+    } catch {
+      /* skip broken slot */
+    }
+  }
+  let identity: IdentityBundle | null = null;
+  try {
+    const raw = store?.getItem(IDENTITY_KEY);
+    identity = raw ? (JSON.parse(raw) as IdentityBundle) : null;
+  } catch {
+    identity = null;
+  }
+  return {
+    v: 1 as const,
+    exportedAt: Date.now(),
+    identity,
+    threadKeys: keys,
+    localChats,
+    settings,
+  };
+}
+
+export async function applyDeviceVault(
+  vault: {
+    identity?: IdentityBundle | null;
+    threadKeys?: { threadId: string; raw: string }[];
+    localChats?: { threadId: string; messages: LocalChatMessage[] }[];
+  },
+  select: { chats?: boolean },
+) {
+  const store = storage();
+  if (!store) return;
+  if (vault.identity) store.setItem(IDENTITY_KEY, JSON.stringify(vault.identity));
+  if (select.chats !== false) {
+    for (const k of vault.threadKeys ?? []) {
+      store.setItem(`${THREAD_PREFIX}${k.threadId}`, k.raw);
+    }
+    for (const chat of vault.localChats ?? []) {
+      try {
+        const key = await loadOrCreateThreadKey(chat.threadId);
+        await saveLocalMessages(chat.threadId, key, chat.messages);
+      } catch {
+        /* skip */
+      }
+    }
+  }
+}
+
 export function looksLikeEnvelope(value: unknown): value is CipherEnvelope {
   if (!value || typeof value !== "object") return false;
   const v = value as CipherEnvelope;

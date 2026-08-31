@@ -333,29 +333,11 @@ export function PrivacyDashboard() {
         <section className="rounded-2xl bg-white/5 p-4 text-sm">
           <h2 className="font-medium">حذف داده و حداقل داده</h2>
           <p className="text-[11px] leading-5 opacity-70">
-            نیکسو فقط دادهٔ لازم برای سرویس را نگه می‌دارد. درخواست حذف برای داده‌هایی که قانون اجازه بدهد ثبت می‌شود؛ برخی سوابق امنیتی ممکن است باقی بماند.
+            حساب به‌خاطر ورود نکردن حذف نمی‌شود. حذف کامل فقط از مسیر تنظیمات ← حساب با چند مرحله تأیید و دورهٔ بازیابی است.
           </p>
-          {settings.deletionRequestedAt ? (
-            <p className="mt-2 text-xs text-amber-200">درخواست حذف ثبت شد.</p>
-          ) : (
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              className="mt-2"
-              onClick={async () => {
-                if (!confirm("درخواست حذف داده‌های حساب ثبت شود؟")) return;
-                await fetch("/api/privacy", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ action: "delete-request" }),
-                });
-                load();
-              }}
-            >
-              درخواست حذف اطلاعات
-            </Button>
-          )}
+          <Link href="/app/settings/account" className="mt-2 inline-block text-xs text-amber-200">
+            Settings → Account → Delete Account
+          </Link>
         </section>
 
         <Link href="/app" className="inline-block text-sm text-amber-200">
