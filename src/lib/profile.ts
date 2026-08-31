@@ -61,6 +61,8 @@ export function publicProfile(user: UserRecord, viewerId?: string | null) {
     verifiedAt: user.verifiedAt ?? null,
     activatedAt: user.activatedAt ?? null,
     appearance: own ? (user.appearance ?? undefined) : undefined,
+    cryptoPublicKey: own ? (user.cryptoPublicKey ?? null) : undefined,
+    blockedPeerKeys: own ? user.blockedPeerKeys : undefined,
   };
 }
 
@@ -210,8 +212,15 @@ export async function searchUsers(query: string, viewerId: string) {
   const q = query.trim().replace(/^@/, "").toLowerCase();
   if (q.length < 2) return [];
   const data = await readStoreSnapshot();
+  const me = data.users.find((u) => u.id === viewerId);
   return data.users
-    .filter((u) => u.status === "active" && u.username && u.username.includes(q) && u.id !== viewerId)
+    .filter((u) => {
+      if (u.status !== "active" || !u.username || u.id === viewerId) return false;
+      if (!u.username.includes(q)) return false;
+      if (me?.blockedPeerKeys.includes(u.id)) return false;
+      if (u.blockedPeerKeys.includes(viewerId)) return false;
+      return true;
+    })
     .slice(0, 12)
     .map((u) => publicProfile(u, viewerId));
 }
@@ -219,7 +228,11 @@ export async function searchUsers(query: string, viewerId: string) {
 export async function addContact(userId: string, otherId: string) {
   return mutateStore((data) => {
     const user = data.users.find((u) => u.id === userId);
-    if (!user) return { ok: false as const };
+    const other = data.users.find((u) => u.id === otherId);
+    if (!user || !other) return { ok: false as const, error: "کاربر یافت نشد." };
+    if (user.blockedPeerKeys.includes(otherId) || other.blockedPeerKeys.includes(userId)) {
+      return { ok: false as const, error: "تعامل با این شخص محدود شده است." };
+    }
     if (!user.contactIds.includes(otherId) && otherId !== userId) user.contactIds.push(otherId);
     return { ok: true as const };
   });

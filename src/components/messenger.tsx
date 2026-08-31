@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { MessageCircle, Phone, Search, Send, Sparkles, Store, UserRound } from "lucide-react";
+import { Ban, Flag, Lock, MessageCircle, Phone, Search, Send, Sparkles, Store, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { nixoSpaces } from "@/lib/brand";
@@ -12,10 +12,22 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
 import { BackgroundPicker, type BgDraft } from "@/components/background-picker";
 import { ThemeApplicator } from "@/components/theme-applicator";
 import { defaultAppearance, type Appearance, type BackgroundSpec, type BubbleStyle, type TextSize } from "@/lib/appearance-types";
 import { backgroundPreview } from "@/lib/background-style";
+import { nixoLocalReply, REPORT_CATEGORIES, SEED_PEERS, type ReportCategory } from "@/lib/chat-copy";
+import {
+  decryptText,
+  encryptText,
+  loadLocalMessages,
+  loadOrCreateIdentity,
+  loadOrCreateThreadKey,
+  saveLocalMessages,
+  type CipherEnvelope,
+  type LocalChatMessage,
+} from "@/lib/e2ee";
 
 type Thread = {
   id: string;
@@ -23,9 +35,18 @@ type Thread = {
   peerName: string;
   peerTitle: string;
   color: string;
-  lastText: string;
+  lastEnc: "e2ee-v1" | "purged" | null;
+  lastCiphertext: string | null;
+  lastNonce: string | null;
   lastAt: number;
+  updatedAt?: number;
+  lastPreview?: string;
   background?: BackgroundSpec;
+  blocked: boolean;
+  blockedByMe: boolean;
+  messagesAllowed: boolean;
+  callsAllowed: boolean;
+  interactionsAllowed: boolean;
 };
 
 type Message = {
@@ -33,9 +54,38 @@ type Message = {
   sender: "me" | "peer";
   text: string;
   createdAt: number;
+  locked?: boolean;
+  local?: boolean;
 };
 
 type Tab = "chats" | "calls" | "spaces" | "shop" | "me";
+
+async function decryptEnvelope(threadId: string, envelope: CipherEnvelope | null): Promise<string | null> {
+  if (!envelope?.ciphertext || !envelope.nonce || envelope.enc !== "e2ee-v1") return null;
+  try {
+    const key = await loadOrCreateThreadKey(threadId);
+    return await decryptText(key, envelope);
+  } catch {
+    return null;
+  }
+}
+
+async function ensureIntros(thread: Thread): Promise<LocalChatMessage[]> {
+  const key = await loadOrCreateThreadKey(thread.id);
+  const existing = await loadLocalMessages(thread.id, key);
+  if (existing.length > 0) return existing;
+  const seed = SEED_PEERS.find((p) => p.peerKey === thread.peerKey);
+  if (!seed) return [];
+  const intros: LocalChatMessage[] = seed.messages.map((text, i) => ({
+    id: `local-${thread.id}-${i}`,
+    sender: "peer",
+    text,
+    createdAt: thread.lastAt - (seed.messages.length - i) * 12_000,
+    local: true,
+  }));
+  await saveLocalMessages(thread.id, key, intros);
+  return intros;
+}
 
 export function Messenger({
   displayName,
@@ -60,14 +110,40 @@ export function Messenger({
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [story, setStory] = useState<{ title: string; body: string; viewed: boolean } | null>(null);
+  const [storyOpen, setStoryOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<{ id: string; displayName: string; username: string | null }[]>([]);
   const [bgOpen, setBgOpen] = useState(false);
   const [chatBgDraft, setChatBgDraft] = useState<BgDraft>({ kind: "default" });
   const [mobileChat, setMobileChat] = useState(false);
+  const [safetyOpen, setSafetyOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportTarget, setReportTarget] = useState<"chat" | "user">("chat");
+  const [reportCategory, setReportCategory] = useState<ReportCategory>("spam");
+  const [reportDetails, setReportDetails] = useState("");
+  const [blockedList, setBlockedList] = useState<{ peerKey: string; peerName: string; threadId: string | null }[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
 
   const active = threads.find((t) => t.id === activeId) ?? null;
+
+  const decorateThreads = useCallback(async (list: Thread[]) => {
+    const next = await Promise.all(
+      list.map(async (thread) => {
+        const preview = await decryptEnvelope(
+          thread.id,
+          thread.lastCiphertext && thread.lastNonce && thread.lastEnc === "e2ee-v1"
+            ? { enc: "e2ee-v1", ciphertext: thread.lastCiphertext, nonce: thread.lastNonce }
+            : null,
+        );
+        return {
+          ...thread,
+          lastPreview: preview ?? (thread.lastCiphertext ? "•••• پیام رمزنگاری‌شده" : "گفتگوی خصوصی"),
+        };
+      }),
+    );
+    setThreads(next);
+    return next;
+  }, []);
 
   const loadThreads = useCallback(async () => {
     const res = await fetch("/api/chats", { cache: "no-store" });
@@ -76,10 +152,8 @@ export function Messenger({
       return [] as Thread[];
     }
     const data = (await res.json()) as { threads: Thread[] };
-    const list = data.threads ?? [];
-    setThreads(list);
-    return list;
-  }, [router]);
+    return decorateThreads(data.threads ?? []);
+  }, [router, decorateThreads]);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -93,24 +167,72 @@ export function Messenger({
       })
       .then((data) => {
         if (!data) return;
-        setThreads(data.threads ?? []);
-        setActiveId((current) => current ?? data.threads?.[0]?.id ?? null);
+        return decorateThreads(data.threads ?? []).then((list) => {
+          setActiveId((current) => current ?? list[0]?.id ?? null);
+        });
       })
       .catch(() => undefined);
     fetch("/api/story", { signal: ac.signal })
       .then((r) => r.json())
       .then((d) => setStory(d.story ?? null))
       .catch(() => undefined);
+    loadOrCreateIdentity()
+      .then((identity) =>
+        fetch("/api/crypto/keys", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ publicKey: identity.publicJwk }),
+        }),
+      )
+      .catch(() => undefined);
     return () => ac.abort();
-  }, [router]);
+  }, [router, decorateThreads]);
 
   useEffect(() => {
     if (!activeId) return;
     const ac = new AbortController();
-    fetch(`/api/chats/${activeId}`, { cache: "no-store", signal: ac.signal })
+    const threadId = activeId;
+    fetch(`/api/chats/${threadId}`, { cache: "no-store", signal: ac.signal })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.messages) setMessages(data.messages);
+      .then(async (data) => {
+        if (!data) return;
+        const threadMeta = data.thread as Thread;
+        const key = await loadOrCreateThreadKey(threadId);
+        const remote: Message[] = [];
+        for (const raw of data.messages as { id: string; sender: "me" | "peer"; createdAt: number; enc: string; ciphertext: string; nonce: string }[]) {
+          if (raw.enc !== "e2ee-v1") {
+            remote.push({ id: raw.id, sender: raw.sender, createdAt: raw.createdAt, text: "•••• این پیام روی این دستگاه قابل خواندن نیست.", locked: true });
+            continue;
+          }
+          try {
+            const text = await decryptText(key, { enc: "e2ee-v1", ciphertext: raw.ciphertext, nonce: raw.nonce });
+            remote.push({ id: raw.id, sender: raw.sender, createdAt: raw.createdAt, text });
+          } catch {
+            remote.push({ id: raw.id, sender: raw.sender, createdAt: raw.createdAt, text: "•••• کلید این دستگاه برای این پیام موجود نیست.", locked: true });
+          }
+        }
+        const local = await ensureIntros({
+          ...threadMeta,
+          id: threadId,
+          peerKey: threadMeta.peerKey,
+          lastAt: threadMeta.updatedAt ?? Date.now(),
+        } as Thread);
+        const merged = [...local.map((m) => ({ ...m, local: true as const })), ...remote].sort((a, b) => a.createdAt - b.createdAt);
+        setMessages(merged);
+        setThreads((list) =>
+          list.map((t) =>
+            t.id === threadId
+              ? {
+                  ...t,
+                  blocked: data.blocked,
+                  blockedByMe: data.blockedByMe,
+                  messagesAllowed: data.messagesAllowed,
+                  callsAllowed: data.callsAllowed,
+                  interactionsAllowed: data.interactionsAllowed,
+                }
+              : t,
+          ),
+        );
       })
       .catch(() => undefined);
     return () => ac.abort();
@@ -122,25 +244,94 @@ export function Messenger({
 
   async function onSend(e: React.FormEvent) {
     e.preventDefault();
-    if (!activeId || !draft.trim()) return;
+    if (!activeId || !draft.trim() || !active?.messagesAllowed) return;
     setBusy(true);
     try {
+      const key = await loadOrCreateThreadKey(activeId);
+      const envelope = await encryptText(key, draft.trim());
       const res = await fetch(`/api/chats/${activeId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: draft }),
+        body: JSON.stringify(envelope),
       });
+      if (res.status === 403) {
+        toast.error("پیام، تماس و تعامل با این شخص محدود شده است.");
+        await loadThreads();
+        return;
+      }
       if (!res.ok) {
         toast.error("ارسال انجام نشد.");
         return;
       }
-      const data = (await res.json()) as { messages: Message[] };
-      setMessages(data.messages);
+      const data = (await res.json()) as {
+        messages: { id: string; sender: "me" | "peer"; createdAt: number; enc: string; ciphertext: string; nonce: string }[];
+      };
+      const remote: Message[] = [];
+      for (const raw of data.messages) {
+        try {
+          const text = await decryptText(key, { enc: "e2ee-v1", ciphertext: raw.ciphertext, nonce: raw.nonce });
+          remote.push({ id: raw.id, sender: raw.sender, createdAt: raw.createdAt, text });
+        } catch {
+          remote.push({ id: raw.id, sender: raw.sender, createdAt: raw.createdAt, text: "••••", locked: true });
+        }
+      }
+      let local = await loadLocalMessages(activeId, key);
+      if (active.peerKey === "nixo") {
+        const reply: LocalChatMessage = {
+          id: `local-reply-${Date.now()}`,
+          sender: "peer",
+          text: nixoLocalReply(draft.trim()),
+          createdAt: Date.now() + 1,
+          local: true,
+        };
+        local = [...local, reply];
+        await saveLocalMessages(activeId, key, local);
+      }
+      setMessages([...local.map((m) => ({ ...m, local: true as const })), ...remote].sort((a, b) => a.createdAt - b.createdAt));
       setDraft("");
       await loadThreads();
     } finally {
       setBusy(false);
     }
+  }
+
+  async function toggleBlock(blocked: boolean) {
+    if (!active) return;
+    const res = await fetch(`/api/chats/${active.id}/block`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ blocked }),
+    });
+    if (!res.ok) {
+      toast.error("تغییر مسدودسازی انجام نشد.");
+      return;
+    }
+    toast.success(blocked ? "این شخص مسدود شد." : "مسدودسازی برداشته شد.");
+    setSafetyOpen(false);
+    await loadThreads();
+  }
+
+  async function submitReport() {
+    if (!active) return;
+    const res = await fetch("/api/reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        targetKind: reportTarget,
+        targetKey: reportTarget === "chat" ? active.id : active.peerKey,
+        threadId: active.id,
+        category: reportCategory,
+        details: reportDetails,
+      }),
+    });
+    if (!res.ok) {
+      toast.error("گزارش ثبت نشد.");
+      return;
+    }
+    toast.success("گزارش ثبت شد. نیکسو متن پیام را برای گزارش نمی‌گیرد.");
+    setReportOpen(false);
+    setReportDetails("");
+    setSafetyOpen(false);
   }
 
   async function openStory() {
@@ -153,6 +344,14 @@ export function Messenger({
     await fetch("/api/me", { method: "DELETE" });
     router.replace("/");
   }
+
+  useEffect(() => {
+    if (tab !== "me") return;
+    fetch("/api/blocks")
+      .then((r) => r.json())
+      .then((d) => setBlockedList(d.blocked ?? []))
+      .catch(() => undefined);
+  }, [tab, threads]);
 
   const initials = useMemo(() => displayName.slice(0, 1), [displayName]);
 
@@ -202,7 +401,7 @@ export function Messenger({
         </div>
 
         <div className="space-y-2 px-4 pb-3">
-          <p className="text-xs text-emerald-100/55">گفتگوهای خصوصی · ساده و مستقیم</p>
+          <p className="text-xs text-emerald-100/55">گفتگوهای خصوصی · رمز روی دستگاه تو</p>
           <div className="flex gap-2">
             <Input
               value={query}
@@ -255,10 +454,15 @@ export function Messenger({
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center justify-between gap-2">
-                    <span className="truncate font-medium">{thread.peerName}</span>
+                    <span className="truncate font-medium">
+                      {thread.peerName}
+                      {thread.blockedByMe ? <span className="mr-2 text-[10px] text-rose-300">مسدود</span> : null}
+                    </span>
                     <span className="text-[10px] text-emerald-100/45">{thread.peerTitle}</span>
                   </span>
-                  <span className="mt-0.5 block truncate text-xs text-emerald-100/60">{thread.lastText}</span>
+                  <span className="mt-0.5 block truncate text-xs text-emerald-100/60">
+                    {thread.lastPreview ?? "گفتگوی خصوصی"}
+                  </span>
                 </span>
               </button>
             ))}
@@ -291,7 +495,10 @@ export function Messenger({
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">{active.peerName}</p>
-                <p className="text-[11px] text-[color:var(--nixo-accent,#6ee7b7)]/80">رمزنگاری سرتاسری در مسیر طراحی · {active.peerTitle}</p>
+                <p className="flex items-center gap-1 text-[11px] text-[color:var(--nixo-accent,#6ee7b7)]/80">
+                  <Lock className="size-3" />
+                  رمزنگاری سرتاسری روی این دستگاه · {active.peerTitle}
+                </p>
               </div>
               <Button
                 type="button"
@@ -304,7 +511,58 @@ export function Messenger({
               >
                 پس‌زمینه این چت
               </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-white hover:bg-white/10"
+                onClick={() => setSafetyOpen((v) => !v)}
+              >
+                ایمنی
+              </Button>
             </header>
+            {safetyOpen && (
+              <div className="flex flex-wrap gap-2 border-b border-white/10 bg-black/25 px-4 py-2">
+                {active.blockedByMe ? (
+                  <Button type="button" size="sm" variant="secondary" onClick={() => toggleBlock(false)}>
+                    رفع مسدودسازی
+                  </Button>
+                ) : (
+                  <Button type="button" size="sm" variant="secondary" onClick={() => toggleBlock(true)}>
+                    <Ban className="size-3.5" />
+                    مسدود کردن
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    setReportTarget("user");
+                    setReportOpen(true);
+                  }}
+                >
+                  <Flag className="size-3.5" />
+                  گزارش کاربر
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    setReportTarget("chat");
+                    setReportOpen(true);
+                  }}
+                >
+                  <Flag className="size-3.5" />
+                  گزارش گفتگو
+                </Button>
+              </div>
+            )}
+            {active.blocked && (
+              <p className="border-b border-rose-400/20 bg-rose-500/10 px-4 py-2 text-xs leading-6 text-rose-100">
+                پیام‌ها، تماس‌ها و تعاملات با این شخص محدود شده‌اند.
+              </p>
+            )}
             <div className="relative flex-1 overflow-hidden">
               <div
                 className="pointer-events-none absolute inset-0"
@@ -328,9 +586,11 @@ export function Messenger({
                           "max-w-[80%] px-3",
                           bubbleClass(appearance.bubbleStyle),
                           textClass(appearance.textSize),
-                          msg.sender === "me"
-                            ? "bg-[var(--nixo-bubble,#fbbf24)] text-[var(--nixo-bubble-text,#102824)]"
-                            : "bg-black/35 text-[var(--nixo-text,#ecfdf5)]",
+                          msg.locked
+                            ? "bg-black/50 text-emerald-100/55"
+                            : msg.sender === "me"
+                              ? "bg-[var(--nixo-bubble,#fbbf24)] text-[var(--nixo-bubble-text,#102824)]"
+                              : "bg-black/35 text-[var(--nixo-text,#ecfdf5)]",
                         )}
                       >
                         {msg.text}
@@ -345,15 +605,16 @@ export function Messenger({
               <Input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder="پیام به نیکسو..."
+                placeholder={active.messagesAllowed ? "پیام رمزنگاری‌شده بنویس..." : "ارسال پیام محدود شده است"}
                 className="h-11 flex-1 border-white/10 bg-black/20"
                 maxLength={2000}
+                disabled={!active.messagesAllowed}
               />
               <Button
                 type="submit"
                 size="lg"
                 className="h-11 bg-amber-300 text-[#102824] hover:bg-amber-200"
-                disabled={busy || !draft.trim()}
+                disabled={busy || !draft.trim() || !active.messagesAllowed}
               >
                 <Send className="size-4" />
                 ارسال
@@ -362,13 +623,22 @@ export function Messenger({
           </>
         )}
 
-        {tab === "calls" && <Panel title="تماس" body="تماس صوتی و تصویری با معماری Zero Trust طراحی می‌شود؛ در این برش، مسیر اصلی گفتگوی خصوصی است تا کارهای روزمره پشت منو قایم نشود." />}
+        {tab === "calls" && (
+          <Panel
+            title="تماس"
+            body={
+              active && !active.callsAllowed
+                ? "تماس با این شخص محدود شده است؛ مسدودسازی پیام، تماس و تعامل را با هم قطع می‌کند. تماس صوتی و تصویری کامل در بخش جداگانهٔ نیکسو پیاده می‌شود."
+                : "تماس صوتی و تصویری با معماری Zero Trust در بخش جداگانه پیاده می‌شود. در این برش، اگر کسی را مسدود کنی تماس هم بسته می‌ماند."
+            }
+          />
+        )}
         {tab === "shop" && <Panel title="فروشگاه و پرداخت" body="فروشگاه، پرداخت و کیف پول بخشی از نیکسو خواهند بود، جدا از هستهٔ گفتگو و با کمترین دسترسی." />}
         {tab === "spaces" && (
           <div className="flex-1 overflow-auto p-5">
             <h2 className="text-xl font-semibold">فضاهای نیکسو</h2>
             <p className="mt-2 max-w-2xl text-sm leading-7 text-emerald-100/70">
-              همهٔ سرویس‌ها در یک هویت جمع می‌شوند. الان گفتگوی خصوصی و استوری زنده‌اند؛ بقیه روی همین مسیر ساخته می‌شوند.
+              همهٔ سرویس‌ها در یک هویت جمع می‌شوند. الان گفتگوی خصوصی، مسدودسازی، گزارش و مسیر E2EE زنده‌اند؛ ویس، مدیا، View Once، پیام محو و تماس در بخش‌های جداگانه کامل می‌شوند.
             </p>
             <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {nixoSpaces.map((space) => (
@@ -421,6 +691,47 @@ export function Messenger({
             <Link href="/app/settings/chat-appearance" className="block text-sm text-amber-200">
               تنظیمات → ظاهر گفتگو → پس‌زمینه چت
             </Link>
+            <div className="max-w-xl rounded-2xl border border-white/10 bg-white/5 p-4">
+              <p className="flex items-center gap-2 text-sm font-medium">
+                <Lock className="size-4 text-amber-200" />
+                امنیت چت نیکسو
+              </p>
+              <p className="mt-2 text-xs leading-6 text-emerald-100/70">
+                پیام‌های خصوصی با AES-GCM روی این دستگاه رمز می‌شوند و سرور فقط پاکت رمزنگاری‌شده را نگه می‌دارد. کلید نخ در همین مرورگر است؛ همگام‌سازی چنددستگاهی و بسته‌های ویس/مدیا در بخش جداگانه می‌آید. نیکسو تضمین نمی‌کند هرگز قابل نفوذ نباشد.
+              </p>
+            </div>
+            <div className="max-w-xl rounded-2xl border border-white/10 bg-white/5 p-4">
+              <p className="text-sm font-medium">مسدودشده‌ها</p>
+              {blockedList.length === 0 ? (
+                <p className="mt-2 text-xs text-emerald-100/55">کسی را مسدود نکرده‌ای.</p>
+              ) : (
+                <ul className="mt-2 space-y-2">
+                  {blockedList.map((row) => (
+                    <li key={row.peerKey} className="flex items-center justify-between text-sm">
+                      <span>{row.peerName}</span>
+                      {row.threadId && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="text-amber-200"
+                          onClick={async () => {
+                            await fetch(`/api/chats/${row.threadId}/block`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ blocked: false }),
+                            });
+                            await loadThreads();
+                          }}
+                        >
+                          رفع مسدودسازی
+                        </Button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <p className="max-w-xl text-sm leading-7 text-emerald-100/70">
               نام، نام خانوادگی، نام کاربری، بیو و عکس پروفایل از همین مسیر قابل تغییرند و دائمی نیستند.
             </p>
@@ -481,6 +792,42 @@ export function Messenger({
                 }}
               >
                 اعمال
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {reportOpen && active && (
+        <div className="fixed inset-0 z-40 grid place-items-center bg-black/70 p-4" onClick={() => setReportOpen(false)}>
+          <div className="w-full max-w-md rounded-3xl bg-[#102824] p-5" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-semibold">گزارش {reportTarget === "chat" ? "گفتگو" : "کاربر"}</h2>
+            <p className="mt-1 text-xs text-emerald-100/60">دسته‌بندی را انتخاب کن. متن پیام برای گزارش به سرور فرستاده نمی‌شود.</p>
+            <div className="mt-4 space-y-2">
+              {REPORT_CATEGORIES.map((cat) => (
+                <label key={cat.id} className="flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2 text-sm">
+                  <input
+                    type="radio"
+                    name="report-cat"
+                    checked={reportCategory === cat.id}
+                    onChange={() => setReportCategory(cat.id)}
+                  />
+                  {cat.label}
+                </label>
+              ))}
+            </div>
+            <Textarea
+              value={reportDetails}
+              onChange={(e) => setReportDetails(e.target.value)}
+              placeholder="توضیح اختیاری"
+              className="mt-3 min-h-20 bg-black/20"
+              maxLength={500}
+            />
+            <div className="mt-4 flex gap-2">
+              <Button type="button" variant="ghost" className="flex-1 text-white" onClick={() => setReportOpen(false)}>
+                انصراف
+              </Button>
+              <Button type="button" className="flex-1 bg-amber-300 text-[#102824]" onClick={submitReport}>
+                ثبت گزارش
               </Button>
             </div>
           </div>

@@ -15,6 +15,7 @@ export async function POST(request: Request) {
   if (!me) return jsonError("نشست فعال نیست.", 401);
   const body = (await request.json().catch(() => null)) as { userId?: string } | null;
   if (!body?.userId) return jsonError("کاربر نامعتبر است.");
-  await addContact(me.id, body.userId);
+  const result = await addContact(me.id, body.userId);
+  if (!result.ok) return jsonError(result.error ?? "تعامل محدود شده است.", 403);
   return json({ ok: true });
 }

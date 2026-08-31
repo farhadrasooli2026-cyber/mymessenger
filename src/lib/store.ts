@@ -21,6 +21,33 @@ function hydrateUser(user: UserRecord): UserRecord {
     bioAllowIds: user.bioAllowIds ?? [],
     contactIds: user.contactIds ?? [],
     appearance: user.appearance ?? defaultUserFields().appearance,
+    blockedPeerKeys: Array.isArray(user.blockedPeerKeys) ? user.blockedPeerKeys : [],
+    cryptoPublicKey: user.cryptoPublicKey ?? null,
+  };
+}
+
+function hydrateMessage(message: ChatMessage & { text?: string }): ChatMessage {
+  if (message.enc === "e2ee-v1" && message.ciphertext && message.nonce) {
+    return {
+      id: message.id,
+      threadId: message.threadId,
+      ownerUserId: message.ownerUserId,
+      sender: message.sender,
+      enc: "e2ee-v1",
+      ciphertext: message.ciphertext,
+      nonce: message.nonce,
+      createdAt: message.createdAt,
+    };
+  }
+  return {
+    id: message.id,
+    threadId: message.threadId,
+    ownerUserId: message.ownerUserId,
+    sender: message.sender,
+    enc: "purged",
+    ciphertext: "",
+    nonce: "",
+    createdAt: message.createdAt,
   };
 }
 
@@ -47,6 +74,8 @@ export type UserRecord = {
   bioAllowIds: string[];
   contactIds: string[];
   appearance: import("@/lib/appearance-types").Appearance;
+  blockedPeerKeys: string[];
+  cryptoPublicKey: JsonWebKey | null;
   createdAt: number;
   verifiedAt?: number;
   activatedAt?: number;
@@ -106,7 +135,21 @@ export type ChatMessage = {
   threadId: string;
   ownerUserId: string;
   sender: "me" | "peer";
-  text: string;
+  enc: "e2ee-v1" | "purged";
+  ciphertext: string;
+  nonce: string;
+  createdAt: number;
+};
+
+export type SafetyReport = {
+  id: string;
+  reporterId: string;
+  targetKind: "user" | "chat";
+  targetKey: string;
+  threadId?: string;
+  messageIds: string[];
+  category: "spam" | "abuse" | "fake" | "harassment" | "other";
+  details: string;
   createdAt: number;
 };
 
@@ -124,6 +167,7 @@ export type StoreData = {
   failedCycles: FailedCycle[];
   threads: ChatThread[];
   messages: ChatMessage[];
+  reports: SafetyReport[];
   storyViews: StoryView[];
   catalogCategories: CatalogCategory[];
   catalogItems: CatalogItem[];
@@ -139,6 +183,7 @@ const EMPTY: StoreData = {
   failedCycles: [],
   threads: [],
   messages: [],
+  reports: [],
   storyViews: [],
   catalogCategories: [],
   catalogItems: [],
@@ -149,7 +194,7 @@ const EMPTY: StoreData = {
 const STORE_PATH = path.join(
   process.cwd(),
   ".data",
-  process.env.VITEST ? "nixo-store.test.json" : "nixo-store.json",
+  process.env.VITEST ? `nixo-store.test.${process.env.VITEST_WORKER_ID ?? "0"}.json` : "nixo-store.json",
 );
 
 let queue: Promise<unknown> = Promise.resolve();
@@ -174,7 +219,8 @@ async function readStore(): Promise<StoreData> {
       humanChallenges: parsed.humanChallenges ?? [],
       failedCycles: parsed.failedCycles ?? [],
       threads: parsed.threads ?? [],
-      messages: parsed.messages ?? [],
+      messages: (parsed.messages ?? []).map(hydrateMessage),
+      reports: parsed.reports ?? [],
       storyViews: parsed.storyViews ?? [],
       catalogCategories: parsed.catalogCategories ?? [],
       catalogItems: parsed.catalogItems ?? [],
@@ -192,6 +238,12 @@ async function writeStore(data: StoreData): Promise<void> {
   await writeFile(tmp, JSON.stringify(data), "utf8");
   const { rename } = await import("node:fs/promises");
   await rename(tmp, STORE_PATH);
+}
+
+export function resetStoreForTests(): Promise<void> {
+  return enqueue(async () => {
+    await writeStore(structuredClone(EMPTY));
+  });
 }
 
 export function mutateStore<T>(mutator: (data: StoreData) => T | Promise<T>): Promise<T> {

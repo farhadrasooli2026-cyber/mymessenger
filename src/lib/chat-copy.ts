@@ -1,0 +1,52 @@
+/** Client-visible copy. Seed intros live only on the device after E2EE bootstrap. */
+
+export const SEED_PEERS = [
+  {
+    peerKey: "nixo",
+    peerName: "نیکسو",
+    peerTitle: "ارتباط رسمی",
+    color: "#fbbf24",
+    messages: [
+      "سلام. به نیکسو خوش آمدی — پیام‌رسان نسل جدید برای اتصال، تبادل و ارتباط بدون مرز.",
+      "حرف X در NIXO یعنی Connection، Exchange، Cross-border و Next: دو مسیر که به هم می‌رسند.",
+      "نیکسو ادعا نمی‌کند غیرقابل‌هک است. امنیت اینجا از طراحی می‌آید: حریم خصوصی پیش‌فرض، Zero Trust، کمترین دسترسی، و رمزنگاری سرتاسری.",
+    ],
+  },
+  {
+    peerKey: "arya",
+    peerName: "آریا کیان",
+    peerTitle: "گفتگوی خصوصی",
+    color: "#34d399",
+    messages: [
+      "رسیدی داخل نیکسو؟ مسیرش کوتاه بود.",
+      "اگر خواستی بعداً گروه و کانال را هم از همین‌جا باز می‌کنیم — بدون منوی تو در تو.",
+    ],
+  },
+  {
+    peerKey: "noor",
+    peerName: "استودیو نور",
+    peerTitle: "کسب‌وکار",
+    color: "#7dd3fc",
+    messages: ["نمونهٔ گفتگوی کاری. فایل، پرداخت و مینی‌اپ روی همین نخ ساخته می‌شوند، نه در اپ جدا."],
+  },
+] as const;
+
+export const REPORT_CATEGORIES = [
+  { id: "spam", label: "هرزنامه (Spam)" },
+  { id: "abuse", label: "سوءاستفاده (Abuse)" },
+  { id: "fake", label: "حساب جعلی (Fake Account)" },
+  { id: "harassment", label: "آزار (Harassment)" },
+  { id: "other", label: "سایر (Other)" },
+] as const;
+
+export type ReportCategory = (typeof REPORT_CATEGORIES)[number]["id"];
+
+export function nixoLocalReply(text: string): string {
+  if (/امن|هک|hack|security|رمز/i.test(text)) {
+    return "امنیت نیکسو تضمین مطلق نیست؛ لایه‌لایه است: احراز هویت سخت، کمترین دسترسی، و رمزنگاری سرتاسری روی دستگاه تو. متن پیام روی سرور نمی‌ماند. هر ادعای «هرگز هک نمی‌شویم» را باور نکن.";
+  }
+  if (/گروه|کانال|فروش|کیف|پرداخت|ai|ربات|بلاک|گزارش/i.test(text)) {
+    return "گروه، کانال، ویس، مدیا، View Once، پیام محو، و تماس در بخش‌های جداگانهٔ نیکسو کامل می‌شوند. این برش روی گفتگوی خصوصی، مسدودسازی، گزارش و مسیر E2EE تمرکز دارد.";
+  }
+  return "پیامت روی این دستگاه رمز شد و فقط پاکت رمزنگاری‌شده به سرور رفت. نیکسو متن را نمی‌بیند.";
+}

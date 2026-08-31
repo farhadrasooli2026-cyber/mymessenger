@@ -1,4 +1,3 @@
-import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { hashIp } from "./crypto-utils";
 import { normalizeEmail, normalizePhone } from "./identifiers";
@@ -10,7 +9,7 @@ import {
   startRegistration,
   verifyOtp,
 } from "./registration";
-import { readStoreSnapshot } from "./store";
+import { readStoreSnapshot, resetStoreForTests } from "./store";
 
 const ip = hashIp("203.0.113.10");
 
@@ -36,8 +35,7 @@ describe("identifiers", () => {
 
 describe("registration security", () => {
   afterEach(async () => {
-    const { rm } = await import("node:fs/promises");
-    await rm(path.join(process.cwd(), ".data", "nixo-store.test.json"), { force: true });
+    await resetStoreForTests();
   });
 
   it("does not create an active user before OTP verification and profile", async () => {

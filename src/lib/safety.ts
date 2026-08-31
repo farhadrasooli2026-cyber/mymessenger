@@ -1,0 +1,130 @@
+import "server-only";
+import { z } from "zod";
+import { randomId } from "@/lib/crypto-utils";
+import { hitRateLimit } from "@/lib/rate-limit";
+import { mutateStore, readStoreSnapshot } from "@/lib/store";
+import type { StoreData } from "@/lib/store";
+import type { ReportCategory } from "@/lib/chat-copy";
+
+export const reportCategorySchema = z.enum(["spam", "abuse", "fake", "harassment", "other"]);
+
+export type BlockState = {
+  blockedByMe: boolean;
+  blockedByPeer: boolean;
+  blocked: boolean;
+  messagesAllowed: boolean;
+  callsAllowed: boolean;
+  interactionsAllowed: boolean;
+};
+
+export function blockState(data: StoreData, userId: string, peerKey: string): BlockState {
+  const me = data.users.find((u) => u.id === userId);
+  const blockedByMe = Boolean(me?.blockedPeerKeys.includes(peerKey));
+  const peerUser = data.users.find((u) => u.id === peerKey);
+  const blockedByPeer = Boolean(peerUser?.blockedPeerKeys.includes(userId));
+  const blocked = blockedByMe || blockedByPeer;
+  return {
+    blockedByMe,
+    blockedByPeer,
+    blocked,
+    messagesAllowed: !blocked,
+    callsAllowed: !blocked,
+    interactionsAllowed: !blocked,
+  };
+}
+
+export async function setBlocked(userId: string, threadId: string, blocked: boolean) {
+  return mutateStore((data) => {
+    const thread = data.threads.find((t) => t.id === threadId && t.ownerUserId === userId);
+    if (!thread) return { ok: false as const, error: "گفتگو یافت نشد.", status: 404 };
+    const user = data.users.find((u) => u.id === userId);
+    if (!user) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    const key = thread.peerKey;
+    if (blocked) {
+      if (!user.blockedPeerKeys.includes(key)) user.blockedPeerKeys.push(key);
+    } else {
+      user.blockedPeerKeys = user.blockedPeerKeys.filter((k) => k !== key);
+    }
+    return { ok: true as const, status: 200, peerKey: key, ...blockState(data, userId, key) };
+  });
+}
+
+export async function listBlocked(userId: string) {
+  const data = await readStoreSnapshot();
+  const me = data.users.find((u) => u.id === userId);
+  if (!me) return [];
+  return me.blockedPeerKeys.map((peerKey) => {
+    const thread = data.threads.find((t) => t.ownerUserId === userId && t.peerKey === peerKey);
+    const peerUser = data.users.find((u) => u.id === peerKey);
+    return {
+      peerKey,
+      peerName: thread?.peerName ?? peerUser?.displayName ?? peerKey,
+      threadId: thread?.id ?? null,
+    };
+  });
+}
+
+export const reportInputSchema = z.object({
+  targetKind: z.enum(["user", "chat"]),
+  targetKey: z.string().min(1).max(80),
+  threadId: z.string().max(80).optional(),
+  messageIds: z.array(z.string().max(80)).max(20).optional(),
+  category: reportCategorySchema,
+  details: z.string().trim().max(500).optional().default(""),
+});
+
+export async function fileReport(
+  reporterId: string,
+  input: z.infer<typeof reportInputSchema>,
+) {
+  return mutateStore((data) => {
+    const limit = hitRateLimit(data, `report:${reporterId}`, 60 * 60 * 1000, 8);
+    if (!limit.allowed) {
+      return { ok: false as const, error: "تعداد گزارش در این ساعت به سقف رسیده است.", status: 429 };
+    }
+    if (input.targetKind === "chat") {
+      const thread = data.threads.find((t) => t.id === input.targetKey && t.ownerUserId === reporterId);
+      if (!thread) return { ok: false as const, error: "گفتگو یافت نشد.", status: 404 };
+    }
+    const report = {
+      id: randomId(),
+      reporterId,
+      targetKind: input.targetKind,
+      targetKey: input.targetKey,
+      threadId: input.threadId,
+      messageIds: input.messageIds ?? [],
+      category: input.category as ReportCategory,
+      details: input.details ?? "",
+      createdAt: Date.now(),
+    };
+    data.reports.push(report);
+    return { ok: true as const, status: 200, reportId: report.id };
+  });
+}
+
+export async function savePublicKey(userId: string, publicKey: JsonWebKey) {
+  if (publicKey.kty !== "EC" || publicKey.crv !== "P-256" || !publicKey.x || !publicKey.y) {
+    return { ok: false as const, error: "کلید عمومی معتبر نیست.", status: 400 };
+  }
+  return mutateStore((data) => {
+    const user = data.users.find((u) => u.id === userId);
+    if (!user) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    user.cryptoPublicKey = {
+      kty: publicKey.kty,
+      crv: publicKey.crv,
+      x: publicKey.x,
+      y: publicKey.y,
+      ext: true,
+      key_ops: [],
+    };
+    return { ok: true as const, status: 200 };
+  });
+}
+
+export async function getPeerPublicKey(viewerId: string, peerKey: string) {
+  const data = await readStoreSnapshot();
+  const state = blockState(data, viewerId, peerKey);
+  if (!state.interactionsAllowed) return { ok: false as const, error: "تعامل محدود شده است.", status: 403 };
+  const peer = data.users.find((u) => u.id === peerKey);
+  return { ok: true as const, publicKey: peer?.cryptoPublicKey ?? null };
+}

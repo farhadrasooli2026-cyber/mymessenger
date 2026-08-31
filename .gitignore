@@ -36,6 +36,7 @@ yarn-error.log*
 
 # local registration store (OTP hashes & accounts)
 .data/
+nixo.db
 
 # vercel
 .vercel

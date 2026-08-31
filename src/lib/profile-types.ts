@@ -42,6 +42,8 @@ export function defaultUserFields(): {
   bioAllowIds: string[];
   contactIds: string[];
   appearance: Appearance;
+  blockedPeerKeys: string[];
+  cryptoPublicKey: JsonWebKey | null;
 } {
   return {
     usernameHistory: [],
@@ -52,5 +54,7 @@ export function defaultUserFields(): {
     bioAllowIds: [],
     contactIds: [],
     appearance: defaultAppearance(),
+    blockedPeerKeys: [],
+    cryptoPublicKey: null,
   };
 }
