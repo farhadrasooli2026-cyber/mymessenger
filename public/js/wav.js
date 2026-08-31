@@ -77,6 +77,40 @@ function pickRecorderMime() {
     'audio/ogg;codecs=opus',
     'audio/ogg',
   ];
-  const supported = types.find((t) => MediaRecorder.isTypeSupported(t));
+  const supported = types.find((t) => {
+    try {
+      return MediaRecorder.isTypeSupported(t);
+    } catch (_e) {
+      return false;
+    }
+  });
   return supported || '';
+}
+
+async function prepareImageFile(file) {
+  if (!file) return file;
+  const name = (file.name || '').toLowerCase();
+  const type = (file.type || '').toLowerCase();
+  if (type === 'image/gif' || name.endsWith('.gif')) return file;
+  const looksImage = type.startsWith('image/') || /\.(jpe?g|png|webp|heic|heif)$/i.test(name);
+  if (!looksImage) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const max = 1600;
+    const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height);
+    if (bitmap.close) bitmap.close();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    if (!blob || !blob.size) return file;
+    return new File([blob], 'photo.jpg', { type: 'image/jpeg' });
+  } catch (_err) {
+    if (file.name) return file;
+    const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : 'jpg';
+    return new File([file], 'photo.' + ext, { type: type || 'image/jpeg' });
+  }
 }

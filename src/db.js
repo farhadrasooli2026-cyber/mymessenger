@@ -64,6 +64,17 @@ async function initDb() {
   await addColumnIfMissing('messages', 'caption', 'TEXT');
   await dbRun('CREATE INDEX IF NOT EXISTS idx_messages_pair ON messages (sender, receiver, timestamp)');
   await dbRun('CREATE INDEX IF NOT EXISTS idx_users_username ON users (username)');
+  await dbRun(`CREATE TABLE IF NOT EXISTS calls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    callId TEXT UNIQUE,
+    caller TEXT,
+    callee TEXT,
+    video INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'ringing',
+    startedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    endedAt DATETIME
+  )`);
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_calls_users ON calls (caller, callee, id)');
 }
 
 module.exports = {

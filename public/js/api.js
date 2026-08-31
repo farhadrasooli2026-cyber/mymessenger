@@ -1,7 +1,10 @@
 async function api(path, options = {}) {
   const headers = options.headers ? { ...options.headers } : {};
   const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData;
-  if (options.body && !isForm && typeof options.body === 'object') {
+  if (isForm) {
+    delete headers['Content-Type'];
+    delete headers['content-type'];
+  } else if (options.body && typeof options.body === 'object') {
     headers['Content-Type'] = 'application/json';
     options.body = JSON.stringify(options.body);
   }

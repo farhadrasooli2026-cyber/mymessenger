@@ -2,7 +2,7 @@
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>چت | MyMessenger</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
@@ -19,37 +19,83 @@
       background: rgba(0, 0, 0, 0.28); border-radius: 16px; overflow: hidden;
       border: 1px solid rgba(255, 255, 255, 0.18);
     }
-    .sidebar { width: 300px; border-left: 1px solid rgba(255,255,255,0.2); display: flex; flex-direction: column; background: rgba(0,0,0,0.35); }
-    .sidebar-header { padding: 14px 16px; color: #fff; background: rgba(0,0,0,0.4); border-bottom: 1px solid rgba(255,255,255,0.15); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .sidebar {
+      width: 300px; border-left: 1px solid rgba(255,255,255,0.2);
+      display: flex; flex-direction: column; background: rgba(0,0,0,0.35); min-width: 0;
+    }
+    .sidebar-header {
+      padding: 12px 14px; color: #fff; background: rgba(0,0,0,0.4);
+      border-bottom: 1px solid rgba(255,255,255,0.15);
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    }
     .me-name { font-weight: bold; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .header-actions { display: flex; gap: 6px; }
     .tiny-btn { background: rgba(255,255,255,0.15); color: #fff; border: none; border-radius: 10px; padding: 6px 10px; cursor: pointer; font-size: 12px; }
-    .search-box { padding: 10px 12px; }
-    .search-box input { width: 100%; border: none; border-radius: 16px; padding: 8px 12px; outline: none; }
-    .user-item { padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.1); cursor: pointer; display: flex; align-items: center; gap: 10px; color: #f0f0f0; }
-    .user-item:hover, .user-item.active { background: rgba(214, 51, 132, 0.5); }
+    .tg-search {
+      margin: 10px 12px 6px; background: rgba(255,255,255,0.14); border-radius: 22px;
+      display: flex; align-items: center; padding: 0 12px; gap: 8px;
+    }
+    .tg-search span { opacity: 0.7; }
+    .tg-search input {
+      width: 100%; border: none; background: transparent; color: #fff;
+      padding: 10px 4px; outline: none; font-size: 14px;
+    }
+    .tg-search input::placeholder { color: rgba(255,255,255,0.65); }
+    .tab-panel { display: none; flex-direction: column; flex: 1; min-height: 0; }
+    .tab-panel.active { display: flex; }
+    .user-item, .call-item, .settings-row {
+      padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.1);
+      cursor: pointer; display: flex; align-items: center; gap: 10px; color: #f0f0f0;
+    }
+    .user-item:hover, .user-item.active, .call-item:hover { background: rgba(214, 51, 132, 0.5); }
     .user-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #444; flex-shrink: 0; }
     .user-meta { flex: 1; min-width: 0; }
     .user-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .user-sub { font-size: 11px; color: #ccc; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .user-status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
     .dot-online { background: #2ecc71; }
     .dot-offline { background: #e74c3c; }
     .unread { background: #d63384; color: #fff; border-radius: 10px; min-width: 18px; height: 18px; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; }
+    .scroll-list { overflow-y: auto; flex: 1; }
+    .empty-hint { color: #ccc; font-size: 13px; padding: 24px 16px; text-align: center; }
+    .bottom-nav {
+      display: flex; border-top: 1px solid rgba(255,255,255,0.15);
+      background: rgba(8, 8, 12, 0.72); padding: 4px 0 calc(4px + env(safe-area-inset-bottom));
+      flex-shrink: 0;
+    }
+    .nav-item {
+      flex: 1; background: none; border: none; color: rgba(255,255,255,0.55);
+      cursor: pointer; padding: 6px 0 4px; display: flex; flex-direction: column;
+      align-items: center; gap: 2px; font-size: 11px;
+    }
+    .nav-item .ico { font-size: 20px; line-height: 1; }
+    .nav-item.active { color: #ff8ac4; }
     .chat-area { flex: 1; display: flex; flex-direction: column; background: transparent; min-width: 0; }
-    .chat-header { padding: 14px 16px; background: rgba(0,0,0,0.45); color: #fff; border-bottom: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: space-between; }
+    .chat-header { padding: 12px 14px; background: rgba(0,0,0,0.45); color: #fff; border-bottom: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .chat-header-info { display: flex; flex-direction: column; }
     .chat-header-status { font-size: 11px; color: #ccc; font-weight: normal; margin-top: 2px; }
+    .header-call-btns { display: flex; align-items: center; gap: 6px; }
+    .call-icon-btn {
+      background: rgba(255,255,255,0.12); border: none; color: #fff; width: 36px; height: 36px;
+      border-radius: 50%; cursor: pointer; font-size: 16px;
+    }
+    .call-icon-btn:disabled { opacity: 0.35; cursor: default; }
     .messages-container { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
     .message { max-width: 75%; padding: 10px 14px; border-radius: 16px; word-break: break-word; font-size: 14px; line-height: 1.4; }
     .message.sent { align-self: flex-start; background: #d63384; color: #fff; border-bottom-left-radius: 4px; }
     .message.received { align-self: flex-end; background: rgba(255,255,255,0.92); color: #111; border-bottom-right-radius: 4px; }
     .message img { max-width: 100%; border-radius: 10px; cursor: pointer; margin-bottom: 5px; display: block; }
-    .message audio { width: 220px; max-width: 100%; outline: none; }
+    .message audio { width: 220px; max-width: 100%; outline: none; display: block; }
     .msg-time { font-size: 10px; opacity: 0.75; margin-top: 4px; }
     .input-area { padding: 10px 14px; background: rgba(0,0,0,0.5); display: flex; align-items: center; gap: 8px; border-top: 1px solid rgba(255,255,255,0.15); }
     .input-area input[type="text"] { flex: 1; padding: 10px 14px; border: none; border-radius: 20px; outline: none; background: rgba(255,255,255,0.9); font-size: 14px; }
-    .action-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #fff; padding: 0; line-height: 1; }
+    .action-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #fff; padding: 0; line-height: 1; position: relative; }
     .action-btn.recording { color: #e74c3c; }
+    .file-hidden {
+      position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;
+      font-size: 0; overflow: hidden;
+    }
+    .attach-wrap { position: relative; width: 36px; height: 36px; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; }
     .send-btn { background: #d63384; color: #fff; border: none; padding: 10px 18px; border-radius: 20px; cursor: pointer; font-weight: bold; }
     .image-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 1000; align-items: center; justify-content: center; }
     .image-modal img { max-width: 95%; max-height: 85vh; border-radius: 8px; }
@@ -59,14 +105,51 @@
     .preview-bar img { height: 48px; border-radius: 8px; }
     .conn { font-size: 11px; color: #ccc; }
     .conn.bad { color: #ff8a80; }
+    .settings-card { padding: 18px 16px; color: #fff; }
+    .settings-card img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; display: block; margin: 0 auto 10px; }
+    .settings-card h3 { text-align: center; margin: 0 0 6px; }
+    .settings-card p { text-align: center; color: #ccc; font-size: 13px; margin: 0 0 16px; }
+    .settings-btn { width: 100%; margin: 6px 0; padding: 10px; border: none; border-radius: 12px; background: rgba(255,255,255,0.12); color: #fff; cursor: pointer; }
+    .call-modal, .incoming-modal {
+      display: none; position: fixed; inset: 0; z-index: 2000; background: #111827;
+      color: #fff; flex-direction: column;
+    }
+    .call-modal.show, .incoming-modal.show { display: flex; }
+    .call-stage { flex: 1; position: relative; background: #0b1020; }
+    .call-stage video { width: 100%; height: 100%; object-fit: cover; background: #000; }
+    #remote-video { position: absolute; inset: 0; }
+    #local-video {
+      position: absolute; width: 120px; height: 160px; object-fit: cover;
+      border-radius: 12px; border: 2px solid #fff; bottom: 90px; left: 16px; background: #222;
+    }
+    .call-modal.audio-only #local-video, .call-modal.audio-only #remote-video { display: none; }
+    .call-avatar-fallback {
+      display: none; height: 100%; align-items: center; justify-content: center; flex-direction: column; gap: 12px;
+    }
+    .call-modal.audio-only .call-avatar-fallback { display: flex; }
+    .call-avatar-fallback .big { width: 120px; height: 120px; border-radius: 50%; background: #d63384; display: flex; align-items: center; justify-content: center; font-size: 48px; }
+    .call-controls {
+      display: flex; justify-content: center; gap: 18px; padding: 16px 12px calc(18px + env(safe-area-inset-bottom));
+      background: rgba(0,0,0,0.55);
+    }
+    .call-ctrl {
+      width: 54px; height: 54px; border-radius: 50%; border: none; cursor: pointer; font-size: 22px; color: #fff;
+      background: rgba(255,255,255,0.18);
+    }
+    .call-ctrl.off { background: #555; }
+    .call-ctrl.hang { background: #e53935; }
+    .call-ctrl.ok { background: #2e7d32; }
+    .call-top { padding: 18px 16px 8px; text-align: center; }
+    .incoming-modal { align-items: center; justify-content: center; gap: 18px; background: rgba(10,10,18,0.94); }
     @media (max-width: 768px) {
-      .app-container { width: 100%; height: 100vh; border-radius: 0; border: none; }
+      .app-container { width: 100%; height: 100vh; height: 100dvh; border-radius: 0; border: none; }
       .sidebar { width: 100%; height: 100%; border-left: none; }
       .chat-area { display: none; width: 100%; height: 100%; }
       .app-container.chat-open .sidebar { display: none; }
       .app-container.chat-open .chat-area { display: flex; }
       .back-btn { display: inline-block; }
       .message { max-width: 85%; }
+      #local-video { width: 96px; height: 128px; bottom: 86px; left: 12px; }
     }
   </style>
 </head>
@@ -76,14 +159,37 @@
       <div class="sidebar-header">
         <span class="me-name" id="me-name">...</span>
         <div class="header-actions">
-          <button class="tiny-btn" id="profile-btn">پروفایل</button>
-          <button class="tiny-btn" id="logout-btn">خروج</button>
+          <span class="conn" id="conn-status">آنلاین</span>
         </div>
       </div>
-      <div class="search-box">
-        <input type="text" id="user-search" placeholder="جستجوی مخاطب...">
+      <div class="tg-search" id="search-wrap">
+        <span>🔍</span>
+        <input type="search" id="user-search" placeholder="جستجو" autocomplete="off">
       </div>
-      <div id="users-list" style="overflow-y: auto; flex: 1;"></div>
+      <div class="tab-panel active" id="tab-chats">
+        <div id="users-list" class="scroll-list"></div>
+      </div>
+      <div class="tab-panel" id="tab-calls">
+        <div id="calls-list" class="scroll-list"></div>
+      </div>
+      <div class="tab-panel" id="tab-contacts">
+        <div id="contacts-list" class="scroll-list"></div>
+      </div>
+      <div class="tab-panel" id="tab-settings">
+        <div class="settings-card">
+          <img id="settings-avatar" alt="">
+          <h3 id="settings-name">—</h3>
+          <p id="settings-bio"></p>
+          <button type="button" class="settings-btn" id="profile-btn">ویرایش پروفایل</button>
+          <button type="button" class="settings-btn" id="logout-btn">خروج از حساب</button>
+        </div>
+      </div>
+      <nav class="bottom-nav" aria-label="ناوبری اصلی">
+        <button type="button" class="nav-item active" data-tab="chats"><span class="ico">💬</span>گفتگوها</button>
+        <button type="button" class="nav-item" data-tab="calls"><span class="ico">📞</span>تماس‌ها</button>
+        <button type="button" class="nav-item" data-tab="contacts"><span class="ico">👤</span>مخاطبین</button>
+        <button type="button" class="nav-item" data-tab="settings"><span class="ico">⚙️</span>تنظیمات</button>
+      </nav>
     </div>
     <div class="chat-area">
       <div class="chat-header">
@@ -94,7 +200,10 @@
             <span id="chat-header-status" class="chat-header-status"></span>
           </div>
         </div>
-        <span class="conn" id="conn-status">آنلاین</span>
+        <div class="header-call-btns">
+          <button type="button" class="call-icon-btn" id="audio-call-btn" title="تماس صوتی" disabled>📞</button>
+          <button type="button" class="call-icon-btn" id="video-call-btn" title="تماس تصویری" disabled>📹</button>
+        </div>
       </div>
       <div class="messages-container" id="messages-container"></div>
       <div class="preview-bar" id="preview-bar">
@@ -103,20 +212,51 @@
         <button class="tiny-btn" id="clear-preview">حذف</button>
       </div>
       <div class="input-area">
-        <label class="action-btn" title="ارسال عکس">📎
-          <input type="file" id="image-input" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none">
-        </label>
-        <button id="mic-btn" class="action-btn" title="ضبط صدا">🎤</button>
+        <form id="image-form" enctype="multipart/form-data" method="post" action="/api/upload">
+          <label class="attach-wrap action-btn" title="ارسال عکس">📎
+            <input type="file" name="file" id="image-input" class="file-hidden" accept="image/*">
+          </label>
+        </form>
+        <button type="button" id="mic-btn" class="action-btn" title="ضبط صدا">🎤</button>
         <input type="text" id="message-input" placeholder="پیام خود را بنویسید..." maxlength="4000" autocomplete="off">
-        <button class="send-btn" id="send-btn">ارسال</button>
+        <button type="button" class="send-btn" id="send-btn">ارسال</button>
       </div>
     </div>
   </div>
   <div class="image-modal" id="image-modal">
     <img id="full-image" alt="">
   </div>
+  <div class="call-modal" id="call-modal">
+    <div class="call-top">
+      <div id="call-remote-name">تماس</div>
+      <div id="call-status" style="font-size:13px;color:#bbb;margin-top:4px;"></div>
+    </div>
+    <div class="call-stage">
+      <video id="remote-video" autoplay playsinline></video>
+      <video id="local-video" autoplay playsinline muted></video>
+      <div class="call-avatar-fallback">
+        <div class="big">📞</div>
+        <div>تماس صوتی</div>
+      </div>
+    </div>
+    <div class="call-controls">
+      <button type="button" class="call-ctrl" id="mute-btn" title="قطع صدا">🔇</button>
+      <button type="button" class="call-ctrl" id="cam-btn" title="قطع تصویر">🎥</button>
+      <button type="button" class="call-ctrl hang" id="hangup-btn" title="قطع تماس">✕</button>
+    </div>
+  </div>
+  <div class="incoming-modal" id="incoming-modal">
+    <div class="big" style="font-size:42px">📲</div>
+    <div id="incoming-name" style="font-size:22px;font-weight:bold;">کاربر</div>
+    <div id="incoming-type" style="color:#bbb;">تماس ورودی</div>
+    <div class="call-controls">
+      <button type="button" class="call-ctrl hang" id="reject-btn">✕</button>
+      <button type="button" class="call-ctrl ok" id="accept-btn">✓</button>
+    </div>
+  </div>
   <script src="/js/api.js"></script>
   <script src="/js/wav.js"></script>
+  <script src="/js/webrtc.js"></script>
   <script src="/js/chat.js"></script>
 </body>
 </html>

@@ -21,23 +21,30 @@ const EXT_FROM_NAME = {
 };
 
 function resolveMime(file) {
-  if (ALLOWED_MIME[file.mimetype]) return file.mimetype;
+  const raw = String(file.mimetype || '').toLowerCase().split(';')[0].trim();
+  if (ALLOWED_MIME[raw]) return raw === 'image/jpg' || raw === 'image/pjpeg' ? 'image/jpeg' : raw;
+
   const ext = path.extname(file.originalname || '').toLowerCase();
-  return EXT_FROM_NAME[ext] || '';
+  if (EXT_FROM_NAME[ext]) return EXT_FROM_NAME[ext];
+
+  if (!raw || raw === 'application/octet-stream' || raw === 'application/x-download') {
+    return '';
+  }
+  return '';
 }
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
   filename: (_req, file, cb) => {
-    const mime = resolveMime(file);
-    const ext = ALLOWED_MIME[mime] || 'bin';
+    const mime = resolveMime(file) || file.mimetype;
+    const ext = ALLOWED_MIME[mime] || ALLOWED_MIME[file.mimetype] || 'bin';
     cb(null, `${Date.now()}_${crypto.randomBytes(8).toString('hex')}.${ext}`);
   },
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 12 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, cb) => {
     const mime = resolveMime(file);
     if (mime) {

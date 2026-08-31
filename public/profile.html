@@ -38,6 +38,7 @@
   <div class="error" id="formError"></div>
 </div>
 <script src="/js/api.js"></script>
+<script src="/js/wav.js"></script>
 <script>
   let currentProfilePic = '/girl.svg';
   const formError = document.getElementById('formError');
@@ -70,8 +71,9 @@
     const file = event.target.files[0];
     if (!file) return;
     formError.textContent = '';
+    const prepared = typeof prepareImageFile === 'function' ? await prepareImageFile(file) : file;
     const body = new FormData();
-    body.append('file', file);
+    body.append('file', prepared, prepared.name || 'photo.jpg');
     try {
       const data = await api('/api/upload', { method: 'POST', body });
       selectAvatar(data.url);
