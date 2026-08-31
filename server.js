@@ -8,17 +8,15 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// تنظیمات Middleware با قابلیت دریافت فایل‌های بزرگ (عکس و وویس)
+// افزایش حجم مجاز برای ارسال عکس و وویس
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// باز شدن خودکار صفحه ورود در ریشه سایت
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
-// اتصال به دیتابیس SQLite
 const db = new sqlite3.Database('./database.db', (err) => {
   if (err) {
     console.error('خطا در اتصال به دیتابیس:', err.message);
@@ -27,7 +25,6 @@ const db = new sqlite3.Database('./database.db', (err) => {
   }
 });
 
-// ساخت جدول کاربران و پیام‌ها (اضافه شدن ستون وضعیت و آخرین بازدید)
 db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
@@ -55,7 +52,6 @@ db.serialize(() => {
   `);
 });
 
-// مسیرهای API
 app.post('/api/register', (req, res) => {
   const { username, email, phone, password, gender } = req.body;
   if (!username || !password) {
@@ -131,7 +127,6 @@ app.get('/api/messages/:user1/:user2', (req, res) => {
   );
 });
 
-// Socket.IO برای مدیریت آنلاین/آفلاین، پیام‌ها و وویس‌ها
 const userSockets = {};
 
 io.on('connection', (socket) => {
@@ -139,7 +134,6 @@ io.on('connection', (socket) => {
     if (!username) return;
     userSockets[username] = socket.id;
     
-    // آپدیت وضعیت کاربر به آنلاین در دیتابیس
     db.run('UPDATE users SET status = ? WHERE username = ?', ['online', username], () => {
       io.emit('user_status_changed', { username, status: 'online' });
     });
@@ -172,7 +166,6 @@ io.on('connection', (socket) => {
 
     if (disconnectedUser) {
       const now = new Date().toISOString();
-      // آپدیت وضعیت به آفلاین و ثبت آخرین بازدید در دیتابیس
       db.run('UPDATE users SET status = ?, lastSeen = ? WHERE username = ?', ['offline', now, disconnectedUser], () => {
         io.emit('user_status_changed', { username: disconnectedUser, status: 'offline', lastSeen: now });
       });
