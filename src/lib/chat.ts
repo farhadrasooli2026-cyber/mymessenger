@@ -7,6 +7,11 @@ import type { ChatMessage, StoreData } from "@/lib/store";
 import { DELETE_EVERYONE_MS, VOICE_CIPHER_MAX, VOICE_MAX_MS } from "@/lib/voice";
 import { MEDIA_MAX_CHUNKS, MEDIA_MAX_BYTES } from "@/lib/media";
 import { deleteMediaBlob } from "@/lib/media-files";
+import {
+  DISAPPEAR_MAX_MS,
+  expireFromForKind,
+  isMessageExpired,
+} from "@/lib/disappear";
 
 export type CipherPayload = {
   enc: "e2ee-v1";
@@ -15,6 +20,7 @@ export type CipherPayload = {
   kind?: "text" | "voice" | "photo" | "video" | "file";
   durationMs?: number;
   viewOnce?: boolean;
+  /** undefined = inherit chat timer; 0 = this message has no timer */
   disappearAfterMs?: number | null;
   forwarded?: boolean;
   blobId?: string;
@@ -63,9 +69,13 @@ export function parseCipherPayload(body: unknown): CipherPayload | null {
             ? "video"
             : "file";
   }
-  let disappearAfterMs: number | null = null;
-  if (typeof rec.disappearAfterMs === "number" && rec.disappearAfterMs > 0) {
-    disappearAfterMs = Math.min(7 * 24 * 60 * 60 * 1000, Math.floor(rec.disappearAfterMs));
+  let disappearAfterMs: number | null | undefined;
+  if ("disappearAfterMs" in rec) {
+    const raw = rec.disappearAfterMs;
+    if (raw === null || raw === 0) disappearAfterMs = 0;
+    else if (typeof raw === "number" && raw > 0) {
+      disappearAfterMs = Math.min(DISAPPEAR_MAX_MS, Math.floor(raw));
+    } else disappearAfterMs = 0;
   }
   let durationMs: number | undefined;
   if ((kind === "voice" || kind === "video") && typeof rec.durationMs === "number") {
@@ -88,51 +98,52 @@ export function parseCipherPayload(body: unknown): CipherPayload | null {
   };
 }
 
-function expireIfNeeded(message: ChatMessage, now: number): ChatMessage {
+function expireIfNeeded(message: ChatMessage, now: number, blobs: string[]): ChatMessage {
+  if (message.kind === "system") return message;
   if (message.enc !== "e2ee-v1") return message;
-  if (message.expiresAt && now >= message.expiresAt) {
-    return purgeContent(message, now);
-  }
-  if (message.disappearAfterMs && message.disappearAfterMs > 0 && now >= message.createdAt + message.disappearAfterMs) {
-    return purgeContent(message, now);
-  }
-  return message;
+  if (!isMessageExpired(message, now)) return message;
+  return purgeContent(message, now, blobs);
 }
 
-function purgeContent(message: ChatMessage, now: number): ChatMessage {
+function purgeContent(message: ChatMessage, now: number, blobs: string[] = []): ChatMessage {
+  if (message.blobId) blobs.push(message.blobId);
   message.enc = "purged";
   message.ciphertext = "";
   message.nonce = "";
   message.expiresAt = message.expiresAt ?? now;
+  message.blobId = undefined;
   return message;
 }
 
-export function publicMessage(message: ChatMessage, userId: string, now = Date.now()) {
-  const live = expireIfNeeded(message, now);
+export function publicMessage(message: ChatMessage, userId: string, now = Date.now(), blobs: string[] = []) {
+  const live = expireIfNeeded(message, now, blobs);
   if (live.hiddenFor?.includes(userId)) return null;
-  const expired = live.enc !== "e2ee-v1";
+  const expired = live.kind !== "system" && live.enc !== "e2ee-v1";
   return {
     id: live.id,
     threadId: live.threadId,
     sender: live.sender,
     createdAt: live.createdAt,
-    enc: live.enc,
-    ciphertext: expired ? "" : live.ciphertext,
-    nonce: expired ? "" : live.nonce,
+    enc: live.kind === "system" ? ("e2ee-v1" as const) : live.enc,
+    ciphertext: expired || live.kind === "system" ? "" : live.ciphertext,
+    nonce: expired || live.kind === "system" ? "" : live.nonce,
     kind: live.kind ?? "text",
     durationMs: live.durationMs ?? null,
     viewOnce: Boolean(live.viewOnce),
     disappearAfterMs: live.disappearAfterMs ?? null,
+    expireFrom: live.expireFrom ?? null,
     expiresAt: live.expiresAt ?? null,
     viewedAt: live.viewedAt ?? null,
     playCount: live.playCount ?? 0,
     deletedEverywhere: Boolean(live.deletedEverywhere),
     expired,
     forwarded: Boolean(live.forwarded),
-    blobId: live.blobId ?? null,
-    chunkCount: live.chunkCount ?? null,
+    blobId: expired ? null : (live.blobId ?? null),
+    chunkCount: expired ? null : (live.chunkCount ?? null),
     byteLength: live.byteLength ?? null,
     mimeClass: live.mimeClass ?? null,
+    systemEvent: live.systemEvent ?? null,
+    captureCount: live.captureCount ?? 0,
   };
 }
 
@@ -152,10 +163,11 @@ export function seedInbox(data: StoreData, userId: string, now = Date.now()): vo
 }
 
 export async function listThreads(userId: string) {
-  return mutateStore((data) => {
+  const blobs: string[] = [];
+  const threads = await mutateStore((data) => {
     seedInbox(data, userId);
     const now = Date.now();
-    const threads = data.threads
+    return data.threads
       .filter((t) => t.ownerUserId === userId)
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .map((thread) => {
@@ -163,10 +175,11 @@ export async function listThreads(userId: string) {
           .filter((m) => m.threadId === thread.id && m.ownerUserId === userId && !m.hiddenFor?.includes(userId))
           .sort((a, b) => a.createdAt - b.createdAt);
         const last = msgs[msgs.length - 1];
-        const live = last ? expireIfNeeded(last, now) : null;
+        const live = last ? expireIfNeeded(last, now, blobs) : null;
         const safety = blockState(data, userId, thread.peerKey);
         return {
           ...thread,
+          disappearAfterMs: thread.disappearAfterMs ?? null,
           lastKind: live?.kind ?? null,
           lastEnc: live?.enc ?? null,
           lastCiphertext: !live || live.kind !== "text" || live.enc !== "e2ee-v1" ? null : live.ciphertext,
@@ -175,26 +188,31 @@ export async function listThreads(userId: string) {
           ...safety,
         };
       });
-    return threads;
   });
+  await Promise.all(blobs.map((id) => deleteMediaBlob(userId, id)));
+  return threads;
 }
 
 export async function listMessages(userId: string, threadId: string) {
-  return mutateStore((data) => {
+  const blobs: string[] = [];
+  const result = await mutateStore((data) => {
     const thread = data.threads.find((t) => t.id === threadId && t.ownerUserId === userId);
     if (!thread) return null;
     const now = Date.now();
     const messages = data.messages
       .filter((m) => m.threadId === threadId && m.ownerUserId === userId)
       .sort((a, b) => a.createdAt - b.createdAt)
-      .map((m) => publicMessage(m, userId, now))
+      .map((m) => publicMessage(m, userId, now, blobs))
       .filter((m): m is NonNullable<typeof m> => Boolean(m));
     return { thread, messages, ...blockState(data, userId, thread.peerKey) };
   });
+  await Promise.all(blobs.map((id) => deleteMediaBlob(userId, id)));
+  return result;
 }
 
 export async function sendMessage(userId: string, threadId: string, payload: CipherPayload) {
-  return mutateStore((data) => {
+  const blobs: string[] = [];
+  const result = await mutateStore((data) => {
     seedInbox(data, userId);
     const thread = data.threads.find((t) => t.id === threadId && t.ownerUserId === userId);
     if (!thread) return { ok: false as const, error: "گفتگو یافت نشد.", status: 404 };
@@ -210,6 +228,19 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
       return { ok: false as const, error: "View Once فقط برای صوت، عکس و ویدیو است.", status: 400 };
     }
     const now = Date.now();
+    const inherit =
+      typeof thread.disappearAfterMs === "number" && thread.disappearAfterMs > 0 ? thread.disappearAfterMs : null;
+    const disappearAfterMs =
+      payload.disappearAfterMs === undefined
+        ? inherit
+        : payload.disappearAfterMs && payload.disappearAfterMs > 0
+          ? payload.disappearAfterMs
+          : null;
+    const kind = payload.kind ?? "text";
+    const viewOnce = Boolean(payload.viewOnce);
+    const expireFrom = expireFromForKind(kind, viewOnce, disappearAfterMs);
+    const expiresAt = expireFrom === "send" && disappearAfterMs ? now + disappearAfterMs : null;
+
     const mine: ChatMessage = {
       id: randomId(),
       threadId,
@@ -219,11 +250,12 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
       ciphertext: payload.ciphertext,
       nonce: payload.nonce,
       createdAt: now,
-      kind: payload.kind ?? "text",
+      kind,
       durationMs: payload.durationMs,
-      viewOnce: Boolean(payload.viewOnce),
-      disappearAfterMs: payload.disappearAfterMs ?? null,
-      expiresAt: payload.disappearAfterMs ? now + payload.disappearAfterMs : null,
+      viewOnce,
+      disappearAfterMs,
+      expireFrom,
+      expiresAt,
       viewedAt: null,
       playCount: 0,
       hiddenFor: [],
@@ -239,10 +271,12 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
     const messages = data.messages
       .filter((m) => m.threadId === threadId && m.ownerUserId === userId)
       .sort((a, b) => a.createdAt - b.createdAt)
-      .map((m) => publicMessage(m, userId, now))
+      .map((m) => publicMessage(m, userId, now, blobs))
       .filter((m): m is NonNullable<typeof m> => Boolean(m));
     return { ok: true as const, thread, messages, ...safety };
   });
+  await Promise.all(blobs.map((id) => deleteMediaBlob(userId, id)));
+  return result;
 }
 
 export async function deleteMessage(
@@ -267,6 +301,7 @@ export async function deleteMessage(
       purgeContent(message, now);
       message.deletedEverywhere = true;
       if (message.blobId) await deleteMediaBlob(userId, message.blobId);
+      message.blobId = undefined;
     } else {
       if (!message.hiddenFor) message.hiddenFor = [];
       if (!message.hiddenFor.includes(userId)) message.hiddenFor.push(userId);
@@ -276,21 +311,85 @@ export async function deleteMessage(
 }
 
 export async function markVoicePlayed(userId: string, threadId: string, messageId: string) {
-  return mutateStore(async (data) => {
+  const blobs: string[] = [];
+  const result = await mutateStore((data) => {
     const message = data.messages.find((m) => m.id === messageId && m.threadId === threadId && m.ownerUserId === userId);
     if (!message) return { ok: false as const, error: "پیام یافت نشد.", status: 404 };
     if (message.kind !== "voice" && message.kind !== "photo" && message.kind !== "video") {
       return { ok: false as const, error: "این پیام یک‌بارمصرف نیست.", status: 400 };
     }
     const now = Date.now();
+    if (isMessageExpired(message, now)) {
+      expireIfNeeded(message, now, blobs);
+      return { ok: false as const, error: "این پیام منقضی شده است.", status: 410 };
+    }
     message.viewedAt = message.viewedAt ?? now;
     message.playCount = (message.playCount ?? 0) + 1;
     if (message.viewOnce) {
-      if (message.blobId) await deleteMediaBlob(userId, message.blobId);
-      purgeContent(message, now);
+      purgeContent(message, now, blobs);
+      message.deletedEverywhere = true;
+    } else if (message.expireFrom === "view" && message.disappearAfterMs) {
+      message.expiresAt = now + message.disappearAfterMs;
     }
-    expireIfNeeded(message, now);
-    return { ok: true as const, message: publicMessage(message, userId, now) };
+    expireIfNeeded(message, now, blobs);
+    return { ok: true as const, message: publicMessage(message, userId, now, blobs) };
+  });
+  await Promise.all(blobs.map((id) => deleteMediaBlob(userId, id)));
+  return result;
+}
+
+export async function reportCapture(userId: string, threadId: string, messageId: string) {
+  return mutateStore((data) => {
+    const thread = data.threads.find((t) => t.id === threadId && t.ownerUserId === userId);
+    if (!thread) return { ok: false as const, error: "گفتگو یافت نشد.", status: 404 };
+    const message = data.messages.find((m) => m.id === messageId && m.threadId === threadId && m.ownerUserId === userId);
+    if (!message) return { ok: false as const, error: "پیام یافت نشد.", status: 404 };
+    if (!message.viewOnce) return { ok: false as const, error: "فقط محتوای یک‌بارمصرف.", status: 400 };
+    const now = Date.now();
+    message.captureCount = (message.captureCount ?? 0) + 1;
+    data.messages.push({
+      id: randomId(),
+      threadId,
+      ownerUserId: userId,
+      sender: "peer",
+      enc: "purged",
+      ciphertext: "",
+      nonce: "",
+      createdAt: now,
+      kind: "system",
+      hiddenFor: [],
+      systemEvent: { type: "capture", messageId },
+    });
+    thread.updatedAt = now;
+    return { ok: true as const, captureCount: message.captureCount };
+  });
+}
+
+export async function setChatDisappear(userId: string, threadId: string, ms: number | null) {
+  if (ms !== null && (!Number.isFinite(ms) || ms < 0 || ms > DISAPPEAR_MAX_MS)) {
+    return { ok: false as const, error: "زمان نامعتبر است.", status: 400 };
+  }
+  const next = !ms || ms <= 0 ? null : Math.floor(ms);
+  return mutateStore((data) => {
+    const thread = data.threads.find((t) => t.id === threadId && t.ownerUserId === userId);
+    if (!thread) return { ok: false as const, error: "گفتگو یافت نشد.", status: 404 };
+    const now = Date.now();
+    thread.disappearAfterMs = next;
+    thread.updatedAt = now;
+    data.messages.push({
+      id: randomId(),
+      threadId,
+      ownerUserId: userId,
+      sender: "me",
+      enc: "purged",
+      ciphertext: "",
+      nonce: "",
+      createdAt: now,
+      kind: "system",
+      hiddenFor: [],
+      systemEvent: { type: "disappear", ms: next },
+    });
+    return { ok: true as const, thread, disappearAfterMs: next };
   });
 }
 
@@ -298,7 +397,10 @@ export async function listSharedMedia(userId: string, threadId: string) {
   const listed = await listMessages(userId, threadId);
   if (!listed) return null;
   const items = listed.messages.filter(
-    (m) => (m.kind === "photo" || m.kind === "video" || m.kind === "file" || m.kind === "voice") && !m.expired,
+    (m) =>
+      (m.kind === "photo" || m.kind === "video" || m.kind === "file" || m.kind === "voice") &&
+      !m.expired &&
+      !m.viewOnce,
   );
   return { thread: listed.thread, items };
 }

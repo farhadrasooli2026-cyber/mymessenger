@@ -14,6 +14,8 @@ import {
   voiceSaveAllowed,
   type VoiceInner,
 } from "@/lib/voice";
+import { ViewOnceShield } from "@/components/view-once-shield";
+import { ExpiryBadge } from "@/components/expiry-badge";
 
 export type VoiceMsg = {
   id: string;
@@ -27,6 +29,9 @@ export type VoiceMsg = {
   expired?: boolean;
   forwarded?: boolean;
   disappearAfterMs?: number | null;
+  expireFrom?: "send" | "view" | null;
+  expiresAt?: number | null;
+  viewedAt?: number | null;
 };
 
 const SPEEDS = [1, 1.5, 2] as const;
@@ -131,7 +136,6 @@ export function VoicePlayer({
       setPlaying(false);
       savePlayHead(msg.id, 0);
       if (msg.viewOnce) {
-        await fetch(`/api/chats/${threadId}/messages/${msg.id}/played`, { method: "POST" });
         setSpent(true);
         setUrl(null);
         onGone?.();
@@ -159,6 +163,9 @@ export function VoicePlayer({
     try {
       await el.play();
       setPlaying(true);
+      if (msg.viewOnce || msg.expireFrom === "view") {
+        void fetch(`/api/chats/${threadId}/messages/${msg.id}/played`, { method: "POST" });
+      }
     } catch {
       toast.error("پخش انجام نشد.");
     }
@@ -222,7 +229,7 @@ export function VoicePlayer({
   }
 
   return (
-    <div className="min-w-[220px] max-w-[92vw] space-y-1 px-3 py-2">
+    <ViewOnceShield active={Boolean(msg.viewOnce)} threadId={threadId} messageId={msg.id} className="min-w-[220px] max-w-[92vw] space-y-1 px-3 py-2">
       <audio ref={audioRef} preload="metadata" />
       <div className="flex items-center gap-2">
         <button
@@ -237,10 +244,12 @@ export function VoicePlayer({
           peaks={inner?.peaks ?? []}
           progress={progress}
           onSeek={(ratio) => {
+            if (msg.viewOnce) return;
             const el = audioRef.current;
             if (!el?.duration) return;
             el.currentTime = ratio * el.duration;
           }}
+          disabled={Boolean(msg.viewOnce)}
         />
         <span className="w-10 text-[10px] tabular-nums" dir="ltr">
           {durationLabel}
@@ -265,7 +274,14 @@ export function VoicePlayer({
         <div className="flex items-center gap-1">
           {msg.viewOnce && <span>یک‌بارمصرف</span>}
           {msg.forwarded && <span>هدایت‌شده</span>}
-          {msg.disappearAfterMs ? <span>محو</span> : null}
+          <ExpiryBadge
+            createdAt={msg.createdAt}
+            expireFrom={msg.expireFrom}
+            disappearAfterMs={msg.disappearAfterMs}
+            expiresAt={msg.expiresAt}
+            viewedAt={msg.viewedAt}
+            viewOnce={msg.viewOnce}
+          />
           <button type="button" onClick={() => setMenu((v) => !v)} aria-label="گزینه‌ها">
             <MoreVertical className="size-3.5" />
           </button>
@@ -310,6 +326,6 @@ export function VoicePlayer({
             ))}
         </div>
       )}
-    </div>
+    </ViewOnceShield>
   );
 }

@@ -6,15 +6,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { encryptText, loadOrCreateThreadKey } from "@/lib/e2ee";
-import {
-  DISAPPEAR_PRESETS,
-  VOICE_BITRATE,
-  VOICE_MAX_MS,
-  VOICE_MIN_MS,
-  formatClock,
-  pickRecorderMime,
-  type DisappearId,
-} from "@/lib/voice";
+import { VOICE_BITRATE, VOICE_MAX_MS, VOICE_MIN_MS, formatClock, pickRecorderMime } from "@/lib/voice";
+import { DisappearPicker, msFromChoice, type TimerChoice } from "@/components/disappear-picker";
 
 type Phase = "idle" | "holding" | "locked" | "paused" | "preview" | "denied";
 
@@ -48,13 +41,13 @@ export function VoiceComposer({
   const [peaks, setPeaks] = useState<number[]>([]);
   const [hint, setHint] = useState<"none" | "cancel" | "lock">("none");
   const [viewOnce, setViewOnce] = useState(false);
-  const [disappear, setDisappear] = useState<DisappearId>("off");
+  const [disappear, setDisappear] = useState<TimerChoice>("inherit");
   const [customMs, setCustomMs] = useState(120_000);
   const [retry, setRetry] = useState<{
     envelope: { enc: "e2ee-v1"; ciphertext: string; nonce: string };
     durationMs: number;
     viewOnce: boolean;
-    disappearAfterMs: number | null;
+    disappearAfterMs: number | null | undefined;
   } | null>(null);
   const [sending, setSending] = useState(false);
 
@@ -201,16 +194,14 @@ export function VoiceComposer({
         peaks,
       });
       const envelope = await encryptText(key, inner);
-      const preset = DISAPPEAR_PRESETS.find((p) => p.id === disappear);
-      const disappearAfterMs =
-        disappear === "off" ? null : disappear === "custom" ? customMs : preset && preset.ms > 0 ? preset.ms : null;
-      const body = {
+      const disappearAfterMs = msFromChoice(disappear, customMs);
+      const body: Record<string, unknown> = {
         ...envelope,
-        kind: "voice" as const,
+        kind: "voice",
         durationMs: elapsedRef.current,
         viewOnce,
-        disappearAfterMs,
       };
+      if (disappearAfterMs !== undefined) body.disappearAfterMs = disappearAfterMs;
       const res = await fetch(`/api/chats/${threadId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -351,27 +342,14 @@ export function VoiceComposer({
           >
             View Once
           </button>
-          {DISAPPEAR_PRESETS.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className={cn("rounded-full px-2 py-1", disappear === p.id ? "bg-amber-300 text-[#102824]" : "bg-white/10")}
-              onClick={() => setDisappear(p.id)}
-            >
-              {p.label}
-            </button>
-          ))}
-          {disappear === "custom" && (
-            <input
-              type="number"
-              min={5}
-              max={3600}
-              className="h-7 w-20 rounded bg-black/30 px-2 text-[11px]"
-              value={Math.round(customMs / 1000)}
-              onChange={(e) => setCustomMs(Math.max(5, Number(e.target.value) || 5) * 1000)}
-              aria-label="ثانیه سفارشی"
-            />
-          )}
+          {viewOnce && <span className="text-[10px]">یک‌بارمصرف</span>}
+          <DisappearPicker
+            value={disappear}
+            onChange={setDisappear}
+            customMs={customMs}
+            onCustomMs={setCustomMs}
+            allowInherit
+          />
         </div>
       )}
       {recording && (

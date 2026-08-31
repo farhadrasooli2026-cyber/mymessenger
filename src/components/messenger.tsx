@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Ban, Flag, Lock, MessageCircle, Phone, Search, Send, Sparkles, Store, UserRound } from "lucide-react";
+import { Ban, Flag, Lock, MessageCircle, Phone, Search, Send, Sparkles, Store, Timer, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { nixoSpaces } from "@/lib/brand";
@@ -34,6 +34,10 @@ import { MediaDock } from "@/components/media-dock";
 import { MediaBubble } from "@/components/media-bubble";
 import { setVoiceSaveAllowed } from "@/lib/voice";
 import { defaultAuto, saveAutoSettings, setAutoSaveGallery, type AutoMode } from "@/lib/media";
+import { DisappearPicker, msFromChoice, type TimerChoice } from "@/components/disappear-picker";
+import { ExpiryBadge } from "@/components/expiry-badge";
+import { ViewOnceShield } from "@/components/view-once-shield";
+import { labelDisappear, systemCaptureText, systemDisappearText } from "@/lib/disappear";
 
 type Thread = {
   id: string;
@@ -41,7 +45,7 @@ type Thread = {
   peerName: string;
   peerTitle: string;
   color: string;
-  lastKind?: "text" | "voice" | "photo" | "video" | "file" | null;
+  lastKind?: "text" | "voice" | "photo" | "video" | "file" | "system" | null;
   lastEnc: "e2ee-v1" | "purged" | null;
   lastCiphertext: string | null;
   lastNonce: string | null;
@@ -49,6 +53,7 @@ type Thread = {
   updatedAt?: number;
   lastPreview?: string;
   background?: BackgroundSpec;
+  disappearAfterMs?: number | null;
   blocked: boolean;
   blockedByMe: boolean;
   messagesAllowed: boolean;
@@ -63,7 +68,7 @@ type Message = {
   createdAt: number;
   locked?: boolean;
   local?: boolean;
-  kind?: "text" | "voice" | "photo" | "video" | "file";
+  kind?: "text" | "voice" | "photo" | "video" | "file" | "system";
   ciphertext?: string;
   nonce?: string;
   enc?: string;
@@ -72,9 +77,13 @@ type Message = {
   expired?: boolean;
   forwarded?: boolean;
   disappearAfterMs?: number | null;
+  expireFrom?: "send" | "view" | null;
+  expiresAt?: number | null;
+  viewedAt?: number | null;
   blobId?: string | null;
   chunkCount?: number | null;
   byteLength?: number | null;
+  systemEvent?: { type: "disappear"; ms: number | null } | { type: "capture"; messageId: string } | null;
 };
 
 type Tab = "chats" | "calls" | "spaces" | "shop" | "me";
@@ -86,21 +95,41 @@ type WireMsg = {
   enc: string;
   ciphertext: string;
   nonce: string;
-  kind?: "text" | "voice" | "photo" | "video" | "file";
+  kind?: "text" | "voice" | "photo" | "video" | "file" | "system";
   durationMs?: number | null;
   viewOnce?: boolean;
   expired?: boolean;
   forwarded?: boolean;
   disappearAfterMs?: number | null;
+  expireFrom?: "send" | "view" | null;
+  expiresAt?: number | null;
+  viewedAt?: number | null;
   blobId?: string | null;
   chunkCount?: number | null;
   byteLength?: number | null;
+  systemEvent?: { type: "disappear"; ms: number | null } | { type: "capture"; messageId: string } | null;
 };
 
 async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> {
   const key = await loadOrCreateThreadKey(threadId);
   const remote: Message[] = [];
   for (const raw of raws) {
+    if (raw.kind === "system") {
+      remote.push({
+        id: raw.id,
+        sender: raw.sender,
+        createdAt: raw.createdAt,
+        text:
+          raw.systemEvent?.type === "disappear"
+            ? systemDisappearText(raw.systemEvent.ms)
+            : raw.systemEvent?.type === "capture"
+              ? systemCaptureText()
+              : "رویداد سیستم",
+        kind: "system",
+        systemEvent: raw.systemEvent,
+      });
+      continue;
+    }
     if (raw.kind === "photo" || raw.kind === "video" || raw.kind === "file") {
       remote.push({
         id: raw.id,
@@ -117,6 +146,10 @@ async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> 
         blobId: raw.blobId,
         chunkCount: raw.chunkCount,
         byteLength: raw.byteLength,
+        disappearAfterMs: raw.disappearAfterMs,
+        expireFrom: raw.expireFrom,
+        expiresAt: raw.expiresAt,
+        viewedAt: raw.viewedAt,
       });
       continue;
     }
@@ -135,6 +168,9 @@ async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> 
         expired: raw.expired || raw.enc !== "e2ee-v1",
         forwarded: raw.forwarded,
         disappearAfterMs: raw.disappearAfterMs,
+        expireFrom: raw.expireFrom,
+        expiresAt: raw.expiresAt,
+        viewedAt: raw.viewedAt,
       });
       continue;
     }
@@ -150,7 +186,18 @@ async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> 
     }
     try {
       const text = await decryptText(key, { enc: "e2ee-v1", ciphertext: raw.ciphertext, nonce: raw.nonce });
-      remote.push({ id: raw.id, sender: raw.sender, createdAt: raw.createdAt, text, kind: "text" });
+      remote.push({
+        id: raw.id,
+        sender: raw.sender,
+        createdAt: raw.createdAt,
+        text,
+        kind: "text",
+        disappearAfterMs: raw.disappearAfterMs,
+        expireFrom: raw.expireFrom,
+        expiresAt: raw.expiresAt,
+        viewedAt: raw.viewedAt,
+        expired: raw.expired,
+      });
     } catch {
       remote.push({
         id: raw.id,
@@ -230,9 +277,19 @@ export function Messenger({
   const [saveVoice, setSaveVoice] = useState(true);
   const [sharedOpen, setSharedOpen] = useState(false);
   const [sharedItems, setSharedItems] = useState<Message[]>([]);
-  const [viewer, setViewer] = useState<{ url: string; kind: string; name?: string } | null>(null);
+  const [viewer, setViewer] = useState<{
+    url: string;
+    kind: string;
+    name?: string;
+    viewOnce?: boolean;
+    threadId?: string;
+    messageId?: string;
+  } | null>(null);
   const [autoMedia, setAutoMedia] = useState(defaultAuto());
   const [gallerySave, setGallerySave] = useState(false);
+  const [textTimer, setTextTimer] = useState<TimerChoice>("inherit");
+  const [customMs, setCustomMs] = useState(120_000);
+  const [timerOpen, setTimerOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   const active = threads.find((t) => t.id === activeId) ?? null;
@@ -257,6 +314,8 @@ export function Messenger({
                   ? "ویدیو"
                   : thread.lastKind === "file"
                     ? "فایل"
+                    : thread.lastKind === "system"
+                      ? "تنظیم پیام ناپدیدشونده"
                     : preview ?? (thread.lastCiphertext ? "•••• پیام رمزنگاری‌شده" : "گفتگوی خصوصی"),
         };
       }),
@@ -331,6 +390,7 @@ export function Messenger({
             t.id === threadId
               ? {
                   ...t,
+                  disappearAfterMs: (data.thread as Thread).disappearAfterMs ?? t.disappearAfterMs,
                   blocked: data.blocked,
                   blockedByMe: data.blockedByMe,
                   messagesAllowed: data.messagesAllowed,
@@ -349,6 +409,23 @@ export function Messenger({
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
+  useEffect(() => {
+    if (!activeId) return;
+    const tick = window.setInterval(() => {
+      void fetch(`/api/chats/${activeId}`, { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then(async (data) => {
+          if (!data) return;
+          const remote = await mapRemote(activeId, data.messages as WireMsg[]);
+          const key = await loadOrCreateThreadKey(activeId);
+          const local = await loadLocalMessages(activeId, key);
+          setMessages([...local.map((m) => ({ ...m, local: true as const })), ...remote].sort((a, b) => a.createdAt - b.createdAt));
+        })
+        .catch(() => undefined);
+    }, 2500);
+    return () => window.clearInterval(tick);
+  }, [activeId]);
+
   async function onSend(e: React.FormEvent) {
     e.preventDefault();
     if (!activeId || !draft.trim() || !active?.messagesAllowed) return;
@@ -356,10 +433,13 @@ export function Messenger({
     try {
       const key = await loadOrCreateThreadKey(activeId);
       const envelope = await encryptText(key, draft.trim());
+      const disappearAfterMs = msFromChoice(textTimer, customMs);
+      const body: Record<string, unknown> = { ...envelope };
+      if (disappearAfterMs !== undefined) body.disappearAfterMs = disappearAfterMs;
       const res = await fetch(`/api/chats/${activeId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(envelope),
+        body: JSON.stringify(body),
       });
       if (res.status === 403) {
         toast.error("پیام، تماس و تعامل با این شخص محدود شده است.");
@@ -625,12 +705,86 @@ export function Messenger({
               <Button
                 type="button"
                 variant="ghost"
+                className="text-xs text-amber-200 hover:bg-white/10"
+                onClick={() => setTimerOpen((v) => !v)}
+              >
+                <Timer className="size-3.5" />
+                {active.disappearAfterMs ? labelDisappear(active.disappearAfterMs) : "تایمر"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
                 className="text-white hover:bg-white/10"
                 onClick={() => setSafetyOpen((v) => !v)}
               >
                 ایمنی
               </Button>
             </header>
+            {timerOpen && active && (
+              <div className="space-y-2 border-b border-white/10 bg-black/25 px-4 py-3">
+                <p className="text-xs font-medium">پیام‌های ناپدیدشونده این گفتگو</p>
+                <DisappearPicker
+                  value={
+                    !active.disappearAfterMs
+                      ? "off"
+                      : ([10_000, 30_000, 60_000, 3_600_000, 86_400_000, 604_800_000].includes(active.disappearAfterMs)
+                          ? ({
+                              10000: "10s",
+                              30000: "30s",
+                              60000: "1m",
+                              3600000: "1h",
+                              86400000: "1d",
+                              604800000: "1w",
+                            }[active.disappearAfterMs] as TimerChoice)
+                          : "custom")
+                  }
+                  onChange={async (id) => {
+                    if (id === "inherit") return;
+                    if (id === "custom") {
+                      setCustomMs(active.disappearAfterMs && active.disappearAfterMs > 0 ? active.disappearAfterMs : customMs);
+                      return;
+                    }
+                    const ms = msFromChoice(id, customMs) ?? 0;
+                    const res = await fetch(`/api/chats/${active.id}/timer`, {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ disappearAfterMs: ms === 0 ? null : ms }),
+                    });
+                    if (!res.ok) {
+                      toast.error("تایمر ذخیره نشد.");
+                      return;
+                    }
+                    const data = await res.json();
+                    setThreads((list) =>
+                      list.map((t) => (t.id === active.id ? { ...t, disappearAfterMs: data.disappearAfterMs } : t)),
+                    );
+                    const listed = await fetch(`/api/chats/${active.id}`, { cache: "no-store" });
+                    if (listed.ok) {
+                      const body = (await listed.json()) as { messages: WireMsg[] };
+                      const remote = await mapRemote(active.id, body.messages);
+                      const key = await loadOrCreateThreadKey(active.id);
+                      const local = await loadLocalMessages(active.id, key);
+                      setMessages(
+                        [...local.map((m) => ({ ...m, local: true as const })), ...remote].sort((a, b) => a.createdAt - b.createdAt),
+                      );
+                    }
+                  }}
+                  customMs={customMs}
+                  onCustomMs={async (ms) => {
+                    setCustomMs(ms);
+                    await fetch(`/api/chats/${active.id}/timer`, {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ disappearAfterMs: ms }),
+                    });
+                    setThreads((list) => list.map((t) => (t.id === active.id ? { ...t, disappearAfterMs: ms } : t)));
+                  }}
+                />
+                <p className="text-[11px] leading-5 text-emerald-100/55">
+                  پیام‌های متنی از لحظهٔ ارسال زمان‌بندی می‌شوند. عکس، ویدیو و صوت ناپدیدشونده پس از مشاهده/پخش. View Once جدا است و فقط یک مشاهده دارد.
+                </p>
+              </div>
+            )}
             {safetyOpen && (
               <div className="flex flex-wrap gap-2 border-b border-white/10 bg-black/25 px-4 py-2">
                 {active.blockedByMe ? (
@@ -688,6 +842,11 @@ export function Messenger({
               <ScrollArea className="h-full">
                 <div className="relative space-y-3 px-4 py-5">
                   {messages.map((msg) => (
+                    msg.kind === "system" ? (
+                      <p key={msg.id} className="px-6 text-center text-[11px] leading-6 text-emerald-100/55">
+                        {msg.text}
+                      </p>
+                    ) : (
                     <div
                       key={msg.id}
                       className={cn("flex", msg.sender === "me" ? "justify-start" : "justify-end")}
@@ -718,6 +877,9 @@ export function Messenger({
                               expired: msg.expired,
                               forwarded: msg.forwarded,
                               disappearAfterMs: msg.disappearAfterMs,
+                              expireFrom: msg.expireFrom,
+                              expiresAt: msg.expiresAt,
+                              viewedAt: msg.viewedAt,
                             }}
                             threadId={active.id}
                             threads={threads}
@@ -751,6 +913,10 @@ export function Messenger({
                               viewOnce: msg.viewOnce,
                               expired: msg.expired,
                               forwarded: msg.forwarded,
+                              disappearAfterMs: msg.disappearAfterMs,
+                              expireFrom: msg.expireFrom,
+                              expiresAt: msg.expiresAt,
+                              viewedAt: msg.viewedAt,
                             }}
                             threadId={active.id}
                             threads={threads}
@@ -767,13 +933,32 @@ export function Messenger({
                                 ),
                               );
                             }}
-                            onOpen={(url, meta, m) => setViewer({ url, kind: m.kind, name: meta.name })}
+                            onOpen={(url, meta, m) =>
+                              setViewer({
+                                url,
+                                kind: m.kind,
+                                name: meta.name,
+                                viewOnce: Boolean(m.viewOnce),
+                                threadId: active.id,
+                                messageId: m.id,
+                              })
+                            }
                           />
                         ) : (
-                          <p className="px-3">{msg.text}</p>
+                          <div className="px-3">
+                            <p>{msg.expired ? "این پیام منقضی شد." : msg.text}</p>
+                            <ExpiryBadge
+                              createdAt={msg.createdAt}
+                              expireFrom={msg.expireFrom}
+                              disappearAfterMs={msg.disappearAfterMs}
+                              expiresAt={msg.expiresAt}
+                              viewedAt={msg.viewedAt}
+                            />
+                          </div>
                         )}
                       </div>
                     </div>
+                    )
                   ))}
                   <div ref={endRef} />
                 </div>
@@ -819,7 +1004,15 @@ export function Messenger({
                 await loadThreads();
               }}
             >
-              <form onSubmit={onSend} className="flex gap-2">
+              <form onSubmit={onSend} className="flex flex-col gap-2">
+                <DisappearPicker
+                  value={textTimer}
+                  onChange={setTextTimer}
+                  customMs={customMs}
+                  onCustomMs={setCustomMs}
+                  allowInherit
+                />
+                <div className="flex gap-2">
                 <Input
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
@@ -837,6 +1030,7 @@ export function Messenger({
                   <Send className="size-4" />
                   ارسال
                 </Button>
+                </div>
               </form>
             </VoiceComposer>
           </div>
@@ -963,7 +1157,7 @@ export function Messenger({
                 امنیت چت نیکسو
               </p>
               <p className="mt-2 text-xs leading-6 text-emerald-100/70">
-                پیام‌های خصوصی با AES-GCM روی این دستگاه رمز می‌شوند و سرور فقط پاکت رمزنگاری‌شده را نگه می‌دارد. کلید نخ در همین مرورگر است؛ همگام‌سازی چنددستگاهی و بسته‌های ویس/مدیا در بخش جداگانه می‌آید. نیکسو تضمین نمی‌کند هرگز قابل نفوذ نباشد.
+                پیام‌های خصوصی با AES-GCM روی این دستگاه رمز می‌شوند و سرور فقط پاکت رمزنگاری‌شده را نگه می‌دارد. کلید نخ در همین مرورگر است. پس از انقضا، ciphertext از مسیر عادی حذف می‌شود و در پشتیبان معمولی برنمی‌گردد. View Once و پیام ناپدیدشونده دو قابلیت جدا هستند. نیکسو تضمین نمی‌کند هرگز قابل نفوذ نباشد و نمی‌تواند عکس گرفتن از صفحه با دوربین دستگاه دیگر را ۱۰۰٪ متوقف کند.
               </p>
             </div>
             <div className="max-w-xl rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -1117,15 +1311,40 @@ export function Messenger({
       )}
       {viewer && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/85 p-4" onClick={() => setViewer(null)}>
-          <div className="max-h-[92dvh] w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+          <ViewOnceShield
+            active={Boolean(viewer.viewOnce)}
+            threadId={viewer.threadId}
+            messageId={viewer.messageId}
+            className="max-h-[92dvh] w-full max-w-3xl"
+          >
+            <div onClick={(e) => e.stopPropagation()}>
             {viewer.kind === "video" ? (
-              <video src={viewer.url} controls autoPlay className="max-h-[85dvh] w-full" />
+              <video
+                src={viewer.url}
+                controls={!viewer.viewOnce}
+                autoPlay
+                disablePictureInPicture
+                controlsList="nodownload noplaybackrate noremoteplayback"
+                className="max-h-[85dvh] w-full"
+                onContextMenu={(e) => e.preventDefault()}
+              />
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={viewer.url} alt={viewer.name ?? ""} className="max-h-[85dvh] w-full object-contain" />
+              <img
+                src={viewer.url}
+                alt={viewer.name ?? ""}
+                className="pointer-events-none max-h-[85dvh] w-full object-contain"
+                draggable={false}
+              />
+            )}
+            {viewer.viewOnce && (
+              <p className="mt-2 text-center text-[11px] leading-5 text-emerald-100/60">
+                مشاهدهٔ یک‌بار. نیکسو روی وب تا حد ممکن کپی و اشتراک را محدود می‌کند؛ عکس از صفحه با دستگاه دیگر را نمی‌توان ۱۰۰٪ متوقف کرد.
+              </p>
             )}
             <Button type="button" className="mt-3 w-full bg-amber-300 text-[#102824]" onClick={() => setViewer(null)}>بستن</Button>
-          </div>
+            </div>
+          </ViewOnceShield>
         </div>
       )}
     </div>

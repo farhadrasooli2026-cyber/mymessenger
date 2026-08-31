@@ -4,15 +4,7 @@ export const VOICE_BITRATE = 24_000;
 export const VOICE_CIPHER_MAX = 1_200_000;
 export const DELETE_EVERYONE_MS = 48 * 60 * 60 * 1000;
 
-export const DISAPPEAR_PRESETS = [
-  { id: "off", ms: 0, label: "بدون انقضا" },
-  { id: "10s", ms: 10_000, label: "۱۰ ثانیه" },
-  { id: "30s", ms: 30_000, label: "۳۰ ثانیه" },
-  { id: "1m", ms: 60_000, label: "۱ دقیقه" },
-  { id: "custom", ms: -1, label: "سفارشی" },
-] as const;
-
-export type DisappearId = (typeof DISAPPEAR_PRESETS)[number]["id"];
+export { DISAPPEAR_PRESETS, type DisappearId } from "@/lib/disappear";
 
 export type VoiceInner = {
   mime: string;

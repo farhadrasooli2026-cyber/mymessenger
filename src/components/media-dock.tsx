@@ -19,6 +19,7 @@ import {
   type MediaMeta,
   type Quality,
 } from "@/lib/media";
+import { DisappearPicker, msFromChoice, type TimerChoice } from "@/components/disappear-picker";
 
 type Draft = {
   id: string;
@@ -51,6 +52,8 @@ export function MediaDock({
   const [quality, setQuality] = useState<Quality>("standard");
   const [caption, setCaption] = useState("");
   const [viewOnce, setViewOnce] = useState(false);
+  const [disappear, setDisappear] = useState<TimerChoice>("inherit");
+  const [customMs, setCustomMs] = useState(120_000);
   const [mute, setMute] = useState(false);
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(0);
@@ -167,7 +170,8 @@ export function MediaDock({
       rotation,
     };
     const envelope = await encryptText(key, JSON.stringify(meta));
-    const body = {
+    const disappearAfterMs = msFromChoice(disappear, customMs);
+    const body: Record<string, unknown> = {
       ...envelope,
       kind: draft.kind,
       blobId,
@@ -177,6 +181,7 @@ export function MediaDock({
       viewOnce: viewOnce && draft.kind !== "file",
       durationMs: draft.kind === "video" ? Math.max(0, (trimEnd || 0) * 1000) : undefined,
     };
+    if (disappearAfterMs !== undefined) body.disappearAfterMs = disappearAfterMs;
     const sent = await fetch(`/api/chats/${threadId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -380,6 +385,9 @@ export function MediaDock({
                   View Once
                 </button>
               )}
+            </div>
+            <div className="mt-2">
+              <DisappearPicker value={disappear} onChange={setDisappear} customMs={customMs} onCustomMs={setCustomMs} allowInherit />
             </div>
             <Textarea value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="کپشن" className="mt-2 min-h-16 bg-black/20" maxLength={400} />
             {progress !== null && (

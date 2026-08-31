@@ -4,9 +4,9 @@ import { hashIp } from "./crypto-utils";
 import { completeProfile } from "./profile";
 import { ackHumanChallenge, issueHumanChallenge, startRegistration, verifyOtp } from "./registration";
 import { getOutbox } from "./outbox";
-import { deleteMessage, listMessages, listThreads, parseCipherPayload, sendMessage, markVoicePlayed } from "./chat";
+import { deleteMessage, listMessages, listThreads, parseCipherPayload, sendMessage, markVoicePlayed, setChatDisappear, reportCapture } from "./chat";
 import { fileReport, setBlocked } from "./safety";
-import { readStoreSnapshot, resetStoreForTests } from "./store";
+import { mutateStore, readStoreSnapshot, resetStoreForTests } from "./store";
 
 async function readyHuman(ip: string) {
   const issued = await issueHumanChallenge(ip);
@@ -183,5 +183,88 @@ describe("private chat safety", () => {
     expect(raw).not.toContain("SECRET_SHOT.jpg");
     expect(raw).not.toContain("hidden-cap");
     expect(snap.messages.some((m) => m.kind === "photo" && m.blobId)).toBe(true);
+  });
+
+  it("inherits chat disappearing timer and expires text by server clock, not client expiresAt", async () => {
+    const userId = await activeUser("timer_user");
+    const threads = await listThreads(userId);
+    const thread = threads.find((t) => t.peerKey === "arya")!;
+    const set = await setChatDisappear(userId, thread.id, 60_000);
+    expect(set.ok).toBe(true);
+    const listedSys = await listMessages(userId, thread.id);
+    expect(listedSys?.messages.some((m) => m.kind === "system")).toBe(true);
+
+    const key = await generateThreadKey();
+    const envelope = await encryptText(key, "متن محوشونده");
+    const sent = await sendMessage(userId, thread.id, envelope);
+    expect(sent.ok).toBe(true);
+    if (!sent.ok) return;
+    const msg = sent.messages.find((m) => m.kind === "text" && m.ciphertext);
+    expect(msg?.disappearAfterMs).toBe(60_000);
+    expect(msg?.expireFrom).toBe("send");
+    expect(msg?.expiresAt).toBeGreaterThan(Date.now());
+
+    expect(parseCipherPayload({ ...envelope, expiresAt: 1 })).not.toBeNull();
+    const parsed = parseCipherPayload({ ...envelope, disappearAfterMs: 10_000, expiresAt: 1 });
+    expect(parsed?.disappearAfterMs).toBe(10_000);
+
+    await mutateStore((data) => {
+      const row = data.messages.find((m) => m.id === msg!.id);
+      if (row) {
+        row.createdAt = Date.now() - 70_000;
+        row.expiresAt = Date.now() - 1_000;
+      }
+    });
+    const after = await listMessages(userId, thread.id);
+    const gone = after?.messages.find((m) => m.id === msg!.id);
+    expect(gone?.ciphertext).toBe("");
+    expect(gone?.expired).toBe(true);
+    const snap = await readStoreSnapshot();
+    expect(JSON.stringify(snap.messages)).not.toContain("متن محوشونده");
+  });
+
+  it("starts disappearing photo timer after view instead of purging immediately", async () => {
+    const userId = await activeUser("view_timer");
+    const threads = await listThreads(userId);
+    const thread = threads.find((t) => t.peerKey === "nixo")!;
+    const key = await generateThreadKey();
+    const envelope = await encryptText(key, JSON.stringify({ name: "x.jpg", mime: "image/jpeg" }));
+    const sent = await sendMessage(userId, thread.id, {
+      ...envelope,
+      kind: "photo",
+      blobId: "aabbccddeeff00112234",
+      chunkCount: 1,
+      byteLength: 1024,
+      mimeClass: "image",
+      disappearAfterMs: 60_000,
+    });
+    expect(sent.ok).toBe(true);
+    const listed = await listMessages(userId, thread.id);
+    const photo = listed?.messages.find((m) => m.kind === "photo");
+    expect(photo?.expireFrom).toBe("view");
+    expect(photo?.expired).toBe(false);
+    expect(photo?.ciphertext.length).toBeGreaterThan(8);
+    const viewed = await markVoicePlayed(userId, thread.id, photo!.id);
+    expect(viewed.ok).toBe(true);
+    const after = await listMessages(userId, thread.id);
+    const live = after?.messages.find((m) => m.id === photo!.id);
+    expect(live?.expired).toBe(false);
+    expect(live?.viewedAt).toBeTruthy();
+    expect(live?.expiresAt).toBeGreaterThan(Date.now());
+  });
+
+  it("records a capture notice for view-once without claiming absolute screenshot blocking", async () => {
+    const userId = await activeUser("cap_user");
+    const threads = await listThreads(userId);
+    const thread = threads.find((t) => t.peerKey === "arya")!;
+    const key = await generateThreadKey();
+    const envelope = await encryptText(key, JSON.stringify({ mime: "audio/webm", audio: btoa("aaaaaaaab"), durationMs: 800, peaks: [] }));
+    const sent = await sendMessage(userId, thread.id, { ...envelope, kind: "voice", durationMs: 800, viewOnce: true });
+    expect(sent.ok).toBe(true);
+    const voice = (await listMessages(userId, thread.id))?.messages.find((m) => m.kind === "voice");
+    const cap = await reportCapture(userId, thread.id, voice!.id);
+    expect(cap.ok).toBe(true);
+    const listed = await listMessages(userId, thread.id);
+    expect(listed?.messages.some((m) => m.kind === "system" && m.systemEvent?.type === "capture")).toBe(true);
   });
 });

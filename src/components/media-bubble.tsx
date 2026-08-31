@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { decryptBytes, decryptText, encryptBytes, encryptText, loadOrCreateThreadKey, type CipherEnvelope } from "@/lib/e2ee";
 import { formatBytes, type MediaMeta } from "@/lib/media";
+import { ViewOnceShield } from "@/components/view-once-shield";
+import { ExpiryBadge } from "@/components/expiry-badge";
 
 export type MediaMsg = {
   id: string;
@@ -21,6 +23,10 @@ export type MediaMsg = {
   viewOnce?: boolean;
   expired?: boolean;
   forwarded?: boolean;
+  disappearAfterMs?: number | null;
+  expireFrom?: "send" | "view" | null;
+  expiresAt?: number | null;
+  viewedAt?: number | null;
 };
 
 function newBlobId() {
@@ -68,11 +74,14 @@ export function MediaBubble({
   const [progress, setProgress] = useState(0);
   const [spent, setSpent] = useState(Boolean(msg.expired));
   const [forwardOpen, setForwardOpen] = useState(false);
+  const [unlocked, setUnlocked] = useState(!msg.viewOnce);
+  const [replayOff, setReplayOff] = useState(false);
+  const locked = Boolean(msg.viewOnce) && !unlocked && !spent;
 
   useEffect(() => {
     let revoke: string | null = null;
     let cancelled = false;
-    if (msg.expired || !msg.blobId || msg.enc !== "e2ee-v1") return;
+    if (msg.expired || !msg.blobId || msg.enc !== "e2ee-v1" || (msg.viewOnce && !unlocked)) return;
     loadBlob(threadId, msg).then((loaded) => {
       if (cancelled) return;
       if (!loaded) {
@@ -88,12 +97,20 @@ export function MediaBubble({
       cancelled = true;
       if (revoke) URL.revokeObjectURL(revoke);
     };
-  }, [msg, threadId]);
+  }, [msg, threadId, unlocked]);
 
-  async function markViewed() {
-    if (!msg.viewOnce) return;
+  async function markViewed(mode: "open" | "play") {
     await fetch(`/api/chats/${threadId}/messages/${msg.id}/played`, { method: "POST" });
-    setSpent(true);
+    if (msg.viewOnce && mode === "open") {
+      setReplayOff(true);
+      setSpent(true);
+      onGone?.();
+      return;
+    }
+    if (msg.viewOnce && mode === "play") {
+      setReplayOff(true);
+      return;
+    }
     onGone?.();
   }
 
@@ -149,26 +166,65 @@ export function MediaBubble({
     setForwardOpen(false);
   }
 
-  if (spent) {
-    return <p className="px-3 py-2 text-xs text-emerald-100/55">{msg.viewOnce ? "محتوای یک‌بارمصرف منقضی شد." : "رسانه در دسترس نیست."}</p>;
+  if (locked) {
+    return (
+      <button
+        type="button"
+        className="px-3 py-4 text-xs"
+        onClick={() => setUnlocked(true)}
+      >
+        {msg.kind === "photo" ? "عکس یک‌بارمصرف — برای مشاهده بزن" : "ویدیوی یک‌بارمصرف — برای پخش بزن"}
+      </button>
+    );
   }
 
+  if (spent) {
+    return <p className="px-3 py-2 text-xs text-emerald-100/55">{msg.viewOnce ? "مشاهده شد و محتوا منقضی شد." : "رسانه در دسترس نیست."}</p>;
+  }
+
+  const restricted = Boolean(msg.viewOnce);
+
   return (
-    <div className="min-w-[180px] max-w-[92vw] space-y-1 p-2">
+    <ViewOnceShield active={restricted} threadId={threadId} messageId={msg.id} className="min-w-[180px] max-w-[92vw] space-y-1 p-2">
+      <ExpiryBadge
+        createdAt={msg.createdAt}
+        expireFrom={msg.expireFrom}
+        disappearAfterMs={msg.disappearAfterMs}
+        expiresAt={msg.expiresAt}
+        viewedAt={msg.viewedAt}
+        viewOnce={msg.viewOnce}
+      />
       {progress < 100 && !url && <p className="text-[11px]">دانلود {progress}%</p>}
       {msg.kind === "photo" && url && (
-        <button type="button" onClick={() => { onOpen?.(url, meta!, msg); void markViewed(); }}>
+        <button
+          type="button"
+          onClick={() => {
+            onOpen?.(url, meta!, msg);
+            void markViewed("open");
+          }}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={url} alt={meta?.caption ?? ""} className="max-h-56 w-full rounded-xl object-cover" />
+          <img src={url} alt={meta?.caption ?? ""} className="pointer-events-none max-h-56 w-full rounded-xl object-cover" draggable={false} />
         </button>
       )}
       {msg.kind === "video" && url && (
         <video
           src={url}
-          controls
+          controls={!restricted && !replayOff}
+          disablePictureInPicture
+          controlsList="nodownload noplaybackrate noremoteplayback"
           className="max-h-56 w-full rounded-xl"
           muted={meta?.mute}
-          onPlay={() => void markViewed()}
+          onPlay={() => {
+            if (restricted || msg.expireFrom === "view") void markViewed("play");
+          }}
+          onEnded={() => {
+            if (restricted) {
+              setSpent(true);
+              setUrl(null);
+              onGone?.();
+            }
+          }}
           style={{ transform: meta?.rotation ? `rotate(${meta.rotation}deg)` : undefined }}
         />
       )}
@@ -181,7 +237,23 @@ export function MediaBubble({
       )}
       {meta?.caption && <p className="px-2 text-xs">{meta.caption}</p>}
       <div className="flex flex-wrap gap-1 px-1">
-        <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => url && onOpen?.(url, meta!, msg)}>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-7 px-2 text-[11px]"
+          disabled={restricted && msg.kind !== "photo"}
+          onClick={() => {
+            if (!url || !meta) return;
+            if (restricted && msg.kind === "photo") {
+              onOpen?.(url, meta, msg);
+              void markViewed("open");
+              return;
+            }
+            if (restricted) return;
+            onOpen?.(url, meta, msg);
+          }}
+        >
           <Maximize2 className="size-3" />
         </Button>
         <Button
@@ -189,9 +261,9 @@ export function MediaBubble({
           size="sm"
           variant="ghost"
           className="h-7 px-2 text-[11px]"
-          disabled={Boolean(msg.viewOnce)}
+          disabled={restricted}
           onClick={() => {
-            if (!url || !meta) return;
+            if (!url || !meta || restricted) return;
             const a = document.createElement("a");
             a.href = url;
             a.download = meta.name || "nixo-file";
@@ -200,7 +272,7 @@ export function MediaBubble({
         >
           <Download className="size-3" />
         </Button>
-        <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-[11px]" disabled={Boolean(msg.viewOnce)} onClick={() => setForwardOpen(true)}>
+        <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-[11px]" disabled={restricted} onClick={() => setForwardOpen(true)}>
           <Forward className="size-3" />
         </Button>
         <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => remove("me")}>
@@ -211,7 +283,7 @@ export function MediaBubble({
             برای همه
           </Button>
         )}
-        {url && navigator.share && !msg.viewOnce && (
+        {url && navigator.share && !restricted && (
           <Button
             type="button"
             size="sm"
@@ -232,6 +304,6 @@ export function MediaBubble({
           ))}
         </div>
       )}
-    </div>
+    </ViewOnceShield>
   );
 }

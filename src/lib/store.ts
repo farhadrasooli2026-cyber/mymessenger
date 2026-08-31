@@ -27,8 +27,19 @@ function hydrateUser(user: UserRecord): UserRecord {
 }
 
 function hydrateKind(kind?: string): ChatMessage["kind"] {
-  if (kind === "voice" || kind === "photo" || kind === "video" || kind === "file") return kind;
+  if (kind === "voice" || kind === "photo" || kind === "video" || kind === "file" || kind === "system") return kind;
   return "text";
+}
+
+function hydrateSystemEvent(event: ChatMessage["systemEvent"]): ChatMessage["systemEvent"] {
+  if (!event || typeof event !== "object") return undefined;
+  if (event.type === "disappear") {
+    return { type: "disappear", ms: typeof event.ms === "number" ? event.ms : null };
+  }
+  if (event.type === "capture" && typeof event.messageId === "string") {
+    return { type: "capture", messageId: event.messageId };
+  }
+  return undefined;
 }
 
 function hydrateMessage(message: ChatMessage & { text?: string }): ChatMessage {
@@ -47,6 +58,12 @@ function hydrateMessage(message: ChatMessage & { text?: string }): ChatMessage {
     chunkCount: message.chunkCount,
     byteLength: message.byteLength,
     mimeClass: message.mimeClass,
+    expireFrom: (message.expireFrom === "view" ? "view" : message.expireFrom === "send" ? "send" : undefined) as
+      | "send"
+      | "view"
+      | undefined,
+    systemEvent: hydrateSystemEvent(message.systemEvent),
+    captureCount: message.captureCount ?? 0,
   };
   if (message.enc === "e2ee-v1" && message.ciphertext && message.nonce) {
     return {
@@ -150,6 +167,7 @@ export type ChatThread = {
   peerTitle: string;
   color: string;
   background?: import("@/lib/appearance-types").BackgroundSpec;
+  disappearAfterMs?: number | null;
   updatedAt: number;
 };
 
@@ -162,7 +180,7 @@ export type ChatMessage = {
   ciphertext: string;
   nonce: string;
   createdAt: number;
-  kind: "text" | "voice" | "photo" | "video" | "file";
+  kind: "text" | "voice" | "photo" | "video" | "file" | "system";
   durationMs?: number;
   viewOnce?: boolean;
   disappearAfterMs?: number | null;
@@ -176,6 +194,9 @@ export type ChatMessage = {
   chunkCount?: number;
   byteLength?: number;
   mimeClass?: "image" | "video" | "file" | "audio";
+  expireFrom?: "send" | "view";
+  systemEvent?: { type: "disappear"; ms: number | null } | { type: "capture"; messageId: string };
+  captureCount?: number;
 };
 
 export type SafetyReport = {
