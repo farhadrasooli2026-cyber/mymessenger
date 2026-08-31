@@ -74,6 +74,12 @@ function hydrateUser(user: UserRecord): UserRecord {
     typingThreadId: user.typingThreadId ?? "",
     recordingUntil: user.recordingUntil ?? 0,
     deletionRequestedAt: user.deletionRequestedAt ?? null,
+    twoStepEnabled: Boolean(user.twoStepEnabled),
+    passwordHash: user.passwordHash,
+    passwordSalt: user.passwordSalt,
+    recoveryCodeHashes: Array.isArray(user.recoveryCodeHashes) ? user.recoveryCodeHashes : [],
+    passkeys: Array.isArray(user.passkeys) ? user.passkeys : [],
+    e2eeBackupVerifier: user.e2eeBackupVerifier,
   };
 }
 
@@ -278,6 +284,72 @@ export type UserRecord = {
   createdAt: number;
   verifiedAt?: number;
   activatedAt?: number;
+  twoStepEnabled?: boolean;
+  passwordHash?: string;
+  passwordSalt?: string;
+  recoveryCodeHashes?: string[];
+  passkeys?: PasskeyRecord[];
+  e2eeBackupVerifier?: string;
+};
+
+export type PasskeyRecord = {
+  id: string;
+  credentialId: string;
+  name: string;
+  createdAt: number;
+};
+
+export type DeviceSession = {
+  id: string;
+  userId: string;
+  createdAt: number;
+  lastSeenAt: number;
+  userAgent: string;
+  ipHint: string;
+  approx: string;
+  label: string;
+  revokedAt?: number;
+};
+
+export type SecurityEventKind =
+  | "login"
+  | "logout"
+  | "new_device"
+  | "revoke"
+  | "twostep_on"
+  | "twostep_off"
+  | "password"
+  | "recovery"
+  | "passkey"
+  | "backup"
+  | "suspicious"
+  | "vuln_report";
+
+export type AuditEvent = {
+  id: string;
+  userId: string;
+  kind: SecurityEventKind;
+  createdAt: number;
+  ipHint?: string;
+  userAgent?: string;
+  deviceSessionId?: string;
+  detail?: string;
+};
+
+export type PasskeyChallenge = {
+  id: string;
+  userId: string;
+  challenge: string;
+  mode: "register" | "login";
+  exp: number;
+};
+
+export type VulnReport = {
+  id: string;
+  createdAt: number;
+  summary: string;
+  contact?: string;
+  reporterId?: string;
 };
 
 export type ChallengeRecord = {
@@ -721,6 +793,10 @@ export type StoreData = {
   catalogItems: CatalogItem[];
   bgCategories: CatalogCategory[];
   bgItems: CatalogItem[];
+  devices: DeviceSession[];
+  audit: AuditEvent[];
+  passkeyChallenges: PasskeyChallenge[];
+  vulnReports: VulnReport[];
 };
 
 const EMPTY: StoreData = {
@@ -748,6 +824,10 @@ const EMPTY: StoreData = {
   catalogItems: [],
   bgCategories: [],
   bgItems: [],
+  devices: [],
+  audit: [],
+  passkeyChallenges: [],
+  vulnReports: [],
 };
 
 const STORE_PATH = path.join(
@@ -796,6 +876,10 @@ async function readStore(): Promise<StoreData> {
       catalogItems: parsed.catalogItems ?? [],
       bgCategories: parsed.bgCategories ?? [],
       bgItems: parsed.bgItems ?? [],
+      devices: Array.isArray(parsed.devices) ? parsed.devices : [],
+      audit: Array.isArray(parsed.audit) ? parsed.audit : [],
+      passkeyChallenges: Array.isArray(parsed.passkeyChallenges) ? parsed.passkeyChallenges : [],
+      vulnReports: Array.isArray(parsed.vulnReports) ? parsed.vulnReports : [],
     };
   } catch {
     return structuredClone(EMPTY);

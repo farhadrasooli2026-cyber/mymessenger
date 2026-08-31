@@ -13,5 +13,6 @@ export async function GET() {
     ok: true,
     step: session.step,
     user: user ? publicProfile(user, user.id) : null,
+    hasPasskeys: session.step === "twostep" ? (user?.passkeys?.length ?? 0) > 0 : undefined,
   });
 }

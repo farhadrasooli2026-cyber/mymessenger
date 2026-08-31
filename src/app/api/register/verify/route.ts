@@ -1,6 +1,7 @@
 import { json, jsonError } from "@/lib/http";
-import { verifyOtp, verifySchema } from "@/lib/registration";
-import { clientIpHash, readSession, writeSession } from "@/lib/session";
+import { getUserById, verifyOtp, verifySchema } from "@/lib/registration";
+import { userNeedsTwoStep } from "@/lib/security";
+import { establishCompleteSession, readSession, writeSession } from "@/lib/session";
 
 export async function POST(request: Request) {
   const session = await readSession();
@@ -17,6 +18,7 @@ export async function POST(request: Request) {
   const parsed = verifySchema.safeParse(body);
   if (!parsed.success) return jsonError("کد تأیید باید ۶ رقم باشد.");
 
+  const { clientIpHash } = await import("@/lib/session");
   const ipHash = await clientIpHash();
   const result = await verifyOtp(session.challengeId, parsed.data.code, ipHash);
   if (!result.ok) {
@@ -28,11 +30,22 @@ export async function POST(request: Request) {
   }
 
   if (result.alreadyActive) {
-    await writeSession({
-      step: "complete",
-      challengeId: session.challengeId,
-      userId: result.userId,
-    });
+    const user = await getUserById(result.userId);
+    if (userNeedsTwoStep(user)) {
+      await writeSession({
+        step: "twostep",
+        challengeId: session.challengeId,
+        userId: result.userId,
+      });
+      return json({
+        ok: true,
+        alreadyActive: true,
+        next: "twostep",
+        hasPasskeys: (user?.passkeys?.length ?? 0) > 0,
+        masked: result.masked,
+      });
+    }
+    await establishCompleteSession({ userId: result.userId, challengeId: session.challengeId });
     return json({
       ok: true,
       alreadyActive: true,

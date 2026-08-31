@@ -16,7 +16,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-type Step = "start" | "verify" | "profile" | "complete";
+type Step = "start" | "verify" | "profile" | "complete" | "twostep";
 type Channel = "phone" | "email";
 
 type SessionPayload = {
@@ -55,6 +55,9 @@ export function RegisterFlow() {
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
   const [inbox, setInbox] = useState<string | null>(null);
   const [inboxOpen, setInboxOpen] = useState(false);
+  const [twoStepPassword, setTwoStepPassword] = useState("");
+  const [recovery, setRecovery] = useState("");
+  const [hasPasskeys, setHasPasskeys] = useState(false);
 
   async function loadChallenge() {
     const res = await fetch("/api/register/challenge", { cache: "no-store" });
@@ -72,7 +75,7 @@ export function RegisterFlow() {
         fetch("/api/register/session", { cache: "no-store" }),
         loadChallenge(),
       ]);
-      const session = (await sessionRes.json()) as SessionPayload;
+      const session = (await sessionRes.json()) as SessionPayload & { hasPasskeys?: boolean };
       if (cancelled) return;
       if (session.step === "complete") {
         router.replace("/app");
@@ -83,6 +86,7 @@ export function RegisterFlow() {
         return;
       }
       setStep(session.step);
+      if (session.hasPasskeys) setHasPasskeys(true);
       if (session.user) {
         setMasked(session.user.identifierMasked);
         setChannel(session.user.channel);
@@ -199,7 +203,13 @@ export function RegisterFlow() {
         setCode("");
         return;
       }
-      const data = (await res.json()) as { alreadyActive?: boolean; next?: string };
+      const data = (await res.json()) as { alreadyActive?: boolean; next?: string; hasPasskeys?: boolean };
+      if (data.next === "twostep") {
+        setHasPasskeys(Boolean(data.hasPasskeys));
+        setStep("twostep");
+        toast.message("رمز دومرحله‌ای فعال است. عامل دوم را وارد کنید.");
+        return;
+      }
       if (data.alreadyActive) {
         toast.message("این شناسه قبلاً به یک حساب فعال متصل است.");
         router.push("/app");
@@ -229,6 +239,90 @@ export function RegisterFlow() {
       setInbox(null);
       setRemainingAttempts(null);
       toast.success("کد جدید ارسال شد. کد قبلی دیگر معتبر نیست.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onTwoStep(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await fetch("/api/register/twostep", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          password: twoStepPassword || undefined,
+          recovery: recovery || undefined,
+        }),
+      });
+      if (!res.ok) {
+        setError(await parseError(res));
+        return;
+      }
+      toast.success("ورود تکمیل شد.");
+      router.push("/app");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onPasskeyLogin() {
+    setError(null);
+    if (!window.PublicKeyCredential) {
+      setError("این مرورگر Passkey را پشتیبانی نمی‌کند.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const chRes = await fetch("/api/register/twostep", { cache: "no-store" });
+      const ch = await chRes.json();
+      if (!chRes.ok || !ch.challenge) {
+        setError(ch.error ?? "چالش Passkey گرفته نشد.");
+        return;
+      }
+      const allow = Array.isArray(ch.allowCredentials)
+        ? (ch.allowCredentials as string[]).map((id) => ({
+            type: "public-key" as const,
+            id: Uint8Array.from(atob(id.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)),
+          }))
+        : [];
+      const cred = (await navigator.credentials.get({
+        publicKey: {
+          challenge: Uint8Array.from(atob(String(ch.challenge).replace(/-/g, "+").replace(/_/g, "/")), (c) =>
+            c.charCodeAt(0),
+          ),
+          timeout: 60_000,
+          userVerification: "preferred",
+          allowCredentials: allow.length ? allow : undefined,
+        },
+      })) as PublicKeyCredential | null;
+      if (!cred) return;
+      const raw = new Uint8Array(cred.rawId);
+      let id = "";
+      raw.forEach((b) => {
+        id += String.fromCharCode(b);
+      });
+      const credId = btoa(id).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      const cd = new Uint8Array(cred.response.clientDataJSON);
+      let cds = "";
+      cd.forEach((b) => {
+        cds += String.fromCharCode(b);
+      });
+      const clientDataJSON = btoa(cds).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      const res = await fetch("/api/register/twostep", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credentialId: credId, clientDataJSON, challengeId: ch.challengeId }),
+      });
+      if (!res.ok) {
+        setError(await parseError(res));
+        return;
+      }
+      router.push("/app");
+    } catch {
+      setError("Passkey روی این میزبان ممکن است کار نکند.");
     } finally {
       setBusy(false);
     }
@@ -463,6 +557,38 @@ export function RegisterFlow() {
                 در محیط واقعی، کد فقط از پیامک یا ایمیل خوانده می‌شود. این صندوق فقط برای پیش‌نمایش است و کد در پایگاه‌داده ذخیره نمی‌شود.
               </p>
             </div>
+          </form>
+        )}
+
+        {step === "twostep" && (
+          <form onSubmit={onTwoStep} className="space-y-5">
+            <div className="rounded-xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm">
+              <p className="font-medium">رمز دومرحله‌ای</p>
+              <p className="mt-1 text-xs text-emerald-100/70">
+                کد یک‌بارمصرف تأیید شد. برای ورود، رمز عبور، کد بازیابی، یا Passkey لازم است. بازیابی با یک عامل ضعیف مالکیت حساب را نمی‌دهد.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>رمز عبور</Label>
+              <Input
+                type="password"
+                value={twoStepPassword}
+                onChange={(e) => setTwoStepPassword(e.target.value)}
+                className="bg-black/30"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>کد بازیابی (اختیاری)</Label>
+              <Input value={recovery} onChange={(e) => setRecovery(e.target.value)} className="bg-black/30 font-mono" dir="ltr" />
+            </div>
+            <Button type="submit" size="lg" className="h-11 w-full bg-amber-300 text-[#102824] hover:bg-amber-200" disabled={busy}>
+              ادامه ورود
+            </Button>
+            {hasPasskeys && (
+              <Button type="button" variant="secondary" className="h-10 w-full" disabled={busy} onClick={() => void onPasskeyLogin()}>
+                ورود با Passkey
+              </Button>
+            )}
           </form>
         )}
 

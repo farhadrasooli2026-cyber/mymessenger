@@ -1,7 +1,7 @@
 import { json, jsonError } from "@/lib/http";
 import { completeProfile, profileInputSchema } from "@/lib/profile";
 import { appearanceSchema, updateAppearance } from "@/lib/appearance";
-import { readSession, writeSession } from "@/lib/session";
+import { establishCompleteSession, readSession } from "@/lib/session";
 
 export async function POST(request: Request) {
   const session = await readSession();
@@ -26,10 +26,9 @@ export async function POST(request: Request) {
     await updateAppearance(session.userId, { appBackground: bg.data.appBackground });
   }
 
-  await writeSession({
-    step: "complete",
-    challengeId: session.challengeId,
+  await establishCompleteSession({
     userId: session.userId,
+    challengeId: session.challengeId,
   });
 
   return json({ ok: true, next: "/app", user: result.user });

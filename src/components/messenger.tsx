@@ -18,6 +18,7 @@ import { ThemeApplicator } from "@/components/theme-applicator";
 import { defaultAppearance, type Appearance, type BackgroundSpec, type BubbleStyle, type TextSize } from "@/lib/appearance-types";
 import { backgroundPreview } from "@/lib/background-style";
 import { nixoLocalReply, REPORT_CATEGORIES, SEED_PEERS, type ReportCategory } from "@/lib/chat-copy";
+import { inspectTextLinks } from "@/lib/link-safety";
 import {
   decryptText,
   encryptText,
@@ -468,6 +469,22 @@ export function Messenger({
         }),
       )
       .catch(() => undefined);
+    fetch("/api/me", { cache: "no-store", signal: ac.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const notices = (d?.notices ?? []) as { id: string; title: string; detail?: string }[];
+        if (!notices.length) return;
+        const ids = notices.map((n) => n.id).join(",");
+        try {
+          if (sessionStorage.getItem("nixo.notices") === ids) return;
+          sessionStorage.setItem("nixo.notices", ids);
+        } catch {
+          /* ignore */
+        }
+        const first = notices[0]!;
+        toast.message(first.title, { description: first.detail ?? "از تنظیمات → امنیت جزئیات را ببینید." });
+      })
+      .catch(() => undefined);
     return () => ac.abort();
   }, [router, decorateThreads]);
 
@@ -584,6 +601,10 @@ export function Messenger({
   async function onSend(e: React.FormEvent) {
     e.preventDefault();
     if (!activeId || !draft.trim() || !active?.messagesAllowed) return;
+    const linkHit = inspectTextLinks(draft);
+    if (linkHit.warn) {
+      toast.message("هشدار لینک", { description: linkHit.reason });
+    }
     setBusy(true);
     try {
       const key = await loadOrCreateThreadKey(activeId);
@@ -1770,6 +1791,9 @@ export function Messenger({
             </Link>
             <Link href="/app/settings/privacy" className="block text-sm text-amber-200">
               تنظیمات → حریم خصوصی
+            </Link>
+            <Link href="/app/settings/security" className="block text-sm text-amber-200">
+              تنظیمات → امنیت
             </Link>
             <Link href="/app/settings/story" className="block text-sm text-amber-200">
               تنظیمات → حریم خصوصی → استوری
