@@ -8,9 +8,9 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// تنظیمات Middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
+// تنظیمات Middleware با قابلیت دریافت فایل‌های بزرگ (عکس و وویس)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // باز شدن خودکار صفحه ورود در ریشه سایت
@@ -27,7 +27,7 @@ const db = new sqlite3.Database('./database.db', (err) => {
   }
 });
 
-// ساخت جدول کاربران و پیام‌ها
+// ساخت جدول کاربران و پیام‌ها (اضافه شدن ستون وضعیت و آخرین بازدید)
 db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
@@ -38,7 +38,9 @@ db.serialize(() => {
       password TEXT,
       gender TEXT,
       profilePic TEXT,
-      bio TEXT
+      bio TEXT,
+      status TEXT DEFAULT 'offline',
+      lastSeen DATETIME
     )
   `);
 
@@ -60,8 +62,8 @@ app.post('/api/register', (req, res) => {
     return res.status(400).json({ error: 'نام کاربری و رمز عبور الزامی است.' });
   }
 
-  const stmt = db.prepare('INSERT INTO users (username, email, phone, password, gender) VALUES (?, ?, ?, ?, ?)');
-  stmt.run(username, email, phone, password, gender, function (err) {
+  const stmt = db.prepare('INSERT INTO users (username, email, phone, password, gender, status) VALUES (?, ?, ?, ?, ?, ?)');
+  stmt.run(username, email, phone, password, gender, 'offline', function (err) {
     if (err) {
       return res.status(400).json({ error: 'این نام کاربری قبلاً ثبت شده است.' });
     }
@@ -76,7 +78,7 @@ app.post('/api/register', (req, res) => {
 
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
-  db.get('SELECT username, gender, profilePic, bio FROM users WHERE username = ? AND password = ?', [username, password], (err, row) => {
+  db.get('SELECT username, gender, profilePic, bio, status, lastSeen FROM users WHERE username = ? AND password = ?', [username, password], (err, row) => {
     if (err || !row) {
       return res.status(401).json({ error: 'نام کاربری یا رمز عبور اشتباه است.' });
     }
@@ -84,7 +86,6 @@ app.post('/api/login', (req, res) => {
   });
 });
 
-// مسیر ذخیره و آپدیت پروفایل و بیوگرافی
 app.post('/api/update-profile', (req, res) => {
   const { username, profilePic, bio } = req.body;
   
@@ -95,7 +96,7 @@ app.post('/api/update-profile', (req, res) => {
       if (err) {
         return res.status(500).json({ error: 'خطا در ذخیره اطلاعات پروفایل در دیتابیس.' });
       }
-      db.get('SELECT username, gender, profilePic, bio FROM users WHERE username = ?', [username], (err, row) => {
+      db.get('SELECT username, gender, profilePic, bio, status, lastSeen FROM users WHERE username = ?', [username], (err, row) => {
         if (err || !row) {
           return res.status(404).json({ error: 'کاربر یافت نشد.' });
         }
@@ -106,7 +107,7 @@ app.post('/api/update-profile', (req, res) => {
 });
 
 app.get('/api/users', (req, res) => {
-  db.all('SELECT username, gender, profilePic, bio FROM users', [], (err, rows) => {
+  db.all('SELECT username, gender, profilePic, bio, status, lastSeen FROM users', [], (err, rows) => {
     if (err) {
       return res.status(500).json({ error: 'خطا در دریافت لیست کاربران.' });
     }
@@ -120,22 +121,28 @@ app.get('/api/messages/:user1/:user2', (req, res) => {
     `SELECT * FROM messages 
      WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?) 
      ORDER BY timestamp ASC`,
-    [user1, user2, user2, user1],
-    (err, rows) => {
-      if (err) {
-        return res.status(500).json({ error: 'خطا در دریافت پیام‌ها.' });
-      }
-      res.json(rows);
-    }
+     [user1, user2, user2, user1],
+     (err, rows) => {
+       if (err) {
+         return res.status(500).json({ error: 'خطا در دریافت پیام‌ها.' });
+       }
+       res.json(rows);
+     }
   );
 });
 
-// Socket.IO
+// Socket.IO برای مدیریت آنلاین/آفلاین، پیام‌ها و وویس‌ها
 const userSockets = {};
 
 io.on('connection', (socket) => {
   socket.on('register_user', (username) => {
+    if (!username) return;
     userSockets[username] = socket.id;
+    
+    // آپدیت وضعیت کاربر به آنلاین در دیتابیس
+    db.run('UPDATE users SET status = ? WHERE username = ?', ['online', username], () => {
+      io.emit('user_status_changed', { username, status: 'online' });
+    });
   });
 
   socket.on('send_private_message', (data) => {
@@ -154,11 +161,21 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
+    let disconnectedUser = null;
     for (const username in userSockets) {
       if (userSockets[username] === socket.id) {
+        disconnectedUser = username;
         delete userSockets[username];
         break;
       }
+    }
+
+    if (disconnectedUser) {
+      const now = new Date().toISOString();
+      // آپدیت وضعیت به آفلاین و ثبت آخرین بازدید در دیتابیس
+      db.run('UPDATE users SET status = ?, lastSeen = ? WHERE username = ?', ['offline', now, disconnectedUser], () => {
+        io.emit('user_status_changed', { username: disconnectedUser, status: 'offline', lastSeen: now });
+      });
     }
   });
 });
