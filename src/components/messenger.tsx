@@ -47,6 +47,8 @@ import { CommunityCreate } from "@/components/community-create";
 import { CommunityPane } from "@/components/community-pane";
 import { ChannelCreate } from "@/components/channel-create";
 import { ChannelPane } from "@/components/channel-pane";
+import { AiComposerTools } from "@/components/ai-composer-tools";
+import { translateText } from "@/lib/ai-engine";
 import { StoryComposer } from "@/components/story-composer";
 import { StoryViewer, type StoryItem } from "@/components/story-viewer";
 import { SearchPanel } from "@/components/search-panel";
@@ -1603,6 +1605,24 @@ export function Messenger({
                         >
                           Save to Saved Messages
                         </button>
+                        {msg.text && !msg.expired && (
+                          <div className="flex flex-wrap gap-1 px-3 pb-2">
+                            <span className="text-[10px] opacity-50">Translate</span>
+                            {(["fa", "en", "tr"] as const).map((lng) => (
+                              <button
+                                key={lng}
+                                type="button"
+                                className="text-[10px] text-amber-200"
+                                onClick={() => {
+                                  const out = translateText(msg.text, lng);
+                                  toast.message(out.slice(0, 280));
+                                }}
+                              >
+                                {lng}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                     )
@@ -1658,6 +1678,11 @@ export function Messenger({
                   customMs={customMs}
                   onCustomMs={setCustomMs}
                   allowInherit
+                />
+                <AiComposerTools
+                  draft={draft}
+                  onDraft={setDraft}
+                  lastIncoming={[...messages].reverse().find((m) => m.sender === "peer" && m.text)?.text}
                 />
                 <div className="flex gap-2">
                 <Input
@@ -1775,6 +1800,11 @@ export function Messenger({
                       Mini Apps
                     </Link>
                   )}
+                  {space.id === "ai" && (
+                    <Link href="/app/ai" className="mt-3 inline-flex h-8 items-center rounded-lg bg-amber-300 px-3 text-sm font-medium text-[#102824]">
+                      NIXO AI
+                    </Link>
+                  )}
                 </article>
               ))}
             </div>
@@ -1830,6 +1860,12 @@ export function Messenger({
             </Link>
             <Link href="/app/settings/bots" className="block text-sm text-amber-200">
               تنظیمات → Developer Dashboard
+            </Link>
+            <Link href="/app/ai" className="block text-sm text-amber-200">
+              NIXO AI
+            </Link>
+            <Link href="/app/settings/ai" className="block text-sm text-amber-200">
+              تنظیمات → AI → Data Controls
             </Link>
             <Link href="/app/settings/story" className="block text-sm text-amber-200">
               تنظیمات → حریم خصوصی → استوری

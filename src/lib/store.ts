@@ -23,6 +23,7 @@ import type {
   MiniAppRecord,
   MiniGrant,
 } from "@/lib/bot-types";
+import type { AiChatRecord, AiLog, AiMemoryItem, AiMessageRecord, AiPrefs } from "@/lib/ai-types";
 
 export type { CatalogCategory, CatalogItem };
 
@@ -904,6 +905,11 @@ export type StoreData = {
   botPlacements: BotPlacement[];
   botLogs: BotLog[];
   botUpdates: BotUpdate[];
+  aiChats: AiChatRecord[];
+  aiMessages: AiMessageRecord[];
+  aiMemory: AiMemoryItem[];
+  aiPrefs: AiPrefs[];
+  aiLogs: AiLog[];
 };
 
 const EMPTY: StoreData = {
@@ -945,6 +951,11 @@ const EMPTY: StoreData = {
   botPlacements: [],
   botLogs: [],
   botUpdates: [],
+  aiChats: [],
+  aiMessages: [],
+  aiMemory: [],
+  aiPrefs: [],
+  aiLogs: [],
 };
 
 const STORE_PATH = path.join(
@@ -1007,6 +1018,11 @@ async function readStore(): Promise<StoreData> {
       botPlacements: Array.isArray(parsed.botPlacements) ? parsed.botPlacements : [],
       botLogs: Array.isArray(parsed.botLogs) ? parsed.botLogs : [],
       botUpdates: Array.isArray(parsed.botUpdates) ? parsed.botUpdates : [],
+      aiChats: Array.isArray(parsed.aiChats) ? parsed.aiChats : [],
+      aiMessages: Array.isArray(parsed.aiMessages) ? parsed.aiMessages : [],
+      aiMemory: Array.isArray(parsed.aiMemory) ? parsed.aiMemory : [],
+      aiPrefs: Array.isArray(parsed.aiPrefs) ? parsed.aiPrefs : [],
+      aiLogs: Array.isArray(parsed.aiLogs) ? parsed.aiLogs : [],
     };
   } catch {
     return structuredClone(EMPTY);
@@ -1120,4 +1136,8 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   }
   data.botChats = (data.botChats ?? []).filter((c) => c.userId !== uid);
   data.miniGrants = (data.miniGrants ?? []).filter((g) => g.userId !== uid);
+  data.aiChats = (data.aiChats ?? []).filter((c) => c.userId !== uid);
+  data.aiMessages = (data.aiMessages ?? []).filter((m) => m.userId !== uid);
+  data.aiMemory = (data.aiMemory ?? []).filter((m) => m.userId !== uid);
+  data.aiPrefs = (data.aiPrefs ?? []).filter((p) => p.userId !== uid);
 }

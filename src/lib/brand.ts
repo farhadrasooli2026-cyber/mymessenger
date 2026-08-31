@@ -34,7 +34,7 @@ export const nixoSpaces = [
   { id: "voice", title: "تماس صوتی", detail: "فعال: زنگ، پذیرش، سابقه، WebRTC روی دستگاه", live: true },
   { id: "video", title: "تماس تصویری", detail: "فعال: دوربین، PiP، کم‌مصرف، رمز رسانه روی دستگاه", live: true },
   { id: "files", title: "اشتراک فایل", detail: "فعال: عکس، ویدیو، سند، E2EE تکه‌تکه، جستجو و Saved Messages", live: true },
-  { id: "ai", title: "هوش مصنوعی", detail: "دستیار داخل گفتگو، نه جایگزین انسان", live: false },
+  { id: "ai", title: "هوش مصنوعی", detail: "فعال: NIXO AI، ترجمه، نوشتن، خلاصه، ابزار روی دستگاه، Data Controls", live: true },
   { id: "business", title: "کسب‌وکار", detail: "حساب تجاری و پاسخگویی", live: false },
   { id: "bot", title: "ربات", detail: "فعال: ساخت، API با Permission، دستور، دکمه، Webhook، Directory و Verified", live: true },
   { id: "mini", title: "مینی‌اپ", detail: "فعال: سندباکس داخل نیکسو، اجازهٔ پروفایل، بدون OTP و کلید خصوصی", live: true },
