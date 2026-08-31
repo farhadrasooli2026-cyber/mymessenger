@@ -4,6 +4,8 @@ import path from "node:path";
 import type { Channel } from "@/lib/identifiers";
 import type { CatalogCategory, CatalogItem, UserPhoto, UsernameChange, Visibility } from "@/lib/profile-types";
 import { defaultUserFields } from "@/lib/profile-types";
+import type { GroupPerms, GroupRole } from "@/lib/group-types";
+import { DEFAULT_GROUP_PERMS } from "@/lib/group-types";
 import { DEFAULT_CATEGORIES, seedCatalogItems } from "@/lib/avatar-catalog";
 import { BG_CATEGORIES, seedBackgroundItems } from "@/lib/background-catalog";
 
@@ -92,6 +94,25 @@ function hydrateMessage(message: ChatMessage & { text?: string }): ChatMessage {
     nonce: "",
     createdAt: message.createdAt,
     ...extra,
+  };
+}
+
+function hydrateGroup(group: GroupRecord): GroupRecord {
+  return {
+    ...group,
+    description: group.description ?? "",
+    rules: group.rules ?? "",
+    welcome: group.welcome ?? "",
+    username: group.username ?? null,
+    joinMode: group.joinMode === "open" || group.joinMode === "request" ? group.joinMode : "invite",
+    maxMembers: group.maxMembers || 256,
+    perms: { ...DEFAULT_GROUP_PERMS, ...(group.perms ?? {}) },
+    inviteToken: group.inviteToken || "",
+    members: Array.isArray(group.members) ? group.members : [],
+    requests: Array.isArray(group.requests) ? group.requests : [],
+    bans: Array.isArray(group.bans) ? group.bans : [],
+    pinIds: Array.isArray(group.pinIds) ? group.pinIds : [],
+    deletedAt: group.deletedAt ?? null,
   };
 }
 
@@ -210,7 +231,7 @@ export type ChatMessage = {
 export type SafetyReport = {
   id: string;
   reporterId: string;
-  targetKind: "user" | "chat";
+  targetKind: "user" | "chat" | "group";
   targetKey: string;
   threadId?: string;
   messageIds: string[];
@@ -246,6 +267,82 @@ export type CallRecord = {
   declineWithMessage?: boolean;
 };
 
+export type GroupMember = {
+  key: string;
+  kind: "user" | "seed";
+  role: GroupRole;
+  name: string;
+  joinedAt: number;
+  mutedUntil: number | null;
+  restrictedUntil: number | null;
+  notifyMutedUntil: number | null;
+  leftAt: number | null;
+};
+
+export type GroupJoinRequest = {
+  id: string;
+  userId: string;
+  name: string;
+  createdAt: number;
+  status: "pending" | "approved" | "rejected";
+};
+
+export type GroupBan = {
+  key: string;
+  at: number;
+};
+
+export type GroupRecord = {
+  id: string;
+  name: string;
+  description: string;
+  rules: string;
+  welcome: string;
+  username: string | null;
+  color: string;
+  ownerUserId: string;
+  joinMode: "invite" | "request" | "open";
+  maxMembers: number;
+  perms: GroupPerms;
+  inviteToken: string;
+  members: GroupMember[];
+  requests: GroupJoinRequest[];
+  bans: GroupBan[];
+  pinIds: string[];
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+};
+
+export type GroupPoll = {
+  question: string;
+  options: string[];
+  anonymous: boolean;
+  multiple: boolean;
+  closesAt: number | null;
+  votes: { voterKey: string; indexes: number[] }[];
+};
+
+export type GroupMessage = {
+  id: string;
+  groupId: string;
+  senderKey: string;
+  senderName: string;
+  enc: "e2ee-v1" | "none" | "purged";
+  ciphertext: string;
+  nonce: string;
+  bodyFa?: string;
+  createdAt: number;
+  kind: "text" | "voice" | "photo" | "video" | "file" | "system" | "poll";
+  replyToId?: string | null;
+  mentions?: string[];
+  reactions: { emoji: string; keys: string[] }[];
+  poll?: GroupPoll;
+  blobId?: string;
+  chunkCount?: number;
+  deleted?: boolean;
+};
+
 export type StoreData = {
   users: UserRecord[];
   challenges: ChallengeRecord[];
@@ -257,6 +354,8 @@ export type StoreData = {
   reports: SafetyReport[];
   storyViews: StoryView[];
   calls: CallRecord[];
+  groups: GroupRecord[];
+  groupMessages: GroupMessage[];
   catalogCategories: CatalogCategory[];
   catalogItems: CatalogItem[];
   bgCategories: CatalogCategory[];
@@ -274,6 +373,8 @@ const EMPTY: StoreData = {
   reports: [],
   storyViews: [],
   calls: [],
+  groups: [],
+  groupMessages: [],
   catalogCategories: [],
   catalogItems: [],
   bgCategories: [],
@@ -312,6 +413,8 @@ async function readStore(): Promise<StoreData> {
       reports: parsed.reports ?? [],
       storyViews: parsed.storyViews ?? [],
       calls: Array.isArray(parsed.calls) ? parsed.calls : [],
+      groups: Array.isArray(parsed.groups) ? parsed.groups.map(hydrateGroup) : [],
+      groupMessages: Array.isArray(parsed.groupMessages) ? parsed.groupMessages : [],
       catalogCategories: parsed.catalogCategories ?? [],
       catalogItems: parsed.catalogItems ?? [],
       bgCategories: parsed.bgCategories ?? [],

@@ -65,7 +65,7 @@ export async function listBlocked(userId: string) {
 }
 
 export const reportInputSchema = z.object({
-  targetKind: z.enum(["user", "chat"]),
+  targetKind: z.enum(["user", "chat", "group"]),
   targetKey: z.string().min(1).max(80),
   threadId: z.string().max(80).optional(),
   messageIds: z.array(z.string().max(80)).max(20).optional(),
@@ -85,6 +85,10 @@ export async function fileReport(
     if (input.targetKind === "chat") {
       const thread = data.threads.find((t) => t.id === input.targetKey && t.ownerUserId === reporterId);
       if (!thread) return { ok: false as const, error: "گفتگو یافت نشد.", status: 404 };
+    }
+    if (input.targetKind === "group") {
+      const group = data.groups.find((g) => g.id === input.targetKey && !g.deletedAt);
+      if (!group) return { ok: false as const, error: "گروه یافت نشد.", status: 404 };
     }
     const report = {
       id: randomId(),

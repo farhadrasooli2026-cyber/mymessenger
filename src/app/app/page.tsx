@@ -9,6 +9,7 @@ export default async function AppPage() {
   if (user.status !== "active") redirect("/setup");
   return (
     <Messenger
+      userId={user.id}
       displayName={user.displayName}
       identifierMasked={user.identifierMasked ?? ""}
       username={user.username}

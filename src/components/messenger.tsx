@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Ban, Flag, Lock, MessageCircle, Phone, Search, Send, Sparkles, Store, Timer, UserRound, Video } from "lucide-react";
+import { Ban, Flag, Lock, MessageCircle, Phone, Search, Send, Sparkles, Store, Timer, UserRound, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { nixoSpaces } from "@/lib/brand";
@@ -40,6 +40,8 @@ import { ViewOnceShield } from "@/components/view-once-shield";
 import { labelDisappear, systemCaptureText, systemDisappearText } from "@/lib/disappear";
 import { CallStage, type LiveCall } from "@/components/call-stage";
 import { CallsTab, type HistoryCall } from "@/components/calls-tab";
+import { GroupCreate } from "@/components/group-create";
+import { GroupPane } from "@/components/group-pane";
 
 type Thread = {
   id: string;
@@ -241,6 +243,7 @@ async function ensureIntros(thread: Thread): Promise<LocalChatMessage[]> {
 }
 
 export function Messenger({
+  userId,
   displayName,
   identifierMasked,
   username,
@@ -248,6 +251,7 @@ export function Messenger({
   bio,
   appearance = defaultAppearance(),
 }: {
+  userId: string;
   displayName: string;
   identifierMasked: string;
   username: string | null;
@@ -300,6 +304,9 @@ export function Messenger({
   const [lowDataCalls, setLowDataCalls] = useState(false);
   const [hideCallLock, setHideCallLock] = useState(false);
   const [callPrivacy, setCallPrivacy] = useState<"everyone" | "contacts" | "nobody" | "selected">("everyone");
+  const [groups, setGroups] = useState<{ id: string; name: string; color: string; memberCount: number; updatedAt: number }[]>([]);
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const [createGroup, setCreateGroup] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   const active = threads.find((t) => t.id === activeId) ?? null;
@@ -344,6 +351,15 @@ export function Messenger({
     return decorateThreads(data.threads ?? []);
   }, [router, decorateThreads]);
 
+  const loadGroups = useCallback(async () => {
+    const res = await fetch("/api/groups", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = (await res.json()) as {
+      groups?: { id: string; name: string; color: string; memberCount: number; updatedAt: number }[];
+    };
+    setGroups(data.groups ?? []);
+  }, []);
+
   useEffect(() => {
     const ac = new AbortController();
     fetch("/api/chats", { cache: "no-store", signal: ac.signal })
@@ -364,6 +380,13 @@ export function Messenger({
     fetch("/api/story", { signal: ac.signal })
       .then((r) => r.json())
       .then((d) => setStory(d.story ?? null))
+      .catch(() => undefined);
+    fetch("/api/groups", { cache: "no-store", signal: ac.signal })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data) return;
+        setGroups(data.groups ?? []);
+      })
       .catch(() => undefined);
     loadOrCreateIdentity()
       .then((identity) =>
@@ -688,16 +711,56 @@ export function Messenger({
               {hit.displayName} <span dir="ltr">@{hit.username}</span>
             </p>
           ))}
+          <Button
+            type="button"
+            className="h-9 w-full bg-amber-300 text-[#102824]"
+            onClick={() => setCreateGroup(true)}
+          >
+            <Users className="ml-1 size-3.5" />
+            ایجاد گروه
+          </Button>
         </div>
 
         <ScrollArea className="flex-1">
           <div className="space-y-1 px-2 pb-24">
+            {groups.map((group) => (
+              <button
+                key={group.id}
+                type="button"
+                onClick={() => {
+                  setActiveGroupId(group.id);
+                  setMobileChat(true);
+                  setTab("chats");
+                }}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-right transition",
+                  activeGroupId === group.id ? "bg-amber-300/15" : "hover:bg-white/5",
+                )}
+              >
+                <span
+                  className="grid size-11 place-items-center rounded-2xl text-sm font-semibold text-[#071614]"
+                  style={{ background: group.color }}
+                >
+                  {group.name.slice(0, 1)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="truncate font-medium">{group.name}</span>
+                    <span className="text-[10px] text-amber-200">گروه</span>
+                  </span>
+                  <span className="mt-0.5 block truncate text-xs text-emerald-100/60">
+                    {group.memberCount} عضو
+                  </span>
+                </span>
+              </button>
+            ))}
             {threads.map((thread) => (
               <button
                 key={thread.id}
                 type="button"
                 onClick={() => {
                   setActiveId(thread.id);
+                  setActiveGroupId(null);
                   setMobileChat(true);
                   setTab("chats");
                 }}
@@ -736,7 +799,32 @@ export function Messenger({
           mobileChat ? "flex" : "hidden md:flex",
         )}
       >
-        {active && (
+        {tab === "chats" && activeGroupId ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <Button
+              type="button"
+              variant="ghost"
+              className="md:hidden text-white hover:bg-white/10"
+              onClick={() => {
+                setActiveGroupId(null);
+                setMobileChat(false);
+              }}
+            >
+              گفتگوها
+            </Button>
+            <GroupPane
+              key={activeGroupId}
+              groupId={activeGroupId}
+              appearance={appearance}
+              userIdHint={userId}
+              username={username}
+              onLeft={() => {
+                setActiveGroupId(null);
+                void loadGroups();
+              }}
+            />
+          </div>
+        ) : active && (
           <div className={cn("relative min-w-0 flex-1 flex-col", tab === "chats" ? "flex" : "hidden")}
           >
             <header className="flex items-center gap-3 border-b border-white/10 px-4 py-3">
@@ -1168,7 +1256,7 @@ export function Messenger({
           <div className="flex-1 overflow-auto p-5">
             <h2 className="text-xl font-semibold">فضاهای نیکسو</h2>
             <p className="mt-2 max-w-2xl text-sm leading-7 text-emerald-100/70">
-              همهٔ سرویس‌ها در یک هویت جمع می‌شوند. گفتگوی خصوصی، پیام صوتی، رسانه و فایل، مسدودسازی، گزارش و E2EE زنده‌اند.
+              همهٔ سرویس‌ها در یک هویت جمع می‌شوند. گفتگوی خصوصی، گروه‌ها، تماس، رسانه و E2EE زنده‌اند.
             </p>
             <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {nixoSpaces.map((space) => (
@@ -1183,6 +1271,19 @@ export function Messenger({
                     </span>
                   </div>
                   <p className="mt-2 text-xs leading-6 text-emerald-100/65">{space.detail}</p>
+                  {space.id === "group" && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="mt-3 bg-amber-300 text-[#102824]"
+                      onClick={() => {
+                        setTab("chats");
+                        setCreateGroup(true);
+                      }}
+                    >
+                      ساخت گروه
+                    </Button>
+                  )}
                 </article>
               ))}
             </div>
@@ -1587,6 +1688,18 @@ export function Messenger({
             setLiveCall(null);
             void sendBusyMessage(id);
             void refreshCalls();
+          }}
+        />
+      )}
+      {createGroup && (
+        <GroupCreate
+          onClose={() => setCreateGroup(false)}
+          onCreated={(id) => {
+            setCreateGroup(false);
+            setActiveGroupId(id);
+            setTab("chats");
+            setMobileChat(true);
+            void loadGroups();
           }}
         />
       )}
