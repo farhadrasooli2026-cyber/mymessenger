@@ -1,7 +1,9 @@
 import "server-only";
 import { hitRateLimit } from "@/lib/rate-limit";
-import { mutateStore, readStoreSnapshot } from "@/lib/store";
+import { mutateStore, readStoreSnapshot, type StoreData } from "@/lib/store";
 import type { ChannelPost, CommunityRecord, GroupRecord, PubChannelRecord } from "@/lib/store";
+import { publicProfile } from "@/lib/profile";
+import { blobMatches, matchScore, recencyBoost, suggestTerms } from "@/lib/search-match";
 import { SEARCH_FLOOD_MAX, SEARCH_FLOOD_WINDOW_MS, SEARCH_HISTORY_MAX, SEARCH_PAGE, type SearchHit, type SearchKind } from "@/lib/search-types";
 
 function liveMember<T extends { key: string; leftAt?: number | null }>(m: T, userId: string) {
@@ -41,15 +43,21 @@ function needleOf(q: string) {
   return q.trim().replace(/^@/, "").toLowerCase();
 }
 
+function isMediaKind(kind: SearchKind) {
+  return kind === "media" || kind === "photos" || kind === "videos" || kind === "gifs" || kind === "voice" || kind === "music";
+}
+
 function matchesKind(kind: SearchKind, itemKind: string) {
-  if (kind === "all" || kind === "users" || kind === "groups" || kind === "channels" || kind === "communities") return true;
-  if (kind === "messages") return itemKind === "text" || itemKind === "message" || itemKind === "link";
-  if (kind === "photos") return itemKind === "photo";
+  if (kind === "all" || kind === "users" || kind === "groups" || kind === "channels" || kind === "communities" || kind === "chats") {
+    return true;
+  }
+  if (kind === "messages") return itemKind === "text" || itemKind === "message" || itemKind === "link" || itemKind === "poll";
+  if (kind === "photos" || kind === "gifs") return itemKind === "photo" || itemKind === "gif";
   if (kind === "videos") return itemKind === "video";
-  if (kind === "files") return itemKind === "file";
+  if (kind === "files") return itemKind === "file" || itemKind === "pdf" || itemKind === "zip" || itemKind === "doc";
   if (kind === "links") return itemKind === "link";
-  if (kind === "voice") return itemKind === "voice";
-  if (kind === "music") return itemKind === "voice" || itemKind === "music";
+  if (kind === "voice" || kind === "music") return itemKind === "voice" || itemKind === "music";
+  if (kind === "media") return ["photo", "gif", "video", "voice", "file"].includes(itemKind);
   return true;
 }
 
@@ -65,6 +73,17 @@ function senderOk(name: string, username: string | null | undefined, from?: stri
   return name.toLowerCase().includes(f) || (username ?? "").toLowerCase().includes(f);
 }
 
+function fileKind(name: string) {
+  const n = name.toLowerCase();
+  if (n.endsWith(".pdf")) return "pdf";
+  if (n.endsWith(".zip") || n.endsWith(".rar")) return "zip";
+  if (n.endsWith(".doc") || n.endsWith(".docx")) return "doc";
+  if (n.endsWith(".gif")) return "gif";
+  if (/\.(png|jpe?g|webp)$/.test(n)) return "photo";
+  if (/\.(mp4|mov|webm)$/.test(n)) return "video";
+  return "file";
+}
+
 export type SearchQuery = {
   q: string;
   kind?: SearchKind;
@@ -73,13 +92,414 @@ export type SearchQuery = {
   toDate?: number;
   offset?: number;
   limit?: number;
+  minPrice?: number;
+  maxPrice?: number;
+  category?: string;
+  recordHistory?: boolean;
 };
+
+function rank(hit: SearchHit, needle: string, extra = 0) {
+  const base = Math.max(matchScore(hit.title, needle), matchScore(`${hit.title} ${hit.preview}`, needle));
+  hit.score = base + recencyBoost(hit.date) + extra;
+  return hit;
+}
+
+export function collectSearchHits(data: StoreData, userId: string, input: SearchQuery): SearchHit[] {
+  const q = needleOf(input.q);
+  const kind = input.kind && input.kind.length ? input.kind : "all";
+  const me = data.users.find((u) => u.id === userId);
+  if (!me || q.length < 2) return [];
+
+  const hits: SearchHit[] = [];
+  const wantPeople = kind === "all" || kind === "users";
+  const wantChats = kind === "all" || kind === "chats";
+  const wantBots = kind === "all" || kind === "bots" || kind === "users";
+  const wantMini = kind === "all" || kind === "mini";
+  const wantBiz = kind === "all" || kind === "business";
+  const wantProducts = kind === "all" || kind === "products";
+  const wantGroups = kind === "all" || kind === "groups" || kind === "chats";
+  const wantChannels = kind === "all" || kind === "channels" || kind === "chats";
+  const wantCommunities = kind === "all" || kind === "communities";
+  const wantContent =
+    kind === "all" ||
+    kind === "messages" ||
+    kind === "photos" ||
+    kind === "videos" ||
+    kind === "gifs" ||
+    kind === "files" ||
+    kind === "links" ||
+    kind === "voice" ||
+    kind === "music" ||
+    kind === "media";
+
+  if (wantPeople) {
+    const allowList = q.length >= 3 || input.q.trim().startsWith("@");
+    if (allowList) {
+      for (const u of data.users) {
+        if (u.status !== "active" || !u.username || u.id === userId) continue;
+        if (me.blockedPeerKeys.includes(u.id) || u.blockedPeerKeys.includes(userId)) continue;
+        const view = publicProfile(u, userId);
+        const blob = `${u.username} ${view.displayName} ${view.bio}`;
+        if (!blobMatches(blob, q)) continue;
+        hits.push(
+          rank(
+            {
+              id: `user:${u.id}`,
+              scope: "user",
+              title: view.displayName || u.username,
+              preview: `@${u.username}${view.bio ? ` · ${view.bio.slice(0, 80)}` : ""}`,
+              sender: view.displayName,
+              chatName: "کاربران",
+              date: u.activatedAt ?? u.createdAt,
+              kind: "user",
+              photoUrl: view.photoHidden ? null : view.photoUrl,
+              target: { type: "user", id: u.id },
+            },
+            q,
+            u.username === q ? 20 : 0,
+          ),
+        );
+      }
+    }
+  }
+
+  if (wantChats) {
+    for (const t of data.threads) {
+      if (t.ownerUserId !== userId) continue;
+      if (!blobMatches(`${t.peerName} ${t.peerKey}`, q)) continue;
+      hits.push(
+        rank(
+          {
+            id: `chatmeta:${t.id}`,
+            scope: "chat",
+            title: t.peerName,
+            preview: "گفتگوی خصوصی · متن پیام روی دستگاه است",
+            sender: t.peerName,
+            chatName: "چت‌ها",
+            date: t.updatedAt ?? t.createdAt,
+            kind: "chat",
+            target: { type: "chat", id: t.id },
+          },
+          q,
+        ),
+      );
+    }
+  }
+
+  if (wantBots) {
+    for (const b of data.bots ?? []) {
+      if (b.status !== "active") continue;
+      if (!blobMatches(`${b.username} ${b.name} ${b.description}`, q)) continue;
+      hits.push(
+        rank(
+          {
+            id: `bot:${b.id}`,
+            scope: "bot",
+            title: `${b.name}${b.verified ? " ✓" : ""}`,
+            preview: `@${b.username} · ربات`,
+            sender: b.name,
+            chatName: "ربات‌ها",
+            date: b.createdAt,
+            kind: "bot",
+            verified: b.verified,
+            target: { type: "bot", id: b.id },
+          },
+          q,
+          b.verified ? 8 : 0,
+        ),
+      );
+    }
+  }
+
+  if (wantMini) {
+    for (const m of data.miniApps ?? []) {
+      if (!blobMatches(`${m.title} ${m.description} ${m.category}`, q)) continue;
+      hits.push(
+        rank(
+          {
+            id: `mini:${m.id}`,
+            scope: "mini",
+            title: m.title,
+            preview: m.description.slice(0, 120),
+            sender: m.category,
+            chatName: "مینی‌اپ",
+            date: m.createdAt,
+            kind: "mini",
+            category: m.category,
+            target: { type: "mini", id: m.id },
+          },
+          q,
+        ),
+      );
+    }
+  }
+
+  if (wantBiz) {
+    for (const b of data.businesses ?? []) {
+      if (!blobMatches(`${b.username} ${b.name} ${b.description} ${b.category} ${b.address}`, q)) continue;
+      hits.push(
+        rank(
+          {
+            id: `biz:${b.id}`,
+            scope: "business",
+            title: `${b.name}${b.verified ? " ✓" : ""}`,
+            preview: `@${b.username} · ${b.category}`,
+            sender: b.name,
+            chatName: "کسب‌وکار",
+            date: b.createdAt,
+            kind: "business",
+            verified: b.verified,
+            category: b.category,
+            location: b.address || null,
+            photoUrl: b.logoKind === "upload" ? `/api/media/photo/${b.id}` : null,
+            target: { type: "business", id: b.id },
+          },
+          q,
+          b.verified ? 8 : Math.min(10, b.views / 20),
+        ),
+      );
+    }
+  }
+
+  if (wantProducts) {
+    for (const p of data.bizProducts ?? []) {
+      if (input.category && p.category !== input.category) continue;
+      if (typeof input.minPrice === "number" && p.price < input.minPrice) continue;
+      if (typeof input.maxPrice === "number" && p.price > input.maxPrice) continue;
+      const biz = data.businesses.find((b) => b.id === p.businessId);
+      if (!blobMatches(`${p.name} ${p.description} ${p.code} ${p.category} ${biz?.name ?? ""}`, q) && q !== "product") continue;
+      hits.push(
+        rank(
+          {
+            id: `prod:${p.id}`,
+            scope: "product",
+            title: p.name,
+            preview: `${p.price} ${p.currency} · ${biz?.name ?? "فروشگاه"}`,
+            sender: biz?.name ?? "",
+            chatName: "محصولات",
+            date: p.createdAt,
+            kind: "product",
+            price: p.price,
+            currency: p.currency,
+            category: p.category,
+            photoUrl: p.photoKind === "upload" ? `/api/media/photo/${p.id}` : null,
+            target: { type: "product", id: p.id, businessId: p.businessId },
+          },
+          q,
+          Math.min(8, p.views / 10),
+        ),
+      );
+    }
+  }
+
+  if (wantGroups) {
+    for (const g of data.groups) {
+      if (!canSeeGroup(g, userId)) continue;
+      if (!blobMatches(`${g.name} ${g.username ?? ""} ${g.description}`, q)) continue;
+      const members = g.members.filter((m) => !m.leftAt).length;
+      hits.push(
+        rank(
+          {
+            id: `group:${g.id}`,
+            scope: "group",
+            title: g.name,
+            preview: `${g.username ? `@${g.username} · ` : ""}${g.joinMode === "open" ? "Public" : "Private"} · ${members} عضو`,
+            sender: "",
+            chatName: "گروه‌ها",
+            date: g.updatedAt,
+            kind: "group",
+            members,
+            visibility: g.joinMode === "open" ? "public" : "private",
+            target: { type: "group", id: g.id },
+          },
+          q,
+        ),
+      );
+    }
+  }
+
+  if (wantChannels) {
+    for (const c of data.pubChannels) {
+      if (!canSeeChannel(c, userId)) continue;
+      if (!blobMatches(`${c.name} ${c.username ?? ""} ${c.description}`, q)) continue;
+      const subs = c.subscribers.filter(liveSub).length;
+      hits.push(
+        rank(
+          {
+            id: `channel:${c.id}`,
+            scope: "channel",
+            title: `${c.name}${c.verified ? " ✓" : ""}`,
+            preview: `${c.username ? `@${c.username} · ` : ""}${subs} دنبال‌کننده`,
+            sender: "",
+            chatName: "کانال‌ها",
+            date: c.updatedAt,
+            kind: "channel",
+            verified: Boolean(c.verified),
+            members: subs,
+            visibility: c.visibility,
+            target: { type: "channel", id: c.id },
+          },
+          q,
+          c.verified ? 8 : 0,
+        ),
+      );
+    }
+  }
+
+  if (wantCommunities) {
+    for (const c of data.communities) {
+      if (!canSeeCommunity(c, userId)) continue;
+      if (!blobMatches(`${c.name} ${c.username ?? ""} ${c.description}`, q)) continue;
+      hits.push(
+        rank(
+          {
+            id: `community:${c.id}`,
+            scope: "community",
+            title: c.name,
+            preview: c.username ? `@${c.username}` : c.description.slice(0, 80),
+            sender: "",
+            chatName: "جامعه‌ها",
+            date: c.updatedAt,
+            kind: "community",
+            members: c.members.filter((m) => !m.leftAt).length,
+            target: { type: "community", id: c.id },
+          },
+          q,
+        ),
+      );
+    }
+  }
+
+  if (wantContent) {
+    const postsByChannel = new Map<string, ChannelPost[]>();
+    for (const p of data.channelPosts) {
+      if (p.deleted) continue;
+      const list = postsByChannel.get(p.channelId) ?? [];
+      list.push(p);
+      postsByChannel.set(p.channelId, list);
+    }
+    for (const c of data.pubChannels) {
+      if (!canSeeChannel(c, userId)) continue;
+      const staff = c.ownerUserId === userId || c.staff.some((s) => s.userId === userId);
+      for (const p of postsByChannel.get(c.id) ?? []) {
+        if (p.status !== "published" && !staff) continue;
+        if (!matchesKind(kind, p.kind)) continue;
+        if (!inRange(p.publishedAt ?? p.createdAt, input.fromDate, input.toDate)) continue;
+        if (!senderOk(p.authorName, null, input.from)) continue;
+        const blob = `${p.body} ${p.caption} ${p.kind} ${p.poll?.question ?? ""}`;
+        if (!blobMatches(blob, q) && q !== p.kind) continue;
+        hits.push(
+          rank(
+            {
+              id: `cpost:${p.id}`,
+              scope: "channelPost",
+              title: c.name,
+              preview: (p.caption || p.body || p.kind).slice(0, 140),
+              sender: p.authorName,
+              chatName: c.name,
+              date: p.publishedAt ?? p.createdAt,
+              kind: p.kind,
+              target: { type: "channel", id: c.id, messageId: p.id },
+            },
+            q,
+          ),
+        );
+      }
+    }
+    for (const c of data.communities) {
+      if (!c.members.some((m) => liveMember(m, userId))) continue;
+      for (const p of c.posts) {
+        if (p.deleted) continue;
+        if (!matchesKind(kind, p.kind)) continue;
+        if (!inRange(p.createdAt, input.fromDate, input.toDate)) continue;
+        if (!senderOk(p.authorName, null, input.from)) continue;
+        const blob = `${p.body} ${p.kind}`;
+        if (!blobMatches(blob, q) && q !== p.kind) continue;
+        hits.push(
+          rank(
+            {
+              id: `cmpost:${p.id}`,
+              scope: "communityPost",
+              title: c.name,
+              preview: p.body.slice(0, 140) || p.kind,
+              sender: p.authorName,
+              chatName: c.name,
+              date: p.createdAt,
+              kind: p.kind,
+              target: { type: "community", id: c.id, messageId: p.id },
+            },
+            q,
+          ),
+        );
+      }
+    }
+    for (const g of data.groups) {
+      if (!g.members.some((m) => liveMember(m, userId))) continue;
+      for (const m of data.groupMessages ?? []) {
+        if (m.groupId !== g.id || m.deleted) continue;
+        if (m.enc === "e2ee-v1") {
+          if (!isMediaKind(kind) && kind !== "files" && kind !== "all" && kind !== "messages") continue;
+          if (m.kind === "text") continue;
+        }
+        if (!matchesKind(kind === "all" ? "media" : kind, m.kind) && m.kind !== "system" && m.kind !== "poll") continue;
+        if (!inRange(m.createdAt, input.fromDate, input.toDate)) continue;
+        if (!senderOk(m.senderName, null, input.from)) continue;
+        const blob = `${m.kind} ${m.bodyFa ?? ""} ${m.poll?.question ?? ""}`;
+        if (m.enc === "e2ee-v1" && m.kind === "text") continue;
+        if (!blobMatches(blob, q) && q !== m.kind) continue;
+        hits.push(
+          rank(
+            {
+              id: `gmsg:${m.id}`,
+              scope: "group",
+              title: g.name,
+              preview: m.kind === "system" || m.kind === "poll" ? (m.bodyFa || m.poll?.question || m.kind) : `${m.kind} · متن E2EE روی دستگاه است`,
+              sender: m.senderName,
+              chatName: g.name,
+              date: m.createdAt,
+              kind: m.kind,
+              target: { type: "group", id: g.id, messageId: m.id },
+            },
+            q,
+          ),
+        );
+      }
+    }
+    for (const s of data.savedItems) {
+      if (s.ownerUserId !== userId || s.deletedAt) continue;
+      const ik = s.kind === "message" ? "text" : fileKind(s.fileName || "") !== "file" ? fileKind(s.fileName || "") : s.kind;
+      if (!matchesKind(kind, ik) && kind !== "all") continue;
+      if (!inRange(s.createdAt, input.fromDate, input.toDate)) continue;
+      const blob = `${s.body} ${s.linkUrl} ${s.fileName} ${s.tag}`;
+      if (!blobMatches(blob, q)) continue;
+      hits.push(
+        rank(
+          {
+            id: `saved:${s.id}`,
+            scope: "saved",
+            title: "پیام‌های ذخیره‌شده",
+            preview: (s.body || s.fileName || s.linkUrl || s.kind).slice(0, 140),
+            sender: "من",
+            chatName: "Saved Messages",
+            date: s.createdAt,
+            kind: ik,
+            target: { type: "saved", id: s.id },
+          },
+          q,
+        ),
+      );
+    }
+  }
+
+  hits.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || b.date - a.date);
+  return hits;
+}
 
 export async function globalSearch(userId: string, input: SearchQuery) {
   const q = needleOf(input.q);
-  const kind = input.kind && input.kind.length ? input.kind : "all";
   const offset = Math.max(0, input.offset ?? 0);
   const limit = Math.min(50, Math.max(1, input.limit ?? SEARCH_PAGE));
+  const record = input.recordHistory !== false;
 
   return mutateStore((data) => {
     const now = Date.now();
@@ -89,7 +509,7 @@ export async function globalSearch(userId: string, input: SearchQuery) {
     }
     const me = data.users.find((u) => u.id === userId);
     if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
-    if (q.length >= 2) {
+    if (record && q.length >= 2) {
       me.searchHistory = [input.q.trim().slice(0, 80), ...me.searchHistory.filter((h) => h !== input.q.trim())].slice(
         0,
         SEARCH_HISTORY_MAX,
@@ -102,224 +522,39 @@ export async function globalSearch(userId: string, input: SearchQuery) {
         hasMore: false,
         nextOffset: 0,
         history: me.searchHistory,
-        note: "حداقل دو نویسه لازم است. متن گفتگوی خصوصی روی دستگاه جستجو می‌شود.",
+        suggestions: suggestTerms(input.q, me.searchHistory),
+        note: "حداقل دو نویسه لازم است. متن گفتگوی خصوصی E2EE روی دستگاه جستجو می‌شود.",
       };
     }
 
-    const hits: SearchHit[] = [];
-    const wantPeople = kind === "all" || kind === "users";
-    const wantBots = kind === "all" || kind === "bots" || kind === "users";
-    const wantBiz = kind === "all" || kind === "business";
-    const wantGroups = kind === "all" || kind === "groups";
-    const wantChannels = kind === "all" || kind === "channels";
-    const wantCommunities = kind === "all" || kind === "communities";
-    const wantContent =
-      kind === "all" ||
-      kind === "messages" ||
-      kind === "photos" ||
-      kind === "videos" ||
-      kind === "files" ||
-      kind === "links" ||
-      kind === "voice" ||
-      kind === "music";
-
-    if (wantPeople) {
-      for (const u of data.users) {
-        if (u.status !== "active" || !u.username || u.id === userId) continue;
-        if (me.blockedPeerKeys.includes(u.id) || u.blockedPeerKeys.includes(userId)) continue;
-        const blob = `${u.username} ${u.displayName ?? ""} ${u.firstName ?? ""} ${u.lastName ?? ""}`.toLowerCase();
-        if (!blob.includes(q)) continue;
-        hits.push({
-          id: `user:${u.id}`,
-          scope: "user",
-          title: u.displayName || u.username,
-          preview: `@${u.username}`,
-          sender: u.displayName || u.username,
-          chatName: "کاربران",
-          date: u.activatedAt ?? u.createdAt,
-          kind: "user",
-          target: { type: "user", id: u.id },
-        });
-      }
-    }
-
-    if (wantBots) {
-      for (const b of data.bots ?? []) {
-        if (b.status !== "active") continue;
-        const blob = `${b.username} ${b.name} ${b.description}`.toLowerCase();
-        if (!blob.includes(q)) continue;
-        hits.push({
-          id: `bot:${b.id}`,
-          scope: "bot",
-          title: `${b.name}${b.verified ? " ✓" : ""}`,
-          preview: `@${b.username} · ربات`,
-          sender: b.name,
-          chatName: "ربات‌ها",
-          date: b.createdAt,
-          kind: "bot",
-          target: { type: "bot", id: b.id },
-        });
-      }
-    }
-
-    if (wantBiz) {
-      for (const b of data.businesses ?? []) {
-        const blob = `${b.username} ${b.name} ${b.description} ${b.category}`.toLowerCase();
-        if (!blob.includes(q)) continue;
-        hits.push({
-          id: `biz:${b.id}`,
-          scope: "business",
-          title: `${b.name}${b.verified ? " ✓" : ""}`,
-          preview: `@${b.username} · کسب‌وکار`,
-          sender: b.name,
-          chatName: "کسب‌وکار",
-          date: b.createdAt,
-          kind: "business",
-          target: { type: "business", id: b.id },
-        });
-      }
-    }
-
-    if (wantGroups) {
-      for (const g of data.groups) {
-        if (!canSeeGroup(g, userId)) continue;
-        const blob = `${g.name} ${g.username ?? ""} ${g.description}`.toLowerCase();
-        if (!blob.includes(q)) continue;
-        hits.push({
-          id: `group:${g.id}`,
-          scope: "group",
-          title: g.name,
-          preview: g.username ? `@${g.username}` : g.description.slice(0, 80),
-          sender: "",
-          chatName: "گروه‌ها",
-          date: g.updatedAt,
-          kind: "group",
-          target: { type: "group", id: g.id },
-        });
-      }
-    }
-
-    if (wantChannels) {
-      for (const c of data.pubChannels) {
-        if (!canSeeChannel(c, userId)) continue;
-        const blob = `${c.name} ${c.username ?? ""} ${c.description}`.toLowerCase();
-        if (!blob.includes(q)) continue;
-        hits.push({
-          id: `channel:${c.id}`,
-          scope: "channel",
-          title: c.name,
-          preview: c.username ? `@${c.username}` : c.description.slice(0, 80),
-          sender: "",
-          chatName: "کانال‌ها",
-          date: c.updatedAt,
-          kind: "channel",
-          target: { type: "channel", id: c.id },
-        });
-      }
-    }
-
-    if (wantCommunities) {
-      for (const c of data.communities) {
-        if (!canSeeCommunity(c, userId)) continue;
-        const blob = `${c.name} ${c.username ?? ""} ${c.description}`.toLowerCase();
-        if (!blob.includes(q)) continue;
-        hits.push({
-          id: `community:${c.id}`,
-          scope: "community",
-          title: c.name,
-          preview: c.username ? `@${c.username}` : c.description.slice(0, 80),
-          sender: "",
-          chatName: "جامعه‌ها",
-          date: c.updatedAt,
-          kind: "community",
-          target: { type: "community", id: c.id },
-        });
-      }
-    }
-
-    if (wantContent) {
-      const postsByChannel = new Map<string, ChannelPost[]>();
-      for (const p of data.channelPosts) {
-        if (p.deleted) continue;
-        const list = postsByChannel.get(p.channelId) ?? [];
-        list.push(p);
-        postsByChannel.set(p.channelId, list);
-      }
-      for (const c of data.pubChannels) {
-        if (!canSeeChannel(c, userId)) continue;
-        const staff = c.ownerUserId === userId || c.staff.some((s) => s.userId === userId);
-        for (const p of postsByChannel.get(c.id) ?? []) {
-          if (p.status !== "published" && !staff) continue;
-          if (!matchesKind(kind, p.kind)) continue;
-          if (!inRange(p.publishedAt ?? p.createdAt, input.fromDate, input.toDate)) continue;
-          if (!senderOk(p.authorName, null, input.from)) continue;
-          const blob = `${p.body} ${p.caption} ${p.kind} ${p.poll?.question ?? ""}`.toLowerCase();
-          if (!blob.includes(q) && q !== p.kind) continue;
-          hits.push({
-            id: `cpost:${p.id}`,
-            scope: "channelPost",
-            title: c.name,
-            preview: (p.caption || p.body || p.kind).slice(0, 140),
-            sender: p.authorName,
-            chatName: c.name,
-            date: p.publishedAt ?? p.createdAt,
-            kind: p.kind,
-            target: { type: "channel", id: c.id, messageId: p.id },
-          });
-        }
-      }
-      for (const c of data.communities) {
-        if (!c.members.some((m) => liveMember(m, userId))) continue;
-        for (const p of c.posts) {
-          if (p.deleted) continue;
-          if (!matchesKind(kind, p.kind)) continue;
-          if (!inRange(p.createdAt, input.fromDate, input.toDate)) continue;
-          if (!senderOk(p.authorName, null, input.from)) continue;
-          const blob = `${p.body} ${p.kind}`.toLowerCase();
-          if (!blob.includes(q) && q !== p.kind) continue;
-          hits.push({
-            id: `cmpost:${p.id}`,
-            scope: "communityPost",
-            title: c.name,
-            preview: p.body.slice(0, 140) || p.kind,
-            sender: p.authorName,
-            chatName: c.name,
-            date: p.createdAt,
-            kind: p.kind,
-            target: { type: "community", id: c.id, messageId: p.id },
-          });
-        }
-      }
-      for (const s of data.savedItems) {
-        if (s.ownerUserId !== userId || s.deletedAt) continue;
-        if (!matchesKind(kind, s.kind === "message" ? "text" : s.kind)) continue;
-        if (!inRange(s.createdAt, input.fromDate, input.toDate)) continue;
-        const blob = `${s.body} ${s.linkUrl} ${s.fileName} ${s.tag}`.toLowerCase();
-        if (!blob.includes(q)) continue;
-        hits.push({
-          id: `saved:${s.id}`,
-          scope: "saved",
-          title: "پیام‌های ذخیره‌شده",
-          preview: (s.body || s.fileName || s.linkUrl || s.kind).slice(0, 140),
-          sender: "من",
-          chatName: "Saved Messages",
-          date: s.createdAt,
-          kind: s.kind,
-          target: { type: "saved", id: s.id },
-        });
-      }
-    }
-
-    hits.sort((a, b) => b.date - a.date);
+    const hits = collectSearchHits(data, userId, input);
     const page = hits.slice(offset, offset + limit);
+    const titles = hits.map((h) => h.title);
     return {
       ok: true as const,
       hits: page,
       hasMore: offset + limit < hits.length,
       nextOffset: offset + page.length,
       history: me.searchHistory,
-      note: "متن گفتگوی خصوصی E2EE روی سرور جستجو نمی‌شود؛ روی دستگاه ادغام می‌شود.",
+      suggestions: suggestTerms(input.q, [...titles, ...me.searchHistory]),
+      note: "متن گفتگوی خصوصی E2EE روی سرور جستجو نمی‌شود؛ روی دستگاه ادغام می‌شود. نتایج فقط با مجوز سمت سرور است.",
     };
+  });
+}
+
+export async function suggestSearch(userId: string, q: string) {
+  return mutateStore((data) => {
+    const flood = hitRateLimit(data, `search-suggest:${userId}`, 10_000, 20);
+    if (!flood.allowed) return { ok: false as const, status: 429, error: "پیشنهاد محدود شد.", suggestions: [] as string[] };
+    const me = data.users.find((u) => u.id === userId);
+    if (!me) return { ok: false as const, status: 401, error: "حساب فعال نیست.", suggestions: [] as string[] };
+    const extra =
+      needleOf(q).length >= 2
+        ? collectSearchHits(data, userId, { q, kind: "all" })
+            .slice(0, 12)
+            .map((h) => h.title)
+        : me.searchHistory;
+    return { ok: true as const, suggestions: suggestTerms(q, extra) };
   });
 }
 

@@ -6,22 +6,28 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SEARCH_KINDS, type SearchHit, type SearchKind } from "@/lib/search-types";
 import { searchLocalChats, type LocalThreadHint } from "@/lib/client-search";
+import { highlightText } from "@/lib/search-match";
 
 const KIND_FA: Record<SearchKind, string> = {
   all: "همه",
   users: "کاربران",
+  chats: "چت‌ها",
+  messages: "پیام‌ها",
   groups: "گروه‌ها",
   channels: "کانال‌ها",
   communities: "جامعه‌ها",
-  messages: "پیام‌ها",
+  bots: "ربات‌ها",
+  mini: "مینی‌اپ",
+  business: "کسب‌وکار",
+  products: "محصولات",
+  files: "فایل",
+  media: "رسانه",
   photos: "عکس",
   videos: "ویدیو",
-  files: "فایل",
-  links: "لینک",
+  gifs: "GIF",
   voice: "صوت",
   music: "موسیقی",
-  bots: "ربات‌ها",
-  business: "کسب‌وکار",
+  links: "لینک",
 };
 
 export function SearchPanel({
@@ -40,8 +46,12 @@ export function SearchPanel({
   const [from, setFrom] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [category, setCategory] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [history, setHistory] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [note, setNote] = useState("");
@@ -53,6 +63,20 @@ export function SearchPanel({
       .then((d) => setHistory(d.history ?? []))
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (q.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      fetch(`/api/search?suggest=1&q=${encodeURIComponent(q)}`, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => setSuggestions(d.suggestions ?? []))
+        .catch(() => undefined);
+    }, 180);
+    return () => window.clearTimeout(t);
+  }, [q]);
 
   async function run(nextOffset = 0, seed = q) {
     setBusy(true);
@@ -67,6 +91,9 @@ export function SearchPanel({
       if (from.trim()) params.set("from", from.trim());
       if (fromMs) params.set("fromDate", String(fromMs));
       if (toMs) params.set("toDate", String(toMs));
+      if (minPrice) params.set("minPrice", minPrice);
+      if (maxPrice) params.set("maxPrice", maxPrice);
+      if (category.trim()) params.set("category", category.trim());
       const res = await fetch(`/api/search?${params}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) {
@@ -75,7 +102,7 @@ export function SearchPanel({
       }
       const remote = (data.hits ?? []) as SearchHit[];
       const local =
-        kind === "users" || kind === "groups" || kind === "channels" || kind === "communities"
+        kind === "users" || kind === "groups" || kind === "channels" || kind === "communities" || kind === "bots" || kind === "business" || kind === "products" || kind === "mini"
           ? []
           : await searchLocalChats(threads, seed, { kind, from: from.trim() || undefined, fromDate: fromMs, toDate: toMs });
       const merged = [...(nextOffset === 0 ? local : []), ...remote];
@@ -89,6 +116,7 @@ export function SearchPanel({
       setHasMore(Boolean(data.hasMore));
       setOffset(data.nextOffset ?? nextOffset);
       setHistory(data.history ?? history);
+      setSuggestions(data.suggestions ?? suggestions);
       setNote(data.note ?? "");
     } finally {
       setBusy(false);
@@ -114,11 +142,28 @@ export function SearchPanel({
             void run(0);
           }}
         >
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="کاربر، @username، گروه، پیام…" className="h-10 bg-black/20" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="کاربر، @username، چت، محصول، فایل…" className="h-10 bg-black/20" />
           <Button type="submit" className="bg-amber-300 text-[#102824]" disabled={busy}>
             بجو
           </Button>
         </form>
+        {suggestions.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {suggestions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className="rounded-full bg-amber-300/15 px-2 py-0.5 text-[11px] text-amber-100"
+                onClick={() => {
+                  setQ(s);
+                  void run(0, s);
+                }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="mt-2 flex flex-wrap gap-1">
           {SEARCH_KINDS.map((k) => (
             <button
@@ -132,21 +177,27 @@ export function SearchPanel({
           ))}
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
-          <Input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="از طرف @username" dir="ltr" className="h-8 bg-black/20 text-left" />
-          <span />
+          <Input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="From User / @username" dir="ltr" className="h-8 bg-black/20 text-left" />
+          <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Category محصول" className="h-8 bg-black/20" />
           <label className="flex items-center gap-1">
-            از
+            From
             <input type="date" className="flex-1 rounded bg-black/30 px-1" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
           </label>
           <label className="flex items-center gap-1">
-            تا
+            To
             <input type="date" className="flex-1 rounded bg-black/30 px-1" value={toDate} onChange={(e) => setToDate(e.target.value)} />
           </label>
+          {(kind === "products" || kind === "all") && (
+            <>
+              <Input value={minPrice} onChange={(e) => setMinPrice(e.target.value)} placeholder="Min price" className="h-8 bg-black/20" />
+              <Input value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)} placeholder="Max price" className="h-8 bg-black/20" />
+            </>
+          )}
         </div>
         {history.length > 0 && (
           <div className="mt-2">
             <div className="flex items-center justify-between text-[11px] text-emerald-100/60">
-              <span>جستجوهای اخیر</span>
+              <span>Recent Searches</span>
               <button
                 type="button"
                 onClick={async () => {
@@ -176,7 +227,7 @@ export function SearchPanel({
           </div>
         )}
         <p className="mt-2 text-[10px] leading-5 text-emerald-100/50">
-          فقط چیزهایی که اجازهٔ دیدنشان را داری. متن چت خصوصی روی دستگاه است، نه روی سرور. {note}
+          فقط چیزهایی که اجازهٔ دیدنشان را داری. متن چت خصوصی و گروه E2EE روی دستگاه است. {note}
         </p>
         <div className="mt-2 min-h-0 flex-1 space-y-1 overflow-auto">
           {hits.length === 0 && !busy && <p className="text-xs text-emerald-100/50">نتیجه‌ای نیست.</p>}
@@ -187,11 +238,26 @@ export function SearchPanel({
               className="block w-full rounded-xl bg-black/25 px-3 py-2 text-right"
               onClick={() => onOpen(hit)}
             >
-              <p className="text-sm font-medium">{hit.title}</p>
-              <p className="truncate text-xs text-emerald-100/70">{hit.preview}</p>
+              <p className="text-sm font-medium">
+                {highlightText(hit.title, q).map((p, i) => (
+                  <span key={i} className={p.hit ? "bg-amber-300/50 text-[#102824]" : undefined}>
+                    {p.t}
+                  </span>
+                ))}
+                {hit.verified ? " ✓" : ""}
+              </p>
+              <p className="truncate text-xs text-emerald-100/70">
+                {highlightText(hit.preview, q).map((p, i) => (
+                  <span key={`p${i}`} className={p.hit ? "bg-amber-300/40" : undefined}>
+                    {p.t}
+                  </span>
+                ))}
+              </p>
               <p className="text-[10px] text-emerald-100/45">
-                {hit.sender ? `${hit.sender} · ` : ""}
+                {hit.kind} · {hit.sender ? `${hit.sender} · ` : ""}
                 {hit.chatName} · {new Date(hit.date).toLocaleDateString("fa-IR")}
+                {hit.price != null ? ` · ${hit.price} ${hit.currency}` : ""}
+                {hit.location ? ` · ${hit.location}` : ""}
               </p>
             </button>
           ))}

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { randomId } from "@/lib/crypto-utils";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
-import { extractMemoryCandidate, runAiEngine, type AiEngineInput } from "@/lib/ai-engine";
+import { collectSearchHits } from "@/lib/search";
 import {
   AI_FREE,
   DEFAULT_AI_PREFS,
@@ -141,6 +141,13 @@ export async function sendAiMessage(userId: string, input: z.infer<typeof aiSend
           .map((m) => ({ role: m.role, text: m.text }))
       : [];
     const memory = prefs.memoryEnabled ? data.aiMemory.filter((m) => m.userId === userId).map((m) => m.fact) : [];
+    let searchNote = "";
+    const ask = /^(search|جستجو|ara|bul)(\s|:|$)/i.test(input.text.trim()) || input.intent === "search";
+    if (ask) {
+      const q = input.text.replace(/^(search|جستجو|ara|bul)[:\s]*/i, "").trim() || input.text;
+      const hits = collectSearchHits(data, userId, { q, kind: "all" }).slice(0, 6);
+      searchNote = hits.map((h) => `${h.title} — ${h.preview}`).join("\n");
+    }
     const engineIn: AiEngineInput = {
       text: input.text,
       intent,
@@ -150,7 +157,7 @@ export async function sendAiMessage(userId: string, input: z.infer<typeof aiSend
       tone: input.tone,
       context,
       memory,
-      fileText: input.fileText,
+      fileText: [input.fileText, searchNote ? `نتایج جستجوی مجاز نیکسو (بدون دادهٔ خصوصی):\n${searchNote}` : ""].filter(Boolean).join("\n\n") || undefined,
       imageHint: input.imageHint,
     };
     const out = runAiEngine(engineIn);
@@ -168,7 +175,7 @@ export async function sendAiMessage(userId: string, input: z.infer<typeof aiSend
       chatId: chat.id,
       userId,
       role: "assistant",
-      text: out.text,
+      text: searchNote ? `نتایج جستجوی مجاز نیکسو:\n${searchNote}\n\n${out.text}` : out.text,
       intent: out.intent,
       createdAt: Date.now() + 1,
       imageSvg: out.imageSvg ?? null,

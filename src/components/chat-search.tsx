@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import type { SearchKind } from "@/lib/search-types";
 import { searchDecryptedMessages } from "@/lib/client-search";
+import { highlightText } from "@/lib/search-match";
 
 const FILTERS: { id: SearchKind; label: string }[] = [
   { id: "all", label: "همه" },
@@ -49,7 +50,7 @@ export function ChatSearch({
   return (
     <div className="border-b border-white/10 bg-black/40 p-3">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-medium">جستجو در این گفتگو</p>
+        <p className="text-xs font-medium">Search in Conversation</p>
         <button type="button" className="text-[11px] text-amber-200" onClick={onClose}>
           بستن
         </button>
@@ -86,7 +87,11 @@ export function ChatSearch({
             onClick={() => onJump(h.id)}
           >
             <span className="opacity-60">{h.sender} · </span>
-            {h.preview || h.kind}
+            {highlightText(h.preview || h.kind, q).map((p, i) => (
+              <span key={i} className={p.hit ? "bg-amber-300/40 text-amber-50" : undefined}>
+                {p.t}
+              </span>
+            ))}
           </button>
         ))}
       </div>

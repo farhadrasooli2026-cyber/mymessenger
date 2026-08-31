@@ -2,6 +2,7 @@
 
 import { loadLocalMessages, loadOrCreateThreadKey } from "@/lib/e2ee";
 import type { SearchHit, SearchKind } from "@/lib/search-types";
+import { blobMatches, foldText } from "@/lib/search-match";
 
 export type LocalThreadHint = {
   id: string;
@@ -17,12 +18,16 @@ function kindOfText(text: string, hint?: string): string {
 
 function matchesKind(kind: SearchKind, itemKind: string) {
   if (kind === "all" || kind === "messages") return itemKind === "text" || itemKind === "message" || itemKind === "link";
-  if (kind === "photos") return itemKind === "photo";
+  if (kind === "photos" || kind === "gifs") return itemKind === "photo" || itemKind === "gif";
   if (kind === "videos") return itemKind === "video";
   if (kind === "files") return itemKind === "file";
   if (kind === "links") return itemKind === "link" || /https?:\/\//i.test(itemKind);
   if (kind === "voice" || kind === "music") return itemKind === "voice";
-  if (kind === "users" || kind === "groups" || kind === "channels" || kind === "communities") return false;
+  if (kind === "media") return ["photo", "gif", "video", "voice", "file"].includes(itemKind);
+  if (kind === "users" || kind === "groups" || kind === "channels" || kind === "communities" || kind === "bots" || kind === "business" || kind === "products" || kind === "mini") {
+    return false;
+  }
+  if (kind === "chats") return true;
   return true;
 }
 
@@ -31,10 +36,27 @@ export async function searchLocalChats(
   q: string,
   opts?: { kind?: SearchKind; from?: string; fromDate?: number; toDate?: number },
 ): Promise<SearchHit[]> {
-  const needle = q.trim().replace(/^@/, "").toLowerCase();
+  const needle = foldText(q.trim().replace(/^@/, ""));
   if (needle.length < 2 || typeof window === "undefined") return [];
   const kind = opts?.kind ?? "all";
   const hits: SearchHit[] = [];
+  if (kind === "chats" || kind === "all") {
+    for (const thread of threads) {
+      if (!blobMatches(`${thread.peerName} ${thread.peerKey}`, needle)) continue;
+      hits.push({
+        id: `chatname:${thread.id}`,
+        scope: "chatLocal",
+        title: thread.peerName,
+        preview: "Search Chats",
+        sender: thread.peerName,
+        chatName: "چت‌ها",
+        date: Date.now(),
+        kind: "chat",
+        target: { type: "chat", id: thread.id },
+      });
+    }
+    if (kind === "chats") return hits.slice(0, 40);
+  }
   for (const thread of threads.slice(0, 80)) {
     try {
       const key = await loadOrCreateThreadKey(thread.id);
@@ -49,7 +71,7 @@ export async function searchLocalChats(
         }
         const itemKind = kindOfText(msg.text);
         if (!matchesKind(kind, itemKind) && kind !== "all") continue;
-        if (!msg.text.toLowerCase().includes(needle)) continue;
+        if (!msg.text.toLowerCase().includes(needle) && !blobMatches(msg.text, needle)) continue;
         hits.push({
           id: `local:${thread.id}:${msg.id}`,
           scope: "chatLocal",
@@ -87,7 +109,7 @@ export function searchDecryptedMessages(
       if (!(opts.kind === "links" && /https?:\/\//i.test(m.text))) return false;
     }
     const blob = `${m.text} ${kind}`.toLowerCase();
-    return blob.includes(needle) || kind === needle;
+    return blob.includes(needle) || kind === needle || blobMatches(m.text, q);
   }).map((m) => ({
     id: m.id,
     preview: (m.text || m.kind || "").slice(0, 140),

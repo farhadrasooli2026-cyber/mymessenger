@@ -13,6 +13,12 @@ export async function GET(request: Request) {
   }
   const kindRaw = url.searchParams.get("kind") ?? "all";
   const kind = (SEARCH_KINDS as readonly string[]).includes(kindRaw) ? (kindRaw as SearchKind) : "all";
+  if (url.searchParams.get("suggest") === "1") {
+    const { suggestSearch } = await import("@/lib/search");
+    const result = await suggestSearch(user.id, url.searchParams.get("q") ?? "");
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
   const result = await globalSearch(user.id, {
     q: url.searchParams.get("q") ?? "",
     kind,
@@ -21,6 +27,9 @@ export async function GET(request: Request) {
     toDate: url.searchParams.get("toDate") ? Number(url.searchParams.get("toDate")) : undefined,
     offset: url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0,
     limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
+    minPrice: url.searchParams.get("minPrice") ? Number(url.searchParams.get("minPrice")) : undefined,
+    maxPrice: url.searchParams.get("maxPrice") ? Number(url.searchParams.get("maxPrice")) : undefined,
+    category: url.searchParams.get("category") ?? undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json(result);

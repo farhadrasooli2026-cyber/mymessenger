@@ -12,7 +12,7 @@ import { decryptText, encryptText, loadOrCreateThreadKey } from "@/lib/e2ee";
 import { MUTE_PRESETS, PERM_FA, ROLE_FA, type GroupPerms, type GroupRole } from "@/lib/group-types";
 import { backgroundPreview } from "@/lib/background-style";
 import type { Appearance } from "@/lib/appearance-types";
-import { BackgroundPicker, type BgDraft } from "@/components/background-picker";
+import { blobMatches } from "@/lib/search-match";
 
 type GMember = {
   key: string;
@@ -89,6 +89,10 @@ export function GroupPane({
   const [settings, setSettings] = useState(false);
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [fromUser, setFromUser] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [pollOpen, setPollOpen] = useState(false);
   const [pollQ, setPollQ] = useState("");
   const [pollOpts, setPollOpts] = useState("بله\nخیر");
@@ -240,8 +244,15 @@ export function GroupPane({
   }
 
   const pins = messages.filter((m) => group.pinIds.includes(m.id));
-  const filtered = search.trim().length >= 2
-    ? messages.filter((m) => (m.text ?? "").includes(search) || m.kind.includes(search) || (m.poll?.question ?? "").includes(search))
+  const fromMs = fromDate ? new Date(fromDate).getTime() : 0;
+  const toMs = toDate ? new Date(toDate).getTime() + 86_399_000 : Number.MAX_SAFE_INTEGER;
+  const filtered = search.trim().length >= 1
+    ? messages.filter((m) => {
+        if (fromMs && m.createdAt < fromMs) return false;
+        if (toDate && m.createdAt > toMs) return false;
+        if (fromUser.trim() && !blobMatches(`${m.senderName} ${m.senderKey}`, fromUser)) return false;
+        return blobMatches(`${m.text ?? ""} ${m.kind} ${m.poll?.question ?? ""} ${m.bodyFa ?? ""}`, search);
+      })
     : messages;
 
   const media = messages.filter((m) => m.kind === "photo" || m.kind === "video" || m.kind === "file" || m.kind === "voice");
@@ -258,10 +269,25 @@ export function GroupPane({
             {group.memberCount} عضو · {group.username ? `@${group.username}` : ROLE_FA[group.myRole ?? "member"]}
           </p>
         </button>
+        <Button type="button" variant="ghost" className="text-white" onClick={() => setSearchOpen((v) => !v)} aria-label="Search in Conversation">
+          <Search className="size-4" />
+        </Button>
         <Button type="button" variant="ghost" className="text-white" onClick={() => setSettings(true)}>
           <Users className="size-4" />
         </Button>
       </header>
+      {searchOpen && (
+        <div className="border-b border-white/10 bg-black/40 p-3">
+          <p className="text-xs font-medium">Search in Conversation</p>
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="meeting، فایل، رسانه…" className="mt-2 h-9 bg-black/20" />
+          <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+            <Input value={fromUser} onChange={(e) => setFromUser(e.target.value)} placeholder="From User" className="h-8 w-32 bg-black/20" />
+            <input type="date" className="rounded bg-black/30 px-1" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+            <input type="date" className="rounded bg-black/30 px-1" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+          </div>
+          <p className="mt-1 text-[10px] text-emerald-100/45">متن E2EE فقط روی همین دستگاه، پس از رمزگشایی.</p>
+        </div>
+      )}
       {pins.length > 0 && (
         <div className="border-b border-amber-300/20 bg-amber-300/10 px-4 py-2 text-[11px]">
           {pins.map((p) => (
@@ -393,7 +419,7 @@ export function GroupPane({
               </div>
             )}
             <div className="flex gap-2">
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="جستجو در پیام‌ها و رسانه" className="h-9 bg-black/20" />
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search in Conversation" className="h-9 bg-black/20" />
               <Search className="mt-2 size-4 opacity-50" />
             </div>
             <p className="text-xs">رسانهٔ مشترک: {media.length} مورد</p>

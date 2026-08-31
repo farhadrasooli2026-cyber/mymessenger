@@ -7,6 +7,7 @@ import { Ban, Bookmark, Flag, Globe, Lock, MessageCircle, Phone, Plus, Radio, Se
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { nixoSpaces } from "@/lib/brand";
+import { blobMatches } from "@/lib/search-match";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -810,6 +811,14 @@ export function Messenger({
       router.push(`/app/business/b/${hit.target.id}`);
       return;
     }
+    if (hit.target.type === "mini") {
+      router.push(`/app/mini/${hit.target.id}`);
+      return;
+    }
+    if (hit.target.type === "product") {
+      router.push(`/app/business/b/${hit.target.businessId}/p/${hit.target.id}`);
+      return;
+    }
     if (hit.target.type === "user") {
       void fetch("/api/users/search", {
         method: "POST",
@@ -840,6 +849,23 @@ export function Messenger({
   }, [tab, threads]);
 
   const initials = useMemo(() => displayName.slice(0, 1), [displayName]);
+  const listNeedle = query.trim();
+  const listedChannels = useMemo(
+    () => pubChannels.filter((ch) => !listNeedle || blobMatches(`${ch.name} ${ch.username ?? ""}`, listNeedle)),
+    [pubChannels, listNeedle],
+  );
+  const listedCommunities = useMemo(
+    () => communities.filter((c) => !listNeedle || blobMatches(c.name, listNeedle)),
+    [communities, listNeedle],
+  );
+  const listedGroups = useMemo(
+    () => groups.filter((g) => !listNeedle || blobMatches(g.name, listNeedle)),
+    [groups, listNeedle],
+  );
+  const listedThreads = useMemo(
+    () => threads.filter((t) => !listNeedle || blobMatches(`${t.peerName} ${t.peerTitle ?? ""}`, listNeedle)),
+    [threads, listNeedle],
+  );
 
   return (
     <div
@@ -947,7 +973,7 @@ export function Messenger({
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="@username یا عبارت…"
+              placeholder="Search Chats · @username یا عبارت…"
               dir="ltr"
               className="h-9 bg-black/20 text-left text-xs"
               onKeyDown={(e) => {
@@ -1014,7 +1040,7 @@ export function Messenger({
 
         <ScrollArea className="flex-1">
           <div className="space-y-1 px-2 pb-24">
-            {pubChannels.map((ch) => (
+            {listedChannels.map((ch) => (
               <button
                 key={ch.id}
                 type="button"
@@ -1045,7 +1071,7 @@ export function Messenger({
                 </span>
               </button>
             ))}
-            {communities.map((community) => (
+            {listedCommunities.map((community) => (
               <button
                 key={community.id}
                 type="button"
@@ -1078,7 +1104,7 @@ export function Messenger({
                 </span>
               </button>
             ))}
-            {groups.map((group) => (
+            {listedGroups.map((group) => (
               <button
                 key={group.id}
                 type="button"
@@ -1111,7 +1137,11 @@ export function Messenger({
                 </span>
               </button>
             ))}
-            {threads.map((thread) => (
+            {listNeedle &&
+            listedChannels.length + listedCommunities.length + listedGroups.length + listedThreads.length === 0 ? (
+              <p className="px-3 py-8 text-center text-sm text-emerald-100/55">چتی با این نام در فهرست نیست. جستجوی سراسری را بزن.</p>
+            ) : null}
+            {listedThreads.map((thread) => (
               <button
                 key={thread.id}
                 type="button"

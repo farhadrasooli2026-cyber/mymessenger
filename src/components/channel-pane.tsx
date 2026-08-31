@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { CHANNEL_PERM_FA, formatSubscribers, type ChannelAdminPerms } from "@/lib/channel-types";
-import { ROLE_FA } from "@/lib/group-types";
+import { blobMatches } from "@/lib/search-match";
 
 const REACTS = ["❤️", "👍", "😂", "😮", "😢", "🔥"];
 
@@ -71,6 +71,9 @@ export function ChannelPane({
   const [kind, setKind] = useState("text");
   const [comment, setComment] = useState("");
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [inviteKey, setInviteKey] = useState("");
   const [deleteStep, setDeleteStep] = useState(0);
   const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
@@ -126,7 +129,15 @@ export function ChannelPane({
   }
 
   const staff = Boolean(channel.myRole);
-  const visible = channel.posts.filter((p) => (search.trim().length >= 2 ? `${p.body} ${p.caption} ${p.kind}`.includes(search) : true));
+  const fromMs = fromDate ? new Date(fromDate).getTime() : 0;
+  const toMs = toDate ? new Date(toDate).getTime() + 86_399_000 : Number.MAX_SAFE_INTEGER;
+  const visible = channel.posts.filter((p) => {
+    if (search.trim().length < 1) return true;
+    const at = p.publishedAt ?? 0;
+    if (fromMs && at && at < fromMs) return false;
+    if (toDate && at && at > toMs) return false;
+    return blobMatches(`${p.body} ${p.caption} ${p.kind} ${p.authorName}`, search);
+  });
   const published = visible.filter((p) => p.status === "published");
   const pins = published.filter((p) => channel.pinIds.includes(p.id));
   const media = published.filter((p) => ["photo", "video", "file", "link", "voice"].includes(p.kind));
@@ -159,6 +170,9 @@ export function ChannelPane({
               {formatSubscribers(channel.subscriberCount)} دنبال‌کننده · {channel.visibility === "public" ? "عمومی" : "خصوصی"}
             </p>
           </div>
+          <Button type="button" variant="ghost" className="text-white" onClick={() => setSearchOpen((v) => !v)} aria-label="Search in Conversation">
+            <Search className="size-4" />
+          </Button>
           {channel.subscribed ? (
             <Button type="button" variant="secondary" onClick={async () => {
               const res = await fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "unsubscribe" }) });
@@ -175,6 +189,16 @@ export function ChannelPane({
         </div>
         <p className="mt-2 text-xs leading-6 text-emerald-100/70">{channel.description}</p>
       </header>
+      {searchOpen && (
+        <div className="border-b border-white/10 bg-black/40 p-3">
+          <p className="text-xs font-medium">Search in Conversation</p>
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="جستجو در پست‌های قابل مشاهده" className="mt-2 h-9 bg-black/20" />
+          <div className="mt-2 flex gap-2 text-[10px]">
+            <input type="date" className="rounded bg-black/30 px-1" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+            <input type="date" className="rounded bg-black/30 px-1" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+          </div>
+        </div>
+      )}
       <ScrollArea className="flex-1">
         <div className="space-y-4 p-4 pb-28">
           {pins.length > 0 && (
@@ -308,7 +332,7 @@ export function ChannelPane({
             <h3 className="text-sm font-medium">رسانه و اطلاعات</h3>
             <p>رسانه: {media.length} مورد (عکس، ویدیو، فایل، لینک، صوت)</p>
             <div className="flex gap-2">
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="جستجو در پست‌ها" className="h-9 bg-black/20" />
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search in Conversation" className="h-9 bg-black/20" />
               <Search className="mt-2 size-4 opacity-50" />
             </div>
             {(["on", "off", "important"] as const).map((mode) => (

@@ -1,13 +1,16 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { hashIp } from "./crypto-utils";
-import { completeProfile } from "./profile";
+import { completeProfile, updateProfile } from "./profile";
 import { ackHumanChallenge, issueHumanChallenge, startRegistration, verifyOtp } from "./registration";
 import { getOutbox } from "./outbox";
 import { mutateStore, resetStoreForTests } from "./store";
 import { createChannel, createPost } from "./channels";
 import { createGroup } from "./groups";
 import { clearSearchHistory, globalSearch } from "./search";
+import { blobMatches, foldText, matchScore, suggestTerms } from "./search-match";
 import { listSaved, saveItem } from "./saved";
+import { createBusiness, upsertProduct } from "./business";
+import { sendAiMessage } from "./ai";
 
 async function activeUser(username: string) {
   const ip = hashIp(`test-ip:${username}`);
@@ -121,5 +124,95 @@ describe("NIXO search and saved messages", () => {
     expect(empty.ok).toBe(true);
     if (!empty.ok) return;
     expect(empty.history.length).toBe(0);
+  });
+
+  it("hides private bio, skips two-letter user enumeration, and ranks fuzzy terms", async () => {
+    const a = await activeUser("sr_enum");
+    const b = await activeUser("sr_secretbio");
+    await updateProfile(b, { bio: "شماره مخفی آزمایشی ۹۹۹", privacyBio: "nobody" });
+    const byUser = await globalSearch(a, { q: "sr_secretbio", kind: "users" });
+    expect(byUser.ok).toBe(true);
+    if (byUser.ok) {
+      const hit = byUser.hits.find((h) => h.target.id === b);
+      expect(hit).toBeTruthy();
+      expect(hit?.preview).not.toMatch(/۹۹۹|مخفی آزمایشی/);
+    }
+    const enumQ = await globalSearch(a, { q: "sr", kind: "users" });
+    expect(enumQ.ok).toBe(true);
+    if (enumQ.ok) expect(enumQ.hits.filter((h) => h.kind === "user").length).toBe(0);
+    const atQ = await globalSearch(a, { q: "@sr_secretbio", kind: "users" });
+    expect(atQ.ok && atQ.hits.some((h) => h.target.id === b)).toBe(true);
+    expect(foldText("يك")).toBe("یک");
+    expect(matchScore("photography", "pho")).toBeGreaterThan(60);
+    expect(blobMatches("Phone Case", "phne")).toBe(true);
+    expect(suggestTerms("pho")).toEqual(expect.arrayContaining(["photo", "phone", "photography"]));
+  });
+
+  it("filters products by price and category and does not index E2EE group text", async () => {
+    const owner = await activeUser("sr_shop");
+    const buyer = await activeUser("sr_buy");
+    const biz = await createBusiness(owner, {
+      name: "NIXO Store",
+      username: "nixo_sr_store",
+      category: "electronics",
+      description: "فروشگاه آزمایشی جستجو نیکسو.",
+      address: "تهران",
+    });
+    expect(biz.ok).toBe(true);
+    if (!biz.ok) return;
+    await upsertProduct(owner, biz.business.id, {
+      kind: "product",
+      name: "Phone Case",
+      description: "قاب گوشی",
+      price: 25,
+      stock: 4,
+      category: "accessories",
+    });
+    await upsertProduct(owner, biz.business.id, {
+      kind: "product",
+      name: "Laptop Stand",
+      description: "پایه لپتاپ",
+      price: 90,
+      stock: 2,
+      category: "office",
+    });
+    const cheap = await globalSearch(buyer, { q: "Phone", kind: "products", maxPrice: 30, category: "accessories" });
+    expect(cheap.ok && cheap.hits.some((h) => h.title === "Phone Case")).toBe(true);
+    const pricey = await globalSearch(buyer, { q: "Phone", kind: "products", minPrice: 80 });
+    expect(pricey.ok && pricey.hits.every((h) => h.title !== "Phone Case")).toBe(true);
+    const open = await createGroup(owner, { name: "گروه جستجو", joinMode: "open", username: "sr_g_open" });
+    expect(open.ok).toBe(true);
+    if (!open.ok) return;
+    await mutateStore((data) => {
+      data.groupMessages.push({
+        id: "gm-secret",
+        groupId: open.group.id,
+        senderKey: owner,
+        senderName: "مالک",
+        enc: "e2ee-v1",
+        ciphertext: "meeting-secret-e2ee-plain",
+        nonce: "n",
+        createdAt: Date.now(),
+        kind: "text",
+        reactions: [],
+      });
+    });
+    const leak = await globalSearch(owner, { q: "meeting-secret-e2ee-plain", kind: "messages" });
+    expect(leak.ok && leak.hits.every((h) => !h.preview.includes("meeting-secret"))).toBe(true);
+  });
+
+  it("lets AI search only through the same permissioned index", async () => {
+    const owner = await activeUser("sr_aiown");
+    const stranger = await activeUser("sr_aistr");
+    const priv = await createChannel(owner, { name: "اتاق داخلی نکسو AI", visibility: "private" });
+    expect(priv.ok).toBe(true);
+    const pub = await createChannel(owner, { name: "اخبار عمومی نکسو AI", username: "nixo_ai_pub", visibility: "public" });
+    expect(pub.ok).toBe(true);
+    if (pub.ok) await createPost(owner, pub.channel.id, { body: "Hello from public nixo", kind: "text" });
+    const ai = await sendAiMessage(stranger, { text: "جستجو نکسو AI" });
+    expect(ai.ok).toBe(true);
+    if (!ai.ok) return;
+    expect(ai.assistant.text).toMatch(/اخبار عمومی نکسو AI/);
+    expect(ai.assistant.text).not.toMatch(/اتاق داخلی نکسو AI/);
   });
 });
