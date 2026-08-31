@@ -63,11 +63,12 @@ export function SecurityDashboard() {
 
   useEffect(() => {
     load();
-    try {
-      if (new URLSearchParams(window.location.search).get("recovered") === "1") setRecovered(true);
-    } catch {
-      /* ignore */
-    }
+    Promise.resolve()
+      .then(() => new URLSearchParams(window.location.search).get("recovered") === "1")
+      .then((flag) => {
+        if (flag) setRecovered(true);
+      })
+      .catch(() => undefined);
   }, []);
 
   async function act(body: Record<string, unknown>) {
