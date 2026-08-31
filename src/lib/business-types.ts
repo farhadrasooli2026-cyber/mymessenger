@@ -82,8 +82,28 @@ export function emptyStaffPerms(): BizPerms {
 export const INBOX_LABELS = ["New Customer", "Paid", "Pending", "VIP", "Support"] as const;
 export type InboxLabel = (typeof INBOX_LABELS)[number];
 
-export const ORDER_STATUSES = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"] as const;
+export const ORDER_STATUSES = [
+  "pending",
+  "payment_pending",
+  "paid",
+  "processing",
+  "shipped",
+  "delivered",
+  "cancelled",
+  "refunded",
+] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
+
+export const FULFILL_STATUSES = ["processing", "shipped", "delivered", "cancelled"] as const;
+
+export const SHOP_REPORTS = [
+  { id: "scam", label: "Scam" },
+  { id: "fake_product", label: "Fake Product" },
+  { id: "fraud", label: "Fraud" },
+  { id: "illegal", label: "Illegal Content" },
+  { id: "spam", label: "Spam" },
+  { id: "other", label: "Other" },
+] as const;
 
 export const BIZ_REPORTS = [
   { id: "scam", label: "Scam" },
@@ -130,6 +150,10 @@ export type BusinessStaff = {
   name: string;
 };
 
+export type VariantDef = { name: string; values: string[] };
+export type VariantRow = { key: string; stock: number | null; priceDelta: number };
+export type ProductDiscount = { kind: "percent" | "amount"; value: number };
+
 export type BizProduct = {
   id: string;
   businessId: string;
@@ -144,9 +168,42 @@ export type BizProduct = {
   photoKind: "default" | "upload";
   views: number;
   createdAt: number;
+  variants: VariantDef[];
+  variantRows: VariantRow[];
+  discount: ProductDiscount | null;
 };
 
-export type BizQuickReply = { id: string; businessId: string; command: string; text: string };
+export type BizCartItem = { productId: string; qty: number; variantKey: string };
+
+export type BizOrderItem = {
+  productId: string;
+  name: string;
+  qty: number;
+  price: number;
+  variantKey: string;
+  discount: number;
+};
+
+export type BizOrder = {
+  id: string;
+  businessId: string;
+  customerId: string;
+  items: BizOrderItem[];
+  subtotal: number;
+  discountTotal: number;
+  deliveryFee: number;
+  fee: number;
+  total: number;
+  currency: string;
+  status: OrderStatus;
+  paymentStatus: "unpaid" | "pending" | "paid" | "failed";
+  delivery: string;
+  deliveryMethodId: string;
+  addressSnapshot: string;
+  couponCode: string;
+  invoiceId: string | null;
+  createdAt: number;
+};
 
 export type BizThread = {
   id: string;
@@ -168,18 +225,6 @@ export type BizMessage = {
   createdAt: number;
 };
 
-export type BizCartItem = { productId: string; qty: number };
+export type BizQuickReply = { id: string; businessId: string; command: string; text: string };
 
 export type BizCart = { userId: string; businessId: string; items: BizCartItem[] };
-
-export type BizOrder = {
-  id: string;
-  businessId: string;
-  customerId: string;
-  items: { productId: string; name: string; qty: number; price: number }[];
-  total: number;
-  currency: string;
-  status: OrderStatus;
-  delivery: string;
-  createdAt: number;
-};

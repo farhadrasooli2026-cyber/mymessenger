@@ -182,7 +182,13 @@ export async function POST(request: Request) {
     return json(result);
   }
   if (action === "cart") {
-    const result = await cartAdd(user.id, businessId, String(body.productId ?? ""), Math.max(1, Number(body.qty ?? 1)));
+    const result = await cartAdd(
+      user.id,
+      businessId,
+      String(body.productId ?? ""),
+      Math.max(1, Number(body.qty ?? 1)),
+      String(body.variantKey ?? ""),
+    );
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
   }

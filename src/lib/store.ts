@@ -34,6 +34,20 @@ import type {
   BizQuickReply,
   BizThread,
 } from "@/lib/business-types";
+import type {
+  CouponRecord,
+  DisputeRecord,
+  InvoiceRecord,
+  LedgerTx,
+  PaymentRecord,
+  RefundRecord,
+  SettlementRecord,
+  ShopAudit,
+  ShopNotice,
+  ShopRecord,
+  UserAddress,
+  WalletRecord,
+} from "@/lib/shop-types";
 
 export type { CatalogCategory, CatalogItem };
 
@@ -876,6 +890,45 @@ export type SavedItem = {
   deletedAt: number | null;
 };
 
+function hydrateProduct(p: BizProduct): BizProduct {
+  return {
+    ...p,
+    variants: p.variants ?? [],
+    variantRows: p.variantRows ?? [],
+    discount: p.discount ?? null,
+  };
+}
+
+function hydrateCart(c: BizCart): BizCart {
+  return {
+    ...c,
+    items: (c.items ?? []).map((i) => ({ productId: i.productId, qty: i.qty, variantKey: i.variantKey || "" })),
+  };
+}
+
+function hydrateOrder(o: BizOrder): BizOrder {
+  return {
+    ...o,
+    items: (o.items ?? []).map((i) => ({
+      productId: i.productId,
+      name: i.name,
+      qty: i.qty,
+      price: i.price,
+      variantKey: i.variantKey || "",
+      discount: i.discount ?? 0,
+    })),
+    subtotal: o.subtotal ?? o.total,
+    discountTotal: o.discountTotal ?? 0,
+    deliveryFee: o.deliveryFee ?? 0,
+    fee: o.fee ?? 0,
+    paymentStatus: o.paymentStatus ?? "unpaid",
+    deliveryMethodId: o.deliveryMethodId ?? "pickup",
+    addressSnapshot: o.addressSnapshot ?? o.delivery ?? "",
+    couponCode: o.couponCode ?? "",
+    invoiceId: o.invoiceId ?? null,
+  };
+}
+
 export type StoreData = {
   users: UserRecord[];
   challenges: ChallengeRecord[];
@@ -928,6 +981,18 @@ export type StoreData = {
   bizMessages: BizMessage[];
   bizCarts: BizCart[];
   bizOrders: BizOrder[];
+  shops: ShopRecord[];
+  addresses: UserAddress[];
+  coupons: CouponRecord[];
+  payments: PaymentRecord[];
+  invoices: InvoiceRecord[];
+  refunds: RefundRecord[];
+  wallets: WalletRecord[];
+  ledger: LedgerTx[];
+  settlements: SettlementRecord[];
+  shopNotices: ShopNotice[];
+  disputes: DisputeRecord[];
+  shopAudit: ShopAudit[];
 };
 
 const EMPTY: StoreData = {
@@ -982,6 +1047,18 @@ const EMPTY: StoreData = {
   bizMessages: [],
   bizCarts: [],
   bizOrders: [],
+  shops: [],
+  addresses: [],
+  coupons: [],
+  payments: [],
+  invoices: [],
+  refunds: [],
+  wallets: [],
+  ledger: [],
+  settlements: [],
+  shopNotices: [],
+  disputes: [],
+  shopAudit: [],
 };
 
 const STORE_PATH = path.join(
@@ -1051,12 +1128,24 @@ async function readStore(): Promise<StoreData> {
       aiLogs: Array.isArray(parsed.aiLogs) ? parsed.aiLogs : [],
       businesses: Array.isArray(parsed.businesses) ? parsed.businesses : [],
       bizStaff: Array.isArray(parsed.bizStaff) ? parsed.bizStaff : [],
-      bizProducts: Array.isArray(parsed.bizProducts) ? parsed.bizProducts : [],
+      bizProducts: (Array.isArray(parsed.bizProducts) ? parsed.bizProducts : []).map(hydrateProduct),
       bizReplies: Array.isArray(parsed.bizReplies) ? parsed.bizReplies : [],
       bizThreads: Array.isArray(parsed.bizThreads) ? parsed.bizThreads : [],
       bizMessages: Array.isArray(parsed.bizMessages) ? parsed.bizMessages : [],
-      bizCarts: Array.isArray(parsed.bizCarts) ? parsed.bizCarts : [],
-      bizOrders: Array.isArray(parsed.bizOrders) ? parsed.bizOrders : [],
+      bizCarts: (Array.isArray(parsed.bizCarts) ? parsed.bizCarts : []).map(hydrateCart),
+      bizOrders: (Array.isArray(parsed.bizOrders) ? parsed.bizOrders : []).map(hydrateOrder),
+      shops: Array.isArray(parsed.shops) ? parsed.shops : [],
+      addresses: Array.isArray(parsed.addresses) ? parsed.addresses : [],
+      coupons: Array.isArray(parsed.coupons) ? parsed.coupons : [],
+      payments: Array.isArray(parsed.payments) ? parsed.payments : [],
+      invoices: Array.isArray(parsed.invoices) ? parsed.invoices : [],
+      refunds: Array.isArray(parsed.refunds) ? parsed.refunds : [],
+      wallets: Array.isArray(parsed.wallets) ? parsed.wallets : [],
+      ledger: Array.isArray(parsed.ledger) ? parsed.ledger : [],
+      settlements: Array.isArray(parsed.settlements) ? parsed.settlements : [],
+      shopNotices: Array.isArray(parsed.shopNotices) ? parsed.shopNotices : [],
+      disputes: Array.isArray(parsed.disputes) ? parsed.disputes : [],
+      shopAudit: Array.isArray(parsed.shopAudit) ? parsed.shopAudit : [],
     };
   } catch {
     return structuredClone(EMPTY);
@@ -1184,4 +1273,10 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.bizMessages = (data.bizMessages ?? []).filter((m) => keepThreads.has(m.threadId));
   data.bizCarts = (data.bizCarts ?? []).filter((c) => c.userId !== uid && !ownedBiz.includes(c.businessId));
   data.bizOrders = (data.bizOrders ?? []).filter((o) => o.customerId !== uid && !ownedBiz.includes(o.businessId));
+  data.shops = (data.shops ?? []).filter((s) => !ownedBiz.includes(s.businessId));
+  data.addresses = (data.addresses ?? []).filter((a) => a.userId !== uid);
+  data.payments = (data.payments ?? []).filter((p) => p.userId !== uid && !ownedBiz.includes(p.businessId));
+  data.wallets = (data.wallets ?? []).filter((w) => w.userId !== uid);
+  data.ledger = (data.ledger ?? []).filter((t) => t.userId !== uid);
+  data.shopNotices = (data.shopNotices ?? []).filter((n) => n.userId !== uid);
 }

@@ -139,9 +139,9 @@ describe("NIXO Business", () => {
     if (!order.ok) return;
     expect(order.order.status).toBe("pending");
     await addStaff(owner, created.business.id, "shop_staff", { readMessages: true, reply: true });
-    const denied = await setOrderStatus(staff, order.order.id, "confirmed");
+    const denied = await setOrderStatus(staff, order.order.id, "processing");
     expect(denied.ok).toBe(false);
-    const allowed = await setOrderStatus(owner, order.order.id, "confirmed");
+    const allowed = await setOrderStatus(owner, order.order.id, "processing");
     expect(allowed.ok).toBe(true);
   });
 

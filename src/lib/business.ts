@@ -7,6 +7,8 @@ import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { StoreData } from "@/lib/store";
 import { normalizeUsername } from "@/lib/username";
 import { runAiEngine } from "@/lib/ai-engine";
+import { seedShop } from "@/lib/shop-types";
+import type { ProductDiscount, VariantDef, VariantRow } from "@/lib/business-types";
 import { createStory } from "@/lib/stories";
 import {
   ALL_BIZ_PERMS,
@@ -165,6 +167,8 @@ export async function createBusiness(userId: string, input: z.infer<typeof creat
     data.businesses ??= [];
     data.bizStaff ??= [];
     data.businesses.push(biz);
+    data.shops ??= [];
+    data.shops.push(seedShop(id, biz.name, biz.category));
     data.bizStaff.push({
       businessId: id,
       userId,
@@ -221,6 +225,9 @@ function publicProduct(p: BizProduct) {
     category: p.category,
     code: p.code,
     photoUrl: p.photoKind === "upload" ? `/api/media/photo/${p.id}` : null,
+    variants: p.variants ?? [],
+    variantRows: p.variantRows ?? [],
+    discount: p.discount ?? null,
   };
 }
 
@@ -269,7 +276,21 @@ export async function updateBusiness(userId: string, businessId: string, patch: 
 export async function upsertProduct(
   userId: string,
   businessId: string,
-  input: { id?: string; kind: "product" | "service"; name: string; description: string; price: number; currency?: string; stock?: number | null; category?: string; code?: string; photoDataUrl?: string },
+  input: {
+    id?: string;
+    kind: "product" | "service";
+    name: string;
+    description: string;
+    price: number;
+    currency?: string;
+    stock?: number | null;
+    category?: string;
+    code?: string;
+    photoDataUrl?: string;
+    variants?: VariantDef[];
+    variantRows?: VariantRow[];
+    discount?: ProductDiscount | null;
+  },
 ) {
   let photo: Buffer | null = null;
   if (input.photoDataUrl) {
@@ -296,6 +317,9 @@ export async function upsertProduct(
         photoKind: photo ? "upload" : "default",
         views: 0,
         createdAt: Date.now(),
+        variants: input.variants ?? [],
+        variantRows: input.variantRows ?? [],
+        discount: input.discount ?? null,
       };
       data.bizProducts.push(p);
     } else {
@@ -304,6 +328,9 @@ export async function upsertProduct(
       p.price = Math.max(0, input.price);
       if (input.stock !== undefined) p.stock = input.stock;
       if (photo) p.photoKind = "upload";
+      if (input.variants) p.variants = input.variants;
+      if (input.variantRows) p.variantRows = input.variantRows;
+      if (input.discount !== undefined) p.discount = input.discount;
     }
     return { ok: true as const, product: publicProduct(p) };
   });
@@ -471,31 +498,60 @@ export async function patchThread(userId: string, threadId: string, patch: Parti
   });
 }
 
-export async function cartAdd(userId: string, businessId: string, productId: string, qty: number) {
+export async function cartAdd(userId: string, businessId: string, productId: string, qty: number, variantKey = "") {
   return mutateStore((data) => {
     const p = (data.bizProducts ?? []).find((x) => x.id === productId && x.businessId === businessId);
     if (!p) return { ok: false as const, status: 404, error: "محصول نیست." };
-    if (p.stock !== null && p.stock < qty) return { ok: false as const, status: 400, error: "موجودی کافی نیست." };
+    const stock = variantStock(p, variantKey);
+    if (stock !== null && stock < qty) return { ok: false as const, status: 400, error: "موجودی کافی نیست." };
     data.bizCarts ??= [];
     let cart = data.bizCarts.find((c) => c.userId === userId && c.businessId === businessId);
     if (!cart) {
       cart = { userId, businessId, items: [] };
       data.bizCarts.push(cart);
     }
-    const row = cart.items.find((i) => i.productId === productId);
+    const row = cart.items.find((i) => i.productId === productId && (i.variantKey || "") === variantKey);
     if (row) row.qty += qty;
-    else cart.items.push({ productId, qty });
+    else cart.items.push({ productId, qty, variantKey });
     return { ok: true as const, cart: publicCart(data, cart) };
   });
+}
+
+function variantStock(p: { stock: number | null; variantRows?: { key: string; stock: number | null }[] }, variantKey: string) {
+  if (variantKey && p.variantRows?.length) {
+    const row = p.variantRows.find((r) => r.key === variantKey);
+    return row ? row.stock : 0;
+  }
+  return p.stock;
 }
 
 function publicCart(data: StoreData, cart: BizCart) {
   const lines = cart.items.map((i) => {
     const p = (data.bizProducts ?? []).find((x) => x.id === i.productId);
-    const price = p?.price ?? 0;
-    return { productId: i.productId, name: p?.name ?? "?", qty: i.qty, price, line: price * i.qty, currency: p?.currency ?? "USD" };
+    const delta = p?.variantRows?.find((r) => r.key === (i.variantKey || ""))?.priceDelta ?? 0;
+    const unit = (p?.price ?? 0) + delta;
+    const disc = productDiscountAmount(unit, i.qty, p?.discount ?? null);
+    const price = unit;
+    const line = unit * i.qty - disc;
+    return {
+      productId: i.productId,
+      variantKey: i.variantKey || "",
+      name: p?.name ?? "?",
+      qty: i.qty,
+      price,
+      discount: disc,
+      line,
+      currency: p?.currency ?? "USD",
+    };
   });
   return { businessId: cart.businessId, items: lines, total: lines.reduce((s, l) => s + l.line, 0) };
+}
+
+function productDiscountAmount(unit: number, qty: number, d: ProductDiscount | null) {
+  if (!d) return 0;
+  const gross = unit * qty;
+  if (d.kind === "percent") return Math.min(gross, (gross * d.value) / 100);
+  return Math.min(gross, d.value);
 }
 
 export async function getCart(userId: string, businessId: string) {
@@ -509,23 +565,39 @@ export async function placeOrder(userId: string, businessId: string, delivery: s
   return mutateStore((data) => {
     const cart = (data.bizCarts ?? []).find((c) => c.userId === userId && c.businessId === businessId);
     if (!cart || cart.items.length === 0) return { ok: false as const, status: 400, error: "سبد خالی است." };
-    const items: { productId: string; name: string; qty: number; price: number }[] = [];
+    const items: { productId: string; name: string; qty: number; price: number; variantKey: string; discount: number }[] = [];
     for (const i of cart.items) {
       const p = (data.bizProducts ?? []).find((x) => x.id === i.productId);
       if (!p) return { ok: false as const, status: 400, error: "محصول سبد دیگر موجود نیست." };
-      if (p.stock !== null) p.stock = Math.max(0, p.stock - i.qty);
-      items.push({ productId: p.id, name: p.name, qty: i.qty, price: p.price });
+      const vKey = i.variantKey || "";
+      const row = p.variantRows?.find((r) => r.key === vKey);
+      if (row && row.stock !== null) row.stock = Math.max(0, row.stock - i.qty);
+      else if (p.stock !== null) p.stock = Math.max(0, p.stock - i.qty);
+      const unit = p.price + (row?.priceDelta ?? 0);
+      const discount = productDiscountAmount(unit, i.qty, p.discount);
+      items.push({ productId: p.id, name: p.name, qty: i.qty, price: unit, variantKey: vKey, discount });
     }
-    const total = items.reduce((s, i) => s + i.price * i.qty, 0);
+    const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
+    const discountTotal = items.reduce((s, i) => s + i.discount, 0);
+    const total = subtotal - discountTotal;
     const order: BizOrder = {
-      id: `ord_${randomId().slice(0, 10)}`,
+      id: `NIXO-ORDER-${randomId().slice(0, 8).toUpperCase()}`,
       businessId,
       customerId: userId,
       items,
+      subtotal,
+      discountTotal,
+      deliveryFee: 0,
+      fee: 0,
       total,
       currency: (data.bizProducts.find((p) => p.id === items[0]?.productId)?.currency ?? "USD"),
       status: "pending",
+      paymentStatus: "unpaid",
       delivery: delivery.slice(0, 200),
+      deliveryMethodId: "pickup",
+      addressSnapshot: delivery.slice(0, 200),
+      couponCode: "",
+      invoiceId: null,
       createdAt: Date.now(),
     };
     data.bizOrders ??= [];
@@ -547,6 +619,9 @@ export async function setOrderStatus(userId: string, orderId: string, status: Or
     const o = (data.bizOrders ?? []).find((x) => x.id === orderId);
     if (!o) return { ok: false as const, status: 404, error: "سفارش نیست." };
     if (!can(data, o.businessId, userId, "manageOrders")) return { ok: false as const, status: 403, error: "اجازهٔ سفارش نداری." };
+    if (status === "paid" || status === "refunded" || status === "payment_pending") {
+      return { ok: false as const, status: 403, error: "وضعیت پرداخت فقط پس از تأیید درگاه روی سرور عوض می‌شود." };
+    }
     o.status = status;
     return { ok: true as const, order: publicOrder(data, o) };
   });
@@ -601,8 +676,8 @@ export async function analytics(userId: string, businessId: string) {
       customerCount: threads.length,
       productViews: products.reduce((s, p) => s + p.views, 0),
       orders: orders.length,
-      revenue: orders.filter((o) => o.status !== "cancelled").reduce((s, o) => s + o.total, 0),
-      paymentNote: "پرداخت رسمی NIXO Pay هنوز فعال نیست. Invoice/Refund در بخش پرداخت می‌آید.",
+      revenue: orders.filter((o) => o.paymentStatus === "paid" || o.status === "paid").reduce((s, o) => s + o.total, 0),
+      paymentNote: "فروش فقط پس از تأیید پرداخت سمت سرور در آمار می‌آید. کارمزد نیکسو روی فاکتور شفاف است.",
     },
   };
 }

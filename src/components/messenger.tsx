@@ -1820,6 +1820,16 @@ export function Messenger({
                       Directory فروشگاه
                     </Link>
                   )}
+                  {space.id === "pay" && (
+                    <Link href="/app/settings/shop" className="mt-3 inline-flex h-8 items-center rounded-lg bg-amber-300 px-3 text-sm font-medium text-[#102824]">
+                      NIXO Pay
+                    </Link>
+                  )}
+                  {space.id === "wallet" && (
+                    <Link href="/app/wallet" className="mt-3 inline-flex h-8 items-center rounded-lg bg-amber-300 px-3 text-sm font-medium text-[#102824]">
+                      Wallet
+                    </Link>
+                  )}
                 </article>
               ))}
             </div>
@@ -1887,6 +1897,15 @@ export function Messenger({
             </Link>
             <Link href="/app/settings/business" className="block text-sm text-amber-200">
               تنظیمات → Business
+            </Link>
+            <Link href="/app/settings/shop" className="block text-sm text-amber-200">
+              تنظیمات → Shop و پرداخت
+            </Link>
+            <Link href="/app/orders" className="block text-sm text-amber-200">
+              Profile → Orders
+            </Link>
+            <Link href="/app/wallet" className="block text-sm text-amber-200">
+              NIXO Wallet
             </Link>
             <Link href="/app/settings/story" className="block text-sm text-amber-200">
               تنظیمات → حریم خصوصی → استوری

@@ -18,25 +18,19 @@ type Product = {
   category: string;
   code: string;
   photoUrl: string | null;
+  variants: { name: string; values: string[] }[];
+  variantRows: { key: string; stock: number | null; priceDelta: number }[];
+  discount: { kind: string; value: number } | null;
 };
 
-type Cart = { items: { productId: string; name: string; qty: number; price: number; line: number }[]; total: number };
+type Cart = { items: { productId: string; variantKey?: string; name: string; qty: number; price: number; line: number }[]; total: number };
 
 export function ProductDetail({ businessId, productId }: { businessId: string; productId: string }) {
   const [product, setProduct] = useState<Product | null>(null);
   const [qty, setQty] = useState(1);
+  const [variant, setVariant] = useState<Record<string, string>>({});
   const [cart, setCart] = useState<Cart | null>(null);
-  const [delivery, setDelivery] = useState("");
   const [missing, setMissing] = useState(false);
-
-  function loadCart() {
-    fetch(`/api/business?view=cart&businessId=${businessId}`, { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.ok) setCart(d.cart);
-      })
-      .catch(() => undefined);
-  }
 
   useEffect(() => {
     fetch("/api/business", {
@@ -88,8 +82,25 @@ export function ProductDetail({ businessId, productId }: { businessId: string; p
         <p className="text-sm leading-7">{product.description}</p>
         <p className="text-amber-200">
           {product.price} {product.currency} · {product.available ? "موجود" : "ناموجود"} · کد {product.code}
+          {product.discount ? ` · تخفیف ${product.discount.value}${product.discount.kind === "percent" ? "%" : ` ${product.currency}`}` : ""}
         </p>
-        <p className="text-xs">گزینه: تعداد برای سفارش. رنگ/سایز در نسخهٔ بعدی کاتالوگ.</p>
+        {(product.variants ?? []).map((axis) => (
+          <label key={axis.name} className="block text-xs">
+            {axis.name}
+            <select
+              className="mt-1 w-full rounded-lg bg-white/10 p-2"
+              value={variant[axis.name] ?? ""}
+              onChange={(e) => setVariant({ ...variant, [axis.name]: e.target.value })}
+            >
+              <option value="">انتخاب {axis.name}</option>
+              {axis.values.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
         <div className="flex items-center gap-2">
           <Input className="w-20" type="number" min={1} value={qty} onChange={(e) => setQty(Number(e.target.value) || 1)} />
           <Button
@@ -100,7 +111,13 @@ export function ProductDetail({ businessId, productId }: { businessId: string; p
               void fetch("/api/business", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ action: "cart", businessId, productId, qty }),
+                body: JSON.stringify({
+                  action: "cart",
+                  businessId,
+                  productId,
+                  qty,
+                  variantKey: (product.variants ?? []).map((a) => variant[a.name]).filter(Boolean).join("|"),
+                }),
               })
                 .then((r) => r.json())
                 .then((d) => {
@@ -120,35 +137,21 @@ export function ProductDetail({ businessId, productId }: { businessId: string; p
           {!cart?.items.length && <p className="text-xs text-emerald-100/50">سبد خالی است.</p>}
           <ul className="mt-2 space-y-1 text-xs">
             {cart?.items.map((i) => (
-              <li key={i.productId}>
-                {i.name} × {i.qty} = {i.line}
+              <li key={i.productId + (i.variantKey ?? "")}>
+                {i.name} {i.variantKey} × {i.qty} = {i.line}
               </li>
             ))}
           </ul>
-          {cart && cart.items.length > 0 && <p className="mt-2">جمع: {cart.total}</p>}
-          <Input className="mt-2" value={delivery} onChange={(e) => setDelivery(e.target.value)} placeholder="آدرس تحویل / توضیح سفارش" />
-          <Button
-            type="button"
-            className="mt-2"
-            onClick={() => {
-              void fetch("/api/business", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ action: "order", businessId, delivery }),
-              })
-                .then((r) => r.json())
-                .then((d) => {
-                  if (!d.ok) toast.error(d.error);
-                  else {
-                    toast.success(`سفارش ${d.order.id} با وضعیت Pending ثبت شد.`);
-                    loadCart();
-                  }
-                });
-            }}
+          {cart && cart.items.length > 0 && <p className="mt-2">جمع: {cart.total} {product.currency}</p>}
+          <Link
+            href={`/app/shop/checkout/${businessId}`}
+            className="mt-3 inline-flex h-9 items-center rounded-lg bg-amber-300 px-3 text-sm font-medium text-[#102824]"
           >
-            ثبت سفارش
-          </Button>
-          <p className="mt-2 text-[11px] text-emerald-100/50">پرداخت Invoice/Refund وقتی NIXO Pay زنده شود به همین سفارش وصل می‌شود.</p>
+            Checkout
+          </Link>
+          <p className="mt-2 text-[11px] text-emerald-100/50">
+            Checkout قیمت و کارمزد را روی سرور حساب می‌کند. شماره کارت پذیرفته نمی‌شود.
+          </p>
         </section>
         <Link href={`/app/business/b/${businessId}`} className="text-xs text-amber-200">
           بازگشت به فروشگاه

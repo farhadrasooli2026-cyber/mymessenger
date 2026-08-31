@@ -10,8 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   ALL_BIZ_PERMS,
   BIZ_PERM_FA,
+  FULFILL_STATUSES,
   INBOX_LABELS,
-  ORDER_STATUSES,
   WEEKDAYS,
   emptyStaffPerms,
   type BizPerms,
@@ -321,7 +321,7 @@ export function BusinessDesk() {
                     <li key={o.id} className="rounded-lg border border-white/10 p-2">
                       {o.id} · {o.customer.displayName} · {o.total} · {o.status}
                       <div className="mt-1 flex flex-wrap gap-1">
-                        {ORDER_STATUSES.map((s) => (
+                        {FULFILL_STATUSES.map((s) => (
                           <button key={s} type="button" className="rounded bg-white/10 px-2 py-0.5" onClick={() => void post({ action: "orderStatus", orderId: o.id, status: s })}>
                             {s}
                           </button>
@@ -474,10 +474,10 @@ export function BusinessDesk() {
 
         {tab === "Payments" && (
           <div className="space-y-2 text-sm leading-7">
-            <p>Payment Request، Invoice، Order Payment و Refund از مسیر رسمی NIXO Pay می‌آیند و هنوز فعال نیستند.</p>
-            <Button type="button" onClick={() => void post({ action: "pay" })}>
-              تست Payment
-            </Button>
+            <p>پرداخت، فاکتور، Refund و تسویه از مسیر رسمی NIXO Pay (سندباکس) است. شماره کارت ذخیره نمی‌شود.</p>
+            <Link href="/app/settings/shop" className="inline-flex h-9 items-center rounded-lg bg-amber-300 px-3 text-sm font-medium text-[#102824]">
+              داشبورد Shop & Payments
+            </Link>
           </div>
         )}
 

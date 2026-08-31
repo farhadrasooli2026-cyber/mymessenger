@@ -64,7 +64,7 @@ export function BusinessDirectory({ embedded }: { embedded?: boolean }) {
         )}
         {embedded && <h2 className="text-xl font-semibold">فروشگاه کسب‌وکار</h2>}
         <p className="text-xs leading-6 text-emerald-100/65">
-          کاتالوگ و سبد داخل نیکسو است. پرداخت رسمی NIXO Pay هنوز فعال نیست. نشان Verified فقط پس از بررسی مدارک است.
+          کاتالوگ، سبد و Checkout داخل نیکسو است. پرداخت سندباکس با تأیید سرور؛ شماره کارت ذخیره نمی‌شود.
         </p>
         <div className="flex gap-2">
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجوی فروشگاه یا @username" />

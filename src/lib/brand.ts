@@ -38,7 +38,7 @@ export const nixoSpaces = [
   { id: "business", title: "کسب‌وکار", detail: "فعال: تبدیل همین حساب، پروفایل، صندوق، کاتالوگ، سفارش، تأیید سمت سرور", live: true },
   { id: "bot", title: "ربات", detail: "فعال: ساخت، API با Permission، دستور، دکمه، Webhook، Directory و Verified", live: true },
   { id: "mini", title: "مینی‌اپ", detail: "فعال: سندباکس داخل نیکسو، اجازهٔ پروفایل، بدون OTP و کلید خصوصی", live: true },
-  { id: "shop", title: "فروشگاه", detail: "فعال: کاتالوگ و سبد کسب‌وکار؛ پرداخت رسمی NIXO Pay هنوز فعال نیست", live: true },
-  { id: "pay", title: "پرداخت", detail: "تراکنش با تأیید چندلایه", live: false },
-  { id: "wallet", title: "کیف پول", detail: "نگهداری ارزش، جدا از گفتگو", live: false },
+  { id: "shop", title: "فروشگاه", detail: "فعال: فروشگاه Business، واریانت، سبد، Checkout، کوپن، فاکتور", live: true },
+  { id: "pay", title: "پرداخت", detail: "فعال: سندباکس NIXO Pay با تأیید سرور، Webhook امضاشده، بدون ذخیرهٔ کارت", live: true },
+  { id: "wallet", title: "کیف پول", detail: "فعال: موجودی سندباکس، انتقال با تأیید نشست، تاریخچه تراکنش", live: true },
 ] as const;
