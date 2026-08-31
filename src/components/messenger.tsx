@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Ban, Flag, Globe, Lock, MessageCircle, Phone, Plus, Radio, Search, Send, Sparkles, Store, Timer, UserRound, Users, Video } from "lucide-react";
+import { Ban, Bookmark, Flag, Globe, Lock, MessageCircle, Phone, Plus, Radio, Search, Send, Sparkles, Store, Timer, UserRound, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { nixoSpaces } from "@/lib/brand";
@@ -48,6 +48,10 @@ import { ChannelCreate } from "@/components/channel-create";
 import { ChannelPane } from "@/components/channel-pane";
 import { StoryComposer } from "@/components/story-composer";
 import { StoryViewer, type StoryItem } from "@/components/story-viewer";
+import { SearchPanel } from "@/components/search-panel";
+import { ChatSearch } from "@/components/chat-search";
+import { SavedPane } from "@/components/saved-pane";
+import type { SearchHit } from "@/lib/search-types";
 
 type StoryRing = {
   ownerId: string;
@@ -288,7 +292,6 @@ export function Messenger({
   const [storyComposer, setStoryComposer] = useState(false);
   const [viewingRing, setViewingRing] = useState<StoryRing | null>(null);
   const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<{ id: string; displayName: string; username: string | null }[]>([]);
   const [bgOpen, setBgOpen] = useState(false);
   const [chatBgDraft, setChatBgDraft] = useState<BgDraft>({ kind: "default" });
   const [mobileChat, setMobileChat] = useState(false);
@@ -332,7 +335,11 @@ export function Messenger({
   const [pubChannels, setPubChannels] = useState<{ id: string; name: string; color: string; subscriberCount: number; username: string | null }[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [createChannel, setCreateChannel] = useState(false);
-  const [channelHits, setChannelHits] = useState<{ id: string; name: string; username: string | null; subscriberCount: number }[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchSeed, setSearchSeed] = useState("");
+  const [chatSearchOpen, setChatSearchOpen] = useState(false);
+  const [savedOpen, setSavedOpen] = useState(false);
+  const [highlightMsgId, setHighlightMsgId] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   const active = threads.find((t) => t.id === activeId) ?? null;
@@ -529,6 +536,12 @@ export function Messenger({
   }, [messages.length]);
 
   useEffect(() => {
+    if (!highlightMsgId) return;
+    const el = document.querySelector(`[data-msg-id="${highlightMsgId}"]`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightMsgId, messages.length]);
+
+  useEffect(() => {
     if (!activeId) return;
     const tick = window.setInterval(() => {
       void fetch(`/api/chats/${activeId}`, { cache: "no-store" })
@@ -696,6 +709,76 @@ export function Messenger({
       .catch(() => undefined);
   }
 
+  async function saveToVault(msg: Message, thread: Thread) {
+    const res = await fetch("/api/saved", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: msg.kind === "photo" || msg.kind === "video" || msg.kind === "voice" || msg.kind === "file" ? msg.kind : /https?:\/\//.test(msg.text) ? "link" : "message",
+        body: msg.text,
+        linkUrl: msg.text.match(/https?:\/\/\S+/)?.[0] ?? "",
+        fileSize: msg.byteLength ?? 0,
+        fileType: msg.kind,
+        source: { type: "chat", id: thread.id, name: thread.peerName, messageId: msg.id },
+      }),
+    });
+    if (!res.ok) toast.error("ذخیره نشد.");
+    else toast.success("به Saved Messages اضافه شد.");
+  }
+
+  function openSearchHit(hit: SearchHit) {
+    setSearchOpen(false);
+    setSavedOpen(false);
+    setActiveGroupId(null);
+    setActiveCommunityId(null);
+    setActiveChannelId(null);
+    if (hit.target.type === "group") {
+      setActiveGroupId(hit.target.id);
+      setTab("chats");
+      setMobileChat(true);
+      return;
+    }
+    if (hit.target.type === "channel") {
+      setActiveChannelId(hit.target.id);
+      setTab("chats");
+      setMobileChat(true);
+      return;
+    }
+    if (hit.target.type === "community") {
+      setActiveCommunityId(hit.target.id);
+      setTab("chats");
+      setMobileChat(true);
+      return;
+    }
+    if (hit.target.type === "saved") {
+      setSavedOpen(true);
+      setTab("chats");
+      setMobileChat(true);
+      return;
+    }
+    if (hit.target.type === "chat") {
+      setActiveId(hit.target.id);
+      setHighlightMsgId(hit.target.messageId ?? null);
+      setTab("chats");
+      setMobileChat(true);
+      return;
+    }
+    if (hit.target.type === "user") {
+      void fetch("/api/users/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: hit.target.id }),
+      });
+      const existing = threads.find((t) => t.peerKey === hit.target.id);
+      if (existing) {
+        setActiveId(existing.id);
+        setMobileChat(true);
+      } else {
+        toast.message("طبق حریم حساب به مخاطبین اضافه شد. گفتگوی جدید وقتی نخ وجود داشته باشد باز می‌شود.");
+      }
+    }
+  }
+
   async function logout() {
     await fetch("/api/me", { method: "DELETE" });
     router.replace("/");
@@ -793,51 +876,59 @@ export function Messenger({
 
         <div className="space-y-2 px-4 pb-3">
           <p className="text-xs text-emerald-100/55">گفتگوهای خصوصی · رمز روی دستگاه تو</p>
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-9 w-full"
+            onClick={() => {
+              setSearchSeed(query);
+              setSearchOpen(true);
+            }}
+          >
+            <Search className="ml-1 size-3.5" />
+            جستجوی نیکسو
+          </Button>
           <div className="flex gap-2">
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="جستجو با @username"
+              placeholder="@username یا عبارت…"
               dir="ltr"
               className="h-9 bg-black/20 text-left text-xs"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setSearchSeed(query);
+                  setSearchOpen(true);
+                }
+              }}
             />
             <Button
               type="button"
               size="sm"
               variant="secondary"
-              onClick={async () => {
-                const res = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`);
-                const data = await res.json();
-                setHits(data.users ?? []);
-                const ch = await fetch(`/api/channels?q=${encodeURIComponent(query)}`);
-                const found = await ch.json();
-                setChannelHits(found.channels ?? []);
+              onClick={() => {
+                setSearchSeed(query);
+                setSearchOpen(true);
               }}
             >
               <Search className="size-3.5" />
             </Button>
           </div>
-          {hits.map((hit) => (
-            <p key={hit.id} className="rounded-lg bg-white/5 px-2 py-1 text-xs">
-              {hit.displayName} <span dir="ltr">@{hit.username}</span>
-            </p>
-          ))}
-          {channelHits.map((hit) => (
-            <button
-              key={hit.id}
-              type="button"
-              className="block w-full rounded-lg bg-white/5 px-2 py-1 text-right text-xs"
-              onClick={() => {
-                setActiveChannelId(hit.id);
-                setActiveCommunityId(null);
-                setActiveGroupId(null);
-                setTab("chats");
-                setMobileChat(true);
-              }}
-            >
-              کانال {hit.name} {hit.username ? `@${hit.username}` : ""}
-            </button>
-          ))}
+          <Button
+            type="button"
+            className="h-9 w-full bg-amber-300 text-[#102824]"
+            onClick={() => {
+              setSavedOpen(true);
+              setActiveGroupId(null);
+              setActiveCommunityId(null);
+              setActiveChannelId(null);
+              setTab("chats");
+              setMobileChat(true);
+            }}
+          >
+            <Bookmark className="ml-1 size-3.5" />
+            Saved Messages
+          </Button>
           <Button
             type="button"
             className="h-9 w-full bg-amber-300 text-[#102824]"
@@ -1012,7 +1103,21 @@ export function Messenger({
           mobileChat ? "flex" : "hidden md:flex",
         )}
       >
-        {tab === "chats" && activeChannelId ? (
+        {tab === "chats" && savedOpen ? (
+          <div className="flex min-h-0 flex-1 flex-col bg-[#0b2421]/40">
+            <SavedPane
+              onClose={() => {
+                setSavedOpen(false);
+                setMobileChat(false);
+              }}
+              onJumpChat={(threadId, messageId) => {
+                setSavedOpen(false);
+                setActiveId(threadId);
+                setHighlightMsgId(messageId ?? null);
+              }}
+            />
+          </div>
+        ) : tab === "chats" && activeChannelId ? (
           <div className="flex min-h-0 flex-1 flex-col">
             <Button
               type="button"
@@ -1121,6 +1226,15 @@ export function Messenger({
                 type="button"
                 variant="ghost"
                 className="text-white hover:bg-white/10"
+                onClick={() => setChatSearchOpen((v) => !v)}
+                aria-label="جستجو در گفتگو"
+              >
+                <Search className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-white hover:bg-white/10"
                 disabled={!active.callsAllowed}
                 onClick={() => void startCall(active.id, "voice")}
                 aria-label="تماس صوتی"
@@ -1179,6 +1293,24 @@ export function Messenger({
                 ایمنی
               </Button>
             </header>
+            {chatSearchOpen && active && (
+              <ChatSearch
+                chatName={active.peerName}
+                threadId={active.id}
+                messages={messages.map((m) => ({
+                  id: m.id,
+                  text: m.text,
+                  createdAt: m.createdAt,
+                  sender: m.sender,
+                  kind: m.kind,
+                }))}
+                onJump={(id) => {
+                  setHighlightMsgId(id);
+                  setChatSearchOpen(false);
+                }}
+                onClose={() => setChatSearchOpen(false)}
+              />
+            )}
             {timerOpen && active && (
               <div className="space-y-2 border-b border-white/10 bg-black/25 px-4 py-3">
                 <p className="text-xs font-medium">پیام‌های ناپدیدشونده این گفتگو</p>
@@ -1308,7 +1440,8 @@ export function Messenger({
                     ) : (
                     <div
                       key={msg.id}
-                      className={cn("flex", msg.sender === "me" ? "justify-start" : "justify-end")}
+                      data-msg-id={msg.id}
+                      className={cn("flex", msg.sender === "me" ? "justify-start" : "justify-end", highlightMsgId === msg.id && "ring-1 ring-amber-300 rounded-2xl")}
                     >
                       <div
                         className={cn(
@@ -1415,6 +1548,13 @@ export function Messenger({
                             />
                           </div>
                         )}
+                        <button
+                          type="button"
+                          className="block w-full px-3 pb-2 text-left text-[10px] opacity-70"
+                          onClick={() => void saveToVault(msg, active)}
+                        >
+                          Save to Saved Messages
+                        </button>
                       </div>
                     </div>
                     )
@@ -1618,6 +1758,9 @@ export function Messenger({
             <Link href="/app/settings/story" className="block text-sm text-amber-200">
               تنظیمات → حریم خصوصی → استوری
             </Link>
+            <button type="button" className="block text-sm text-amber-200" onClick={() => { setSavedOpen(true); setTab("chats"); setMobileChat(true); }}>
+              Saved Messages
+            </button>
             <button
               type="button"
               className="block text-sm text-amber-200"
@@ -1785,6 +1928,14 @@ export function Messenger({
         <NavBtn icon={UserRound} label="من" active={tab === "me"} onClick={() => { setTab("me"); setMobileChat(true); }} />
       </nav>
 
+      {searchOpen && (
+        <SearchPanel
+          threads={threads.map((t) => ({ id: t.id, peerName: t.peerName, peerKey: t.peerKey }))}
+          initialQuery={searchSeed}
+          onClose={() => setSearchOpen(false)}
+          onOpen={openSearchHit}
+        />
+      )}
       {storyComposer && (
         <StoryComposer
           onClose={() => setStoryComposer(false)}

@@ -318,6 +318,24 @@ export function GroupPane({
                         </button>
                       )}
                       <button type="button" onClick={() => void act(msg.id, "delete")}>حذف</button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void fetch("/api/saved", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              kind: "message",
+                              body: msg.text,
+                              source: { type: "group", id: groupId, name: group.name, messageId: msg.id },
+                            }),
+                          }).then((r) => {
+                            if (r.ok) toast.success("در Saved Messages ذخیره شد.");
+                          });
+                        }}
+                      >
+                        ذخیره
+                      </button>
                     </div>
                   </div>
                 )}

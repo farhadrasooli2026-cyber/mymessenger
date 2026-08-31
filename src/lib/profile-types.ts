@@ -56,6 +56,7 @@ export function defaultUserFields(): {
   statusPrivacy: Visibility;
   statusAllowIds: string[];
   defaultStoryPrivacy: "everyone" | "contacts" | "closeFriends" | "selected";
+  searchHistory: string[];
 } {
   return {
     usernameHistory: [],
@@ -80,5 +81,6 @@ export function defaultUserFields(): {
     statusPrivacy: "everyone",
     statusAllowIds: [],
     defaultStoryPrivacy: "everyone",
+    searchHistory: [],
   };
 }

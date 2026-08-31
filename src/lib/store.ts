@@ -41,6 +41,7 @@ function hydrateUser(user: UserRecord): UserRecord {
     statusPrivacy: user.statusPrivacy ?? "everyone",
     statusAllowIds: Array.isArray(user.statusAllowIds) ? user.statusAllowIds : [],
     defaultStoryPrivacy: user.defaultStoryPrivacy ?? "everyone",
+    searchHistory: Array.isArray(user.searchHistory) ? user.searchHistory : [],
   };
 }
 
@@ -209,6 +210,7 @@ export type UserRecord = {
   statusPrivacy: Visibility;
   statusAllowIds: string[];
   defaultStoryPrivacy: "everyone" | "contacts" | "closeFriends" | "selected";
+  searchHistory: string[];
   createdAt: number;
   verifiedAt?: number;
   activatedAt?: number;
@@ -608,6 +610,28 @@ export type PubChannelRecord = {
   deletedAt: number | null;
 };
 
+export type SavedItem = {
+  id: string;
+  ownerUserId: string;
+  kind: "text" | "photo" | "video" | "voice" | "file" | "link" | "message";
+  body: string;
+  linkUrl: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  media: string;
+  tag: string;
+  pinned: boolean;
+  source: {
+    type: "chat" | "group" | "channel" | "community" | "manual";
+    id: string;
+    name: string;
+    messageId?: string;
+  } | null;
+  createdAt: number;
+  deletedAt: number | null;
+};
+
 export type StoreData = {
   users: UserRecord[];
   challenges: ChallengeRecord[];
@@ -628,6 +652,7 @@ export type StoreData = {
   communities: CommunityRecord[];
   pubChannels: PubChannelRecord[];
   channelPosts: ChannelPost[];
+  savedItems: SavedItem[];
   catalogCategories: CatalogCategory[];
   catalogItems: CatalogItem[];
   bgCategories: CatalogCategory[];
@@ -654,6 +679,7 @@ const EMPTY: StoreData = {
   communities: [],
   pubChannels: [],
   channelPosts: [],
+  savedItems: [],
   catalogCategories: [],
   catalogItems: [],
   bgCategories: [],
@@ -701,6 +727,7 @@ async function readStore(): Promise<StoreData> {
       communities: Array.isArray(parsed.communities) ? parsed.communities.map(hydrateCommunity) : [],
       pubChannels: Array.isArray(parsed.pubChannels) ? parsed.pubChannels.map(hydratePubChannel) : [],
       channelPosts: Array.isArray(parsed.channelPosts) ? parsed.channelPosts : [],
+      savedItems: Array.isArray(parsed.savedItems) ? parsed.savedItems : [],
       catalogCategories: parsed.catalogCategories ?? [],
       catalogItems: parsed.catalogItems ?? [],
       bgCategories: parsed.bgCategories ?? [],
