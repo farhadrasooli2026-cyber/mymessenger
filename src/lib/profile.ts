@@ -60,6 +60,7 @@ export function publicProfile(user: UserRecord, viewerId?: string | null) {
     bioAllowIds: own ? user.bioAllowIds : undefined,
     verifiedAt: user.verifiedAt ?? null,
     activatedAt: user.activatedAt ?? null,
+    appearance: own ? (user.appearance ?? undefined) : undefined,
   };
 }
 

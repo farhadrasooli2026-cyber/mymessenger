@@ -12,6 +12,10 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { BackgroundPicker, type BgDraft } from "@/components/background-picker";
+import { ThemeApplicator } from "@/components/theme-applicator";
+import { defaultAppearance, type Appearance, type BackgroundSpec, type BubbleStyle, type TextSize } from "@/lib/appearance-types";
+import { backgroundPreview } from "@/lib/background-style";
 
 type Thread = {
   id: string;
@@ -21,6 +25,7 @@ type Thread = {
   color: string;
   lastText: string;
   lastAt: number;
+  background?: BackgroundSpec;
 };
 
 type Message = {
@@ -38,12 +43,14 @@ export function Messenger({
   username,
   photoUrl,
   bio,
+  appearance = defaultAppearance(),
 }: {
   displayName: string;
   identifierMasked: string;
   username: string | null;
   photoUrl: string;
   bio: string;
+  appearance?: Appearance;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("chats");
@@ -55,6 +62,8 @@ export function Messenger({
   const [story, setStory] = useState<{ title: string; body: string; viewed: boolean } | null>(null);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<{ id: string; displayName: string; username: string | null }[]>([]);
+  const [bgOpen, setBgOpen] = useState(false);
+  const [chatBgDraft, setChatBgDraft] = useState<BgDraft>({ kind: "default" });
   const [mobileChat, setMobileChat] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -148,7 +157,14 @@ export function Messenger({
   const initials = useMemo(() => displayName.slice(0, 1), [displayName]);
 
   return (
-    <div className="flex min-h-dvh bg-[#071614] text-white">
+    <div
+      className="flex min-h-dvh text-[var(--nixo-text,#ecfdf5)]"
+      style={{
+        backgroundColor: "var(--nixo-bg,#071614)",
+        ...backgroundPreview(appearance.appBackground),
+      }}
+    >
+      <ThemeApplicator appearance={appearance} />
       <nav className="hidden w-20 flex-col items-center gap-3 border-l border-white/10 bg-[#0b2421] py-4 md:flex">
         <NavBtn icon={MessageCircle} label="گفتگو" active={tab === "chats"} onClick={() => setTab("chats")} />
         <NavBtn icon={Phone} label="تماس" active={tab === "calls"} onClick={() => setTab("calls")} />
@@ -275,10 +291,25 @@ export function Messenger({
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">{active.peerName}</p>
-                <p className="text-[11px] text-emerald-100/55">رمزنگاری سرتاسری در مسیر طراحی · {active.peerTitle}</p>
+                <p className="text-[11px] text-[color:var(--nixo-accent,#6ee7b7)]/80">رمزنگاری سرتاسری در مسیر طراحی · {active.peerTitle}</p>
               </div>
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-xs text-amber-200 hover:bg-white/10"
+                onClick={() => {
+                  setChatBgDraft(active.background ?? appearance.chatBackground);
+                  setBgOpen(true);
+                }}
+              >
+                پس‌زمینه این چت
+              </Button>
             </header>
             <div className="relative flex-1 overflow-hidden">
+              <div
+                className="pointer-events-none absolute inset-0"
+                style={backgroundPreview(active.background ?? appearance.chatBackground)}
+              />
               <div className="pointer-events-none absolute inset-0 opacity-[0.07]">
                 <svg className="h-full w-full">
                   <line x1="8%" y1="0" x2="92%" y2="100%" stroke="#fbbf24" strokeWidth="8" />
@@ -294,10 +325,12 @@ export function Messenger({
                     >
                       <p
                         className={cn(
-                          "max-w-[80%] rounded-2xl px-3 py-2 text-sm leading-7",
+                          "max-w-[80%] px-3",
+                          bubbleClass(appearance.bubbleStyle),
+                          textClass(appearance.textSize),
                           msg.sender === "me"
-                            ? "bg-amber-300 text-[#102824]"
-                            : "bg-[#123834] text-emerald-50",
+                            ? "bg-[var(--nixo-bubble,#fbbf24)] text-[var(--nixo-bubble-text,#102824)]"
+                            : "bg-black/35 text-[var(--nixo-text,#ecfdf5)]",
                         )}
                       >
                         {msg.text}
@@ -382,6 +415,12 @@ export function Messenger({
             >
               تنظیمات → پروفایل
             </Link>
+            <Link href="/app/settings/appearance" className="block text-sm text-amber-200">
+              تنظیمات → ظاهر → پس‌زمینه
+            </Link>
+            <Link href="/app/settings/chat-appearance" className="block text-sm text-amber-200">
+              تنظیمات → ظاهر گفتگو → پس‌زمینه چت
+            </Link>
             <p className="max-w-xl text-sm leading-7 text-emerald-100/70">
               نام، نام خانوادگی، نام کاربری، بیو و عکس پروفایل از همین مسیر قابل تغییرند و دائمی نیستند.
             </p>
@@ -417,6 +456,36 @@ export function Messenger({
           </article>
         </div>
       )}
+      {bgOpen && active && (
+        <div className="fixed inset-0 z-40 grid place-items-center bg-black/70 p-4" onClick={() => setBgOpen(false)}>
+          <div className="max-h-[90dvh] w-full max-w-lg overflow-auto rounded-3xl bg-[#102824] p-5" onClick={(e) => e.stopPropagation()}>
+            <BackgroundPicker value={chatBgDraft} onChange={setChatBgDraft} label={`پس‌زمینه گفتگو با ${active.peerName}`} />
+            <div className="mt-4 flex gap-2">
+              <Button type="button" variant="ghost" className="flex-1 text-white" onClick={() => setBgOpen(false)}>انصراف</Button>
+              <Button
+                type="button"
+                className="flex-1 bg-amber-300 text-[#102824]"
+                onClick={async () => {
+                  const res = await fetch(`/api/chats/${active.id}/appearance`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ background: chatBgDraft }),
+                  });
+                  if (!res.ok) {
+                    toast.error("پس‌زمینه ذخیره نشد.");
+                    return;
+                  }
+                  const data = await res.json();
+                  setThreads((list) => list.map((t) => (t.id === active.id ? { ...t, background: data.background } : t)));
+                  setBgOpen(false);
+                }}
+              >
+                اعمال
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -445,6 +514,20 @@ function NavBtn({
       {label}
     </button>
   );
+}
+
+function bubbleClass(style: BubbleStyle) {
+  if (style === "classic") return "rounded-md py-2";
+  if (style === "minimal") return "rounded-none border border-white/20 py-2";
+  if (style === "compact") return "rounded-lg py-1";
+  return "rounded-2xl py-2";
+}
+
+function textClass(size: TextSize) {
+  if (size === "small") return "text-xs leading-5";
+  if (size === "large") return "text-base leading-7";
+  if (size === "xl") return "text-lg leading-8";
+  return "text-sm leading-7";
 }
 
 function Panel({ title, body }: { title: string; body: string }) {

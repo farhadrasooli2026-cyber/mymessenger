@@ -1,5 +1,6 @@
 import { json, jsonError } from "@/lib/http";
 import { completeProfile, profileInputSchema } from "@/lib/profile";
+import { appearanceSchema, updateAppearance } from "@/lib/appearance";
 import { readSession, writeSession } from "@/lib/session";
 
 export async function POST(request: Request) {
@@ -19,6 +20,11 @@ export async function POST(request: Request) {
 
   const result = await completeProfile(session.userId, parsed.data);
   if (!result.ok) return jsonError(result.error, result.status);
+
+  const bg = appearanceSchema.pick({ appBackground: true }).safeParse(body);
+  if (bg.success && bg.data.appBackground) {
+    await updateAppearance(session.userId, { appBackground: bg.data.appBackground });
+  }
 
   await writeSession({
     step: "complete",

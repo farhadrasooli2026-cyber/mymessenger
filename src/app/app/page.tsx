@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireVerifiedUser } from "@/lib/auth";
+import { defaultAppearance } from "@/lib/appearance-types";
 import { Messenger } from "@/components/messenger";
 
 export default async function AppPage() {
@@ -13,6 +14,7 @@ export default async function AppPage() {
       username={user.username}
       photoUrl={user.photoUrl}
       bio={user.bio}
+      appearance={user.appearance ?? defaultAppearance()}
     />
   );
 }

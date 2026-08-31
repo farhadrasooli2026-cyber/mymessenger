@@ -1,3 +1,6 @@
+import type { Appearance } from "@/lib/appearance-types";
+import { defaultAppearance } from "@/lib/appearance-types";
+
 export type Visibility = "everyone" | "contacts" | "nobody" | "selected";
 
 export type PhotoKind = "default" | "upload" | "catalog";
@@ -38,6 +41,7 @@ export function defaultUserFields(): {
   photoAllowIds: string[];
   bioAllowIds: string[];
   contactIds: string[];
+  appearance: Appearance;
 } {
   return {
     usernameHistory: [],
@@ -47,5 +51,6 @@ export function defaultUserFields(): {
     photoAllowIds: [],
     bioAllowIds: [],
     contactIds: [],
+    appearance: defaultAppearance(),
   };
 }

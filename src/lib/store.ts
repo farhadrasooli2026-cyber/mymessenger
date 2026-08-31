@@ -5,6 +5,7 @@ import type { Channel } from "@/lib/identifiers";
 import type { CatalogCategory, CatalogItem, UserPhoto, UsernameChange, Visibility } from "@/lib/profile-types";
 import { defaultUserFields } from "@/lib/profile-types";
 import { DEFAULT_CATEGORIES, seedCatalogItems } from "@/lib/avatar-catalog";
+import { BG_CATEGORIES, seedBackgroundItems } from "@/lib/background-catalog";
 
 export type { CatalogCategory, CatalogItem };
 
@@ -19,6 +20,7 @@ function hydrateUser(user: UserRecord): UserRecord {
     photoAllowIds: user.photoAllowIds ?? [],
     bioAllowIds: user.bioAllowIds ?? [],
     contactIds: user.contactIds ?? [],
+    appearance: user.appearance ?? defaultUserFields().appearance,
   };
 }
 
@@ -44,6 +46,7 @@ export type UserRecord = {
   photoAllowIds: string[];
   bioAllowIds: string[];
   contactIds: string[];
+  appearance: import("@/lib/appearance-types").Appearance;
   createdAt: number;
   verifiedAt?: number;
   activatedAt?: number;
@@ -94,6 +97,7 @@ export type ChatThread = {
   peerName: string;
   peerTitle: string;
   color: string;
+  background?: import("@/lib/appearance-types").BackgroundSpec;
   updatedAt: number;
 };
 
@@ -123,6 +127,8 @@ export type StoreData = {
   storyViews: StoryView[];
   catalogCategories: CatalogCategory[];
   catalogItems: CatalogItem[];
+  bgCategories: CatalogCategory[];
+  bgItems: CatalogItem[];
 };
 
 const EMPTY: StoreData = {
@@ -136,6 +142,8 @@ const EMPTY: StoreData = {
   storyViews: [],
   catalogCategories: [],
   catalogItems: [],
+  bgCategories: [],
+  bgItems: [],
 };
 
 const STORE_PATH = path.join(
@@ -170,6 +178,8 @@ async function readStore(): Promise<StoreData> {
       storyViews: parsed.storyViews ?? [],
       catalogCategories: parsed.catalogCategories ?? [],
       catalogItems: parsed.catalogItems ?? [],
+      bgCategories: parsed.bgCategories ?? [],
+      bgItems: parsed.bgItems ?? [],
     };
   } catch {
     return structuredClone(EMPTY);
@@ -198,7 +208,7 @@ export function mutateStore<T>(mutator: (data: StoreData) => T | Promise<T>): Pr
 export function readStoreSnapshot(): Promise<StoreData> {
   return enqueue(async () => {
     const data = await readStore();
-    const wasEmpty = data.catalogCategories.length === 0;
+    const wasEmpty = data.catalogCategories.length === 0 || data.bgCategories.length === 0;
     ensureCatalog(data);
     prune(data, Date.now());
     if (wasEmpty) await writeStore(data);
@@ -210,6 +220,10 @@ function ensureCatalog(data: StoreData): void {
   if (data.catalogCategories.length === 0) {
     data.catalogCategories = DEFAULT_CATEGORIES.map((c) => ({ ...c }));
     data.catalogItems = seedCatalogItems();
+  }
+  if (data.bgCategories.length === 0) {
+    data.bgCategories = BG_CATEGORIES.map((c) => ({ ...c }));
+    data.bgItems = seedBackgroundItems();
   }
 }
 

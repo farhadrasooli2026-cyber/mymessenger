@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
+import { BackgroundPicker, type BgDraft } from "@/components/background-picker";
 import { PhotoPicker, type PhotoValue } from "@/components/photo-picker";
 import { ProfilePreviewCard } from "@/components/profile-preview";
 import { Button } from "@/components/ui/button";
@@ -13,9 +14,10 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { USERNAME_HINT, normalizeUsername } from "@/lib/username";
 import type { Visibility } from "@/lib/profile-types";
+import { backgroundPreview } from "@/lib/background-style";
 import { cn } from "@/lib/utils";
 
-const STEPS = ["نام", "نام کاربری", "عکس", "بیو", "حریم خصوصی", "پیش‌نمایش"];
+const STEPS = ["نام", "نام کاربری", "عکس", "بیو", "حریم خصوصی", "پس‌زمینه", "پیش‌نمایش"];
 
 const VIS: { id: Visibility; fa: string }[] = [
   { id: "everyone", fa: "همه" },
@@ -39,6 +41,7 @@ export function ProfileSetup() {
   const [privacyBio, setPrivacyBio] = useState<Visibility>("everyone");
   const [photoAllow, setPhotoAllow] = useState<Found[]>([]);
   const [bioAllow, setBioAllow] = useState<Found[]>([]);
+  const [appBackground, setAppBackground] = useState<BgDraft>({ kind: "default" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -92,6 +95,7 @@ export function ProfileSetup() {
         privacyBio,
         photoAllowIds: photoAllow.map((p) => p.id),
         bioAllowIds: bioAllow.map((p) => p.id),
+        appBackground,
       };
       const res = await fetch("/api/register/profile", {
         method: "POST",
@@ -111,7 +115,10 @@ export function ProfileSetup() {
   }
 
   return (
-    <div className="min-h-dvh bg-[#071614] px-4 py-8 text-white">
+    <div
+      className="min-h-dvh px-4 py-8 text-white"
+      style={backgroundPreview(appBackground, appBackground.kind === "upload" ? appBackground.dataUrl : undefined)}
+    >
       <div className="mx-auto w-full max-w-lg space-y-6">
         <header className="flex items-center gap-3">
           <NixoMark size={40} />
@@ -120,7 +127,7 @@ export function ProfileSetup() {
             <p className="text-lg font-semibold">ساخت پروفایل نیکسو</p>
           </div>
         </header>
-        <ol className="grid grid-cols-6 gap-1">
+        <ol className="grid grid-cols-7 gap-1">
           {STEPS.map((label, i) => (
             <li
               key={label}
@@ -190,9 +197,12 @@ export function ProfileSetup() {
           </div>
         )}
 
-        {step === 5 && (
+        {step === 5 && <BackgroundPicker value={appBackground} onChange={setAppBackground} label="پس‌زمینه هنگام استفاده از نیکسو" />}
+
+        {step === 6 && (
           <div className="space-y-4">
             <ProfilePreviewCard firstName={firstName} lastName={lastName} username={normalizeUsername(username) ?? username} bio={bio} photo={photo} />
+            <div className="h-24 overflow-hidden rounded-2xl border border-white/10" style={backgroundPreview(appBackground, appBackground.kind === "upload" ? appBackground.dataUrl : undefined)} />
             <p className="text-xs leading-6 text-emerald-100/60">
               هیچ‌کدام از این اطلاعات دائمی نیستند. بعداً از مسیر تنظیمات → پروفایل همه را می‌توانید عوض کنید.
             </p>

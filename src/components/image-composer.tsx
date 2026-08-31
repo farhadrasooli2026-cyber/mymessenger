@@ -3,15 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { cn } from "@/lib/utils";
 
 type Props = {
   source: string;
   onConfirm: (dataUrl: string) => void;
   onCancel: () => void;
   confirmLabel?: string;
+  wide?: boolean;
 };
 
-export function ImageComposer({ source, onConfirm, onCancel, confirmLabel = "تأیید عکس" }: Props) {
+export function ImageComposer({ source, onConfirm, onCancel, confirmLabel = "تأیید عکس", wide = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -72,9 +74,12 @@ export function ImageComposer({ source, onConfirm, onCancel, confirmLabel = "ت�
     <div className="space-y-4">
       <canvas
         ref={canvasRef}
-        width={512}
-        height={512}
-        className="mx-auto aspect-square w-full max-w-sm cursor-move rounded-3xl border border-white/10 bg-black/30"
+        width={wide ? 960 : 512}
+        height={wide ? 540 : 512}
+        className={cn(
+          "mx-auto w-full max-w-sm cursor-move rounded-3xl border border-white/10 bg-black/30",
+          wide ? "aspect-video max-w-lg" : "aspect-square",
+        )}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
