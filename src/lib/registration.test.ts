@@ -3,9 +3,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { hashIp } from "./crypto-utils";
 import { normalizeEmail, normalizePhone } from "./identifiers";
 import { getOutbox } from "./outbox";
+import { completeProfile } from "./profile";
 import {
   ackHumanChallenge,
-  completeProfile,
   issueHumanChallenge,
   startRegistration,
   verifyOtp,
@@ -90,7 +90,16 @@ describe("registration security", () => {
   });
 
   it("does not allow profile completion without verification", async () => {
-    const result = await completeProfile("missing-user", "آزمایش");
+    const result = await completeProfile("missing-user", {
+      firstName: "آزمایش",
+      lastName: "",
+      username: "azmayesh1",
+      bio: "",
+      privacyPhoto: "everyone",
+      privacyBio: "everyone",
+      photoAllowIds: [],
+      bioAllowIds: [],
+    });
     expect(result.ok).toBe(false);
   });
 
@@ -108,11 +117,22 @@ describe("registration security", () => {
     if (!verified.ok) return;
     const pending = await readStoreSnapshot();
     expect(pending.users[0]?.status).toBe("pending_profile");
-    const done = await completeProfile(verified.userId, "نیکی نکسو");
+    const done = await completeProfile(verified.userId, {
+      firstName: "نیکی",
+      lastName: "نکسو",
+      username: "niki_nixo",
+      bio: "Developer & Gamer",
+      privacyPhoto: "everyone",
+      privacyBio: "everyone",
+      photoAllowIds: [],
+      bioAllowIds: [],
+    });
     expect(done.ok).toBe(true);
     const after = await readStoreSnapshot();
     expect(after.users[0]?.status).toBe("active");
-    expect(after.users[0]?.verifiedAt).toBeTruthy();
+    expect(after.users[0]?.username).toBe("niki_nixo");
+    expect(after.users[0]?.firstName).toBe("نیکی");
+    expect(after.users[0]?.bio).toBe("Developer & Gamer");
     expect(after.threads.filter((t) => t.ownerUserId === after.users[0]?.id).length).toBeGreaterThan(0);
   });
 

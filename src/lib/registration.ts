@@ -23,8 +23,8 @@ import {
   verifyIpLimit,
 } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
-import { seedInbox } from "@/lib/chat";
-import type { StoreData, UserRecord } from "@/lib/store";
+import type { StoreData } from "@/lib/store";
+import { defaultUserFields } from "@/lib/profile-types";
 
 const GENERIC_SENT =
   "اگر این اطلاعات قابل استفاده باشد، کد تأیید ارسال شد.";
@@ -38,10 +38,6 @@ export const startSchema = z.object({
 
 export const verifySchema = z.object({
   code: z.string().regex(/^\d{6}$/),
-});
-
-export const profileSchema = z.object({
-  displayName: z.string().trim().min(2).max(60),
 });
 
 function publicError(message: string, status = 400, extra?: Record<string, unknown>) {
@@ -310,6 +306,7 @@ export async function verifyOtp(challengeId: string, code: string, ipHash: strin
         identifierCipher: challenge.identifierCipher,
         createdAt: now,
         verifiedAt: now,
+        ...defaultUserFields(),
       };
       data.users.push(user);
     } else if (!user.verifiedAt) {
@@ -326,40 +323,6 @@ export async function verifyOtp(challengeId: string, code: string, ipHash: strin
       channel: user.channel,
     };
   });
-}
-
-export async function completeProfile(userId: string, displayName: string) {
-  const now = Date.now();
-  return mutateStore((data) => {
-    const user = data.users.find((u) => u.id === userId);
-    if (!user) {
-      return publicError("نشست ثبت‌نام معتبر نیست.", 401);
-    }
-    if (!user.verifiedAt) {
-      return publicError("ابتدا باید کد تأیید را وارد کنید.", 403);
-    }
-    user.displayName = displayName;
-    user.status = "active";
-    user.activatedAt = now;
-    seedInbox(data, user.id, now);
-    return {
-      ok: true as const,
-      status: 200,
-      user: publicUser(user),
-    };
-  });
-}
-
-export function publicUser(user: UserRecord) {
-  return {
-    id: user.id,
-    status: user.status,
-    channel: user.channel,
-    identifierMasked: user.identifierMasked,
-    displayName: user.displayName ?? null,
-    verifiedAt: user.verifiedAt ?? null,
-    activatedAt: user.activatedAt ?? null,
-  };
 }
 
 export async function getUserById(userId: string) {

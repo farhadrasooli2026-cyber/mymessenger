@@ -1,5 +1,6 @@
 import { json } from "@/lib/http";
-import { getUserById, publicUser } from "@/lib/registration";
+import { getUserById } from "@/lib/registration";
+import { publicProfile } from "@/lib/profile";
 import { readSession } from "@/lib/session";
 
 export async function GET() {
@@ -11,6 +12,6 @@ export async function GET() {
   return json({
     ok: true,
     step: session.step,
-    user: user ? publicUser(user) : null,
+    user: user ? publicProfile(user, user.id) : null,
   });
 }

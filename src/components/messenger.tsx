@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { MessageCircle, Phone, Send, Sparkles, Store, UserRound } from "lucide-react";
+import Link from "next/link";
+import { MessageCircle, Phone, Search, Send, Sparkles, Store, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { nixoSpaces } from "@/lib/brand";
@@ -34,9 +35,15 @@ type Tab = "chats" | "calls" | "spaces" | "shop" | "me";
 export function Messenger({
   displayName,
   identifierMasked,
+  username,
+  photoUrl,
+  bio,
 }: {
   displayName: string;
   identifierMasked: string;
+  username: string | null;
+  photoUrl: string;
+  bio: string;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("chats");
@@ -46,7 +53,8 @@ export function Messenger({
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [story, setStory] = useState<{ title: string; body: string; viewed: boolean } | null>(null);
-  const [storyOpen, setStoryOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<{ id: string; displayName: string; username: string | null }[]>([]);
   const [mobileChat, setMobileChat] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -177,8 +185,34 @@ export function Messenger({
           </button>
         </div>
 
-        <div className="px-4 pb-3">
+        <div className="space-y-2 px-4 pb-3">
           <p className="text-xs text-emerald-100/55">گفتگوهای خصوصی · ساده و مستقیم</p>
+          <div className="flex gap-2">
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="جستجو با @username"
+              dir="ltr"
+              className="h-9 bg-black/20 text-left text-xs"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={async () => {
+                const res = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`);
+                const data = await res.json();
+                setHits(data.users ?? []);
+              }}
+            >
+              <Search className="size-3.5" />
+            </Button>
+          </div>
+          {hits.map((hit) => (
+            <p key={hit.id} className="rounded-lg bg-white/5 px-2 py-1 text-xs">
+              {hit.displayName} <span dir="ltr">@{hit.username}</span>
+            </p>
+          ))}
         </div>
 
         <ScrollArea className="flex-1">
@@ -325,17 +359,31 @@ export function Messenger({
           <div className="flex-1 space-y-4 p-5">
             <div className="flex items-center gap-3">
               <Avatar className="size-14">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={photoUrl} alt="" className="size-14 rounded-full object-cover" />
                 <AvatarFallback className="bg-amber-300 text-[#102824]">{initials}</AvatarFallback>
               </Avatar>
               <div>
                 <p className="text-lg font-medium">{displayName}</p>
+                {username && (
+                  <p className="text-xs text-amber-200" dir="ltr">
+                    @{username}
+                  </p>
+                )}
                 <p className="text-xs text-emerald-100/60" dir="ltr">
                   {identifierMasked}
                 </p>
               </div>
             </div>
+            {bio && <p className="text-sm text-emerald-50/80">{bio}</p>}
+            <Link
+              href="/app/settings/profile"
+              className="inline-flex h-10 items-center justify-center rounded-lg bg-amber-300 px-4 text-sm font-medium text-[#102824]"
+            >
+              تنظیمات → پروفایل
+            </Link>
             <p className="max-w-xl text-sm leading-7 text-emerald-100/70">
-              حساب فقط بعد از تأیید شماره یا ایمیل فعال شد. نیکسو برای Android، iPhone، تبلت، ویندوز، مک، لینوکس و وب طراحی می‌شود.
+              نام، نام خانوادگی، نام کاربری، بیو و عکس پروفایل از همین مسیر قابل تغییرند و دائمی نیستند.
             </p>
             <Button type="button" variant="outline" className="border-white/15 bg-transparent text-white hover:bg-white/10" onClick={logout}>
               خروج

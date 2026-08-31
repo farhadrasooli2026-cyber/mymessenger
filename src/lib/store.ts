@@ -2,6 +2,25 @@ import "server-only";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Channel } from "@/lib/identifiers";
+import type { CatalogCategory, CatalogItem, UserPhoto, UsernameChange, Visibility } from "@/lib/profile-types";
+import { defaultUserFields } from "@/lib/profile-types";
+import { DEFAULT_CATEGORIES, seedCatalogItems } from "@/lib/avatar-catalog";
+
+export type { CatalogCategory, CatalogItem };
+
+function hydrateUser(user: UserRecord): UserRecord {
+  return {
+    ...defaultUserFields(),
+    ...user,
+    usernameHistory: user.usernameHistory ?? [],
+    photo: user.photo ?? { kind: "default" },
+    privacyPhoto: user.privacyPhoto ?? "everyone",
+    privacyBio: user.privacyBio ?? "everyone",
+    photoAllowIds: user.photoAllowIds ?? [],
+    bioAllowIds: user.bioAllowIds ?? [],
+    contactIds: user.contactIds ?? [],
+  };
+}
 
 export type UserStatus = "pending_profile" | "active";
 
@@ -12,7 +31,19 @@ export type UserRecord = {
   identifierHash: string;
   identifierMasked: string;
   identifierCipher: string;
+  firstName?: string;
+  lastName?: string;
   displayName?: string;
+  username?: string;
+  usernameChangedAt?: number;
+  usernameHistory: UsernameChange[];
+  bio?: string;
+  photo: UserPhoto;
+  privacyPhoto: Visibility;
+  privacyBio: Visibility;
+  photoAllowIds: string[];
+  bioAllowIds: string[];
+  contactIds: string[];
   createdAt: number;
   verifiedAt?: number;
   activatedAt?: number;
@@ -90,6 +121,8 @@ export type StoreData = {
   threads: ChatThread[];
   messages: ChatMessage[];
   storyViews: StoryView[];
+  catalogCategories: CatalogCategory[];
+  catalogItems: CatalogItem[];
 };
 
 const EMPTY: StoreData = {
@@ -101,6 +134,8 @@ const EMPTY: StoreData = {
   threads: [],
   messages: [],
   storyViews: [],
+  catalogCategories: [],
+  catalogItems: [],
 };
 
 const STORE_PATH = path.join(
@@ -125,7 +160,7 @@ async function readStore(): Promise<StoreData> {
     const raw = await readFile(STORE_PATH, "utf8");
     const parsed = JSON.parse(raw) as StoreData;
     return {
-      users: parsed.users ?? [],
+      users: (parsed.users ?? []).map(hydrateUser),
       challenges: parsed.challenges ?? [],
       rateBuckets: parsed.rateBuckets ?? [],
       humanChallenges: parsed.humanChallenges ?? [],
@@ -133,6 +168,8 @@ async function readStore(): Promise<StoreData> {
       threads: parsed.threads ?? [],
       messages: parsed.messages ?? [],
       storyViews: parsed.storyViews ?? [],
+      catalogCategories: parsed.catalogCategories ?? [],
+      catalogItems: parsed.catalogItems ?? [],
     };
   } catch {
     return structuredClone(EMPTY);
@@ -150,6 +187,7 @@ async function writeStore(data: StoreData): Promise<void> {
 export function mutateStore<T>(mutator: (data: StoreData) => T | Promise<T>): Promise<T> {
   return enqueue(async () => {
     const data = await readStore();
+    ensureCatalog(data);
     prune(data, Date.now());
     const result = await mutator(data);
     await writeStore(data);
@@ -160,9 +198,19 @@ export function mutateStore<T>(mutator: (data: StoreData) => T | Promise<T>): Pr
 export function readStoreSnapshot(): Promise<StoreData> {
   return enqueue(async () => {
     const data = await readStore();
+    const wasEmpty = data.catalogCategories.length === 0;
+    ensureCatalog(data);
     prune(data, Date.now());
+    if (wasEmpty) await writeStore(data);
     return data;
   });
+}
+
+function ensureCatalog(data: StoreData): void {
+  if (data.catalogCategories.length === 0) {
+    data.catalogCategories = DEFAULT_CATEGORIES.map((c) => ({ ...c }));
+    data.catalogItems = seedCatalogItems();
+  }
 }
 
 function prune(data: StoreData, now: number): void {

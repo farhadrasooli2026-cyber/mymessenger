@@ -1,5 +1,5 @@
 import { json, jsonError } from "@/lib/http";
-import { completeProfile, profileSchema } from "@/lib/registration";
+import { completeProfile, profileInputSchema } from "@/lib/profile";
 import { readSession, writeSession } from "@/lib/session";
 
 export async function POST(request: Request) {
@@ -14,10 +14,10 @@ export async function POST(request: Request) {
   } catch {
     return jsonError("درخواست نامعتبر است.");
   }
-  const parsed = profileSchema.safeParse(body);
-  if (!parsed.success) return jsonError("نام نمایشی باید بین ۲ تا ۶۰ نویسه باشد.");
+  const parsed = profileInputSchema.safeParse(body);
+  if (!parsed.success) return jsonError("اطلاعات پروفایل کامل یا معتبر نیست.");
 
-  const result = await completeProfile(session.userId, parsed.data.displayName);
+  const result = await completeProfile(session.userId, parsed.data);
   if (!result.ok) return jsonError(result.error, result.status);
 
   await writeSession({

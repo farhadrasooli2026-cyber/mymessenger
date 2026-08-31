@@ -36,5 +36,13 @@ export const config = {
     tokenTtlMs: 15 * 60 * 1000,
   },
   cookieName: "nixo_reg",
+  adminCookie: "nixo_admin",
+  adminKey: process.env.NIXO_ADMIN_KEY || "nixo-admin-dev",
   cookieMaxAgeSec: 7 * 24 * 60 * 60,
+  username: {
+    minLen: 3,
+    maxLen: 20,
+    changeCooldownMs: process.env.VITEST ? 0 : 24 * 60 * 60 * 1000,
+    maxChangesPer30d: 3,
+  },
 } as const;

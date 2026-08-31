@@ -78,6 +78,10 @@ export function RegisterFlow() {
         router.replace("/app");
         return;
       }
+      if (session.step === "profile") {
+        router.replace("/setup");
+        return;
+      }
       setStep(session.step);
       if (session.user) {
         setMasked(session.user.identifierMasked);
@@ -202,7 +206,8 @@ export function RegisterFlow() {
         return;
       }
       setStep("profile");
-      toast.success("تأیید انجام شد. پروفایل را تکمیل کنید.");
+      toast.success("تأیید انجام شد. پروفایل را بسازید.");
+      router.push("/setup");
     } finally {
       setBusy(false);
     }

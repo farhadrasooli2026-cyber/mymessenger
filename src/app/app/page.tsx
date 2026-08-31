@@ -1,14 +1,18 @@
 import { redirect } from "next/navigation";
-import { requireActiveUser } from "@/lib/auth";
+import { requireVerifiedUser } from "@/lib/auth";
 import { Messenger } from "@/components/messenger";
 
 export default async function AppPage() {
-  const user = await requireActiveUser();
+  const user = await requireVerifiedUser();
   if (!user) redirect("/");
+  if (user.status !== "active") redirect("/setup");
   return (
     <Messenger
-      displayName={user.displayName ?? "کاربر نیکسو"}
-      identifierMasked={user.identifierMasked}
+      displayName={user.displayName}
+      identifierMasked={user.identifierMasked ?? ""}
+      username={user.username}
+      photoUrl={user.photoUrl}
+      bio={user.bio}
     />
   );
 }
