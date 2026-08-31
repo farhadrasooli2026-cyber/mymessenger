@@ -329,6 +329,7 @@ export function Messenger({
   const [timerOpen, setTimerOpen] = useState(false);
   const [peerSheet, setPeerSheet] = useState(false);
   const [liveCall, setLiveCall] = useState<LiveCall | null>(null);
+  const [waitingCall, setWaitingCall] = useState<LiveCall | null>(null);
   const [callMin, setCallMin] = useState(false);
   const [callHistory, setCallHistory] = useState<HistoryCall[]>([]);
   const [callFilter, setCallFilter] = useState("all");
@@ -507,9 +508,11 @@ export function Messenger({
           setHideCallLock(Boolean(data.hideCallOnLockScreen));
           if (data.callPrivacy) setCallPrivacy(data.callPrivacy);
           const incoming = data.call as LiveCall | null;
+          const waiting = (data.waiting as LiveCall | null) ?? null;
+          setWaitingCall(waiting && waiting.id !== incoming?.id ? waiting : null);
           setLiveCall((cur) => {
             if (cur && (cur.status === "active" || cur.direction === "out")) return cur;
-            if (incoming && incoming.status === "ringing") return incoming;
+            if (incoming && (incoming.status === "ringing" || incoming.status === "queued")) return incoming;
             if (cur && cur.direction === "in" && cur.status === "ringing" && !incoming) return null;
             return cur;
           });
@@ -2001,7 +2004,9 @@ export function Messenger({
             </div>
             <div className="max-w-xl rounded-2xl border border-white/10 bg-white/5 p-4 text-xs leading-6">
               <p className="text-sm font-medium">تماس</p>
-              <p className="mt-1 text-emerald-100/65">چه کسانی بتوانند با تو تماس بگیرند:</p>
+              <p className="mt-1 text-emerald-100/65">
+                چه کسانی بتوانند با تو تماس بگیرند. افراد مسدود نمی‌توانند تماس بگیرند. تماس ناشناس طبق همین حریم محدود می‌شود.
+              </p>
               {(
                 [
                   ["everyone", "همه"],
@@ -2397,11 +2402,31 @@ export function Messenger({
       {liveCall && (
         <CallStage
           call={liveCall}
+          waiting={waitingCall && waitingCall.id !== liveCall.id ? waitingCall : null}
           lowData={lowDataCalls}
           hideLockInfo={hideCallLock}
           myName={displayName}
           minimized={callMin}
           onMinimized={setCallMin}
+          onWaitingAction={async (action, waitingId) => {
+            const res = await fetch(`/api/calls/${waitingId}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              toast.error(data.error ?? "عملیات تماس دوم انجام نشد.");
+              return;
+            }
+            if (action === "decline") {
+              setWaitingCall(null);
+              return;
+            }
+            setWaitingCall(null);
+            setCallMin(false);
+            setLiveCall(data.call as LiveCall);
+          }}
           onClose={() => {
             setLiveCall(null);
             setCallMin(false);

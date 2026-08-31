@@ -622,7 +622,7 @@ export type StoryReply = {
 };
 
 export type CallKind = "voice" | "video";
-export type CallStatus = "ringing" | "active" | "ended" | "declined" | "missed";
+export type CallStatus = "ringing" | "active" | "ended" | "declined" | "missed" | "queued";
 export type CallDirection = "out" | "in";
 
 export type CallRecord = {
@@ -640,6 +640,30 @@ export type CallRecord = {
   endedAt?: number | null;
   durationMs?: number;
   declineWithMessage?: boolean;
+};
+
+export type GroupCallParticipant = {
+  userId: string;
+  name: string;
+  role: "host" | "admin" | "member";
+  joinedAt: number;
+  leftAt: number | null;
+  mutedByHost: boolean;
+  kicked: boolean;
+};
+
+export type GroupCallRoom = {
+  id: string;
+  groupId: string;
+  groupName: string;
+  hostUserId: string;
+  kind: CallKind;
+  status: "ringing" | "active" | "ended";
+  maxParticipants: number;
+  inviteToken: string | null;
+  createdAt: number;
+  endedAt: number | null;
+  participants: GroupCallParticipant[];
 };
 
 export type GroupMember = {
@@ -997,6 +1021,7 @@ export type StoreData = {
   shopAudit: ShopAudit[];
   notifications: NotifyRecord[];
   notifyPrefs: NotifyPrefs[];
+  groupCalls: GroupCallRoom[];
 };
 
 const EMPTY: StoreData = {
@@ -1065,6 +1090,7 @@ const EMPTY: StoreData = {
   shopAudit: [],
   notifications: [],
   notifyPrefs: [],
+  groupCalls: [],
 };
 
 const STORE_PATH = path.join(
@@ -1154,6 +1180,7 @@ async function readStore(): Promise<StoreData> {
       shopAudit: Array.isArray(parsed.shopAudit) ? parsed.shopAudit : [],
       notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
       notifyPrefs: Array.isArray(parsed.notifyPrefs) ? parsed.notifyPrefs : [],
+      groupCalls: Array.isArray(parsed.groupCalls) ? parsed.groupCalls : [],
     };
   } catch {
     return structuredClone(EMPTY);
@@ -1287,6 +1314,11 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.wallets = (data.wallets ?? []).filter((w) => w.userId !== uid);
   data.notifications = (data.notifications ?? []).filter((n) => n.userId !== uid);
   data.notifyPrefs = (data.notifyPrefs ?? []).filter((p) => p.userId !== uid);
+  data.groupCalls = (data.groupCalls ?? []).map((c) => ({
+    ...c,
+    participants: c.participants.map((p) => (p.userId === uid && !p.leftAt ? { ...p, leftAt: now } : p)),
+    hostUserId: c.hostUserId === uid && c.status !== "ended" ? c.hostUserId : c.hostUserId,
+  }));
   data.ledger = (data.ledger ?? []).filter((t) => t.userId !== uid);
   data.shopNotices = (data.shopNotices ?? []).filter((n) => n.userId !== uid);
 }

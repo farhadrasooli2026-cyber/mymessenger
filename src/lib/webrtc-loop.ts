@@ -52,13 +52,14 @@ export async function startMediaLoop(opts: {
   return { local, remote, pcLocal, pcRemote };
 }
 
-export async function applyBitrate(pc: RTCPeerConnection, lowData: boolean): Promise<void> {
-  const max = lowData ? 180_000 : 900_000;
+export async function applyBitrate(pc: RTCPeerConnection, lowData: boolean, quality: "auto" | "saver" | "high" = "auto"): Promise<void> {
+  const videoMax = quality === "saver" || lowData ? 160_000 : quality === "high" ? 1_500_000 : 900_000;
+  const audioMax = quality === "saver" || lowData ? 20_000 : 48_000;
   for (const sender of pc.getSenders()) {
     const params = sender.getParameters();
     if (!params.encodings?.length) params.encodings = [{}];
     params.encodings.forEach((enc) => {
-      enc.maxBitrate = sender.track?.kind === "audio" ? (lowData ? 24_000 : 48_000) : max;
+      enc.maxBitrate = sender.track?.kind === "audio" ? audioMax : videoMax;
       enc.priority = sender.track?.kind === "audio" ? "high" : "medium";
     });
     try {
@@ -94,7 +95,39 @@ export function stopLoop(session: LoopSession | null): void {
   session.pcRemote.close();
 }
 
-export function permissionMessage(err: unknown): string {
+export async function shareScreen(session: LoopSession): Promise<() => void> {
+  const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+  const track = display.getVideoTracks()[0];
+  if (!track) return () => undefined;
+  const sender = session.pcLocal.getSenders().find((s) => s.track?.kind === "video");
+  const previous = sender?.track ?? session.local.getVideoTracks()[0] ?? null;
+  await sender?.replaceTrack(track);
+  if (previous) {
+    session.local.removeTrack(previous);
+  }
+  session.local.addTrack(track);
+  const stop = () => {
+    track.stop();
+    display.getTracks().forEach((t) => t.stop());
+    if (previous) {
+      void sender?.replaceTrack(previous);
+      session.local.addTrack(previous);
+    }
+    session.local.removeTrack(track);
+  };
+  track.addEventListener("ended", stop);
+  return stop;
+}
+
+export async function listAudioOutputs(): Promise<{ deviceId: string; label: string }[]> {
+  if (!navigator.mediaDevices?.enumerateDevices) return [];
+  const all = await navigator.mediaDevices.enumerateDevices();
+  return all
+    .filter((d) => d.kind === "audiooutput")
+    .map((d) => ({ deviceId: d.deviceId, label: d.label || "خروجی صدا" }));
+}
+
+export function getMediaErrorMessage(err: unknown): string {
   const name = err && typeof err === "object" && "name" in err ? String((err as { name: string }).name) : "";
   if (name === "NotAllowedError" || name === "PermissionDeniedError") {
     return "دسترسی میکروفون یا دوربین داده نشد. از تنظیمات مرورگر نیکسو را مجاز کن.";

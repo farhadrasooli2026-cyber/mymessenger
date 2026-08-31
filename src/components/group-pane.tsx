@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Flag, Lock, Pin, Search, Send, Users } from "lucide-react";
+import { Flag, Lock, Phone, Pin, Search, Send, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ import { backgroundPreview } from "@/lib/background-style";
 import type { Appearance } from "@/lib/appearance-types";
 import { BackgroundPicker, type BgDraft } from "@/components/background-picker";
 import { blobMatches } from "@/lib/search-match";
+import { GroupCallStage, type PublicGroupCallUi } from "@/components/group-call-stage";
 
 type GMember = {
   key: string;
@@ -112,6 +113,9 @@ export function GroupPane({
   const [qr, setQr] = useState<string | null>(null);
   const [addKey, setAddKey] = useState("");
   const [reportCat, setReportCat] = useState<"spam" | "abuse" | "fake" | "harassment" | "other">("spam");
+  const [groupCall, setGroupCall] = useState<PublicGroupCallUi | null>(null);
+  const [callMin, setCallMin] = useState(false);
+  const [liveHint, setLiveHint] = useState<PublicGroupCallUi | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/groups/${groupId}`, { cache: "no-store" });
@@ -134,6 +138,70 @@ export function GroupPane({
     }
     setMessages(next);
   }, [groupId]);
+
+  useEffect(() => {
+    const tick = () => {
+      void fetch(`/api/calls/group?groupId=${encodeURIComponent(groupId)}`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d?.call) setLiveHint(d.call as PublicGroupCallUi);
+          else setLiveHint(null);
+        })
+        .catch(() => undefined);
+    };
+    tick();
+    const t = window.setInterval(tick, 4000);
+    return () => window.clearInterval(t);
+  }, [groupId]);
+
+  async function startGroupCall(kind: "voice" | "video") {
+    const res = await fetch("/api/calls/group", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groupId, kind }),
+    });
+    const data = await res.json();
+    if (!res.ok && !data.call) {
+      toast.error(data.error ?? "تماس گروهی شروع نشد.");
+      return;
+    }
+    const room = (data.call ?? null) as PublicGroupCallUi | null;
+    if (res.status === 409 && room) {
+      const join = await fetch(`/api/calls/group/${room.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "join" }),
+      });
+      const j = await join.json();
+      if (!join.ok) {
+        toast.error(j.error ?? "ورود به تماس ممکن نشد.");
+        return;
+      }
+      setCallMin(false);
+      setGroupCall(j.call as PublicGroupCallUi);
+      return;
+    }
+    if (room) {
+      setCallMin(false);
+      setGroupCall(room);
+    }
+  }
+
+  async function joinLive() {
+    if (!liveHint) return;
+    const join = await fetch(`/api/calls/group/${liveHint.id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "join" }),
+    });
+    const j = await join.json();
+    if (!join.ok) {
+      toast.error(j.error ?? "ورود ممکن نشد.");
+      return;
+    }
+    setCallMin(false);
+    setGroupCall(j.call as PublicGroupCallUi);
+  }
 
   useEffect(() => {
     const ac = new AbortController();
@@ -270,6 +338,12 @@ export function GroupPane({
             {group.memberCount} عضو · {group.username ? `@${group.username}` : ROLE_FA[group.myRole ?? "member"]}
           </p>
         </button>
+        <Button type="button" variant="ghost" className="text-white" onClick={() => void startGroupCall("voice")} aria-label="تماس صوتی گروهی">
+          <Phone className="size-4" />
+        </Button>
+        <Button type="button" variant="ghost" className="text-white" onClick={() => void startGroupCall("video")} aria-label="تماس تصویری گروهی">
+          <Video className="size-4" />
+        </Button>
         <Button type="button" variant="ghost" className="text-white" onClick={() => setSearchOpen((v) => !v)} aria-label="Search in Conversation">
           <Search className="size-4" />
         </Button>
@@ -277,6 +351,11 @@ export function GroupPane({
           <Users className="size-4" />
         </Button>
       </header>
+      {liveHint && !groupCall && (
+        <button type="button" className="border-b border-amber-300/30 bg-amber-300/10 px-4 py-2 text-right text-xs" onClick={() => void joinLive()}>
+          تماس گروهی {liveHint.kind === "video" ? "تصویری" : "صوتی"} در جریان است · {liveHint.participants.length} نفر · ورود
+        </button>
+      )}
       {searchOpen && (
         <div className="border-b border-white/10 bg-black/40 p-3">
           <p className="text-xs font-medium">Search in Conversation</p>
@@ -669,6 +748,19 @@ export function GroupPane({
             </Button>
           </div>
         </div>
+      )}
+      {groupCall && (
+        <GroupCallStage
+          initial={groupCall}
+          members={(group?.members ?? []).filter((m) => m.kind === "user").map((m) => ({ key: m.key, name: m.name }))}
+          lowData={false}
+          minimized={callMin}
+          onMinimized={setCallMin}
+          onClose={() => {
+            setGroupCall(null);
+            setCallMin(false);
+          }}
+        />
       )}
     </div>
   );

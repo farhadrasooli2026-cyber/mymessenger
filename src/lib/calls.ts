@@ -5,9 +5,12 @@ import { blockState } from "@/lib/safety";
 import { audienceAllows } from "@/lib/privacy";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { CallDirection, CallKind, CallRecord, CallStatus, StoreData } from "@/lib/store";
+import { hitRateLimit } from "@/lib/rate-limit";
 import { emitNotification } from "@/lib/notify";
 
 export const CALL_RING_MS = 30_000;
+export const CALL_FLOOD_WINDOW_MS = 60_000;
+export const CALL_FLOOD_MAX = 8;
 
 export type PublicCall = {
   id: string;
@@ -100,6 +103,7 @@ export async function listCalls(userId: string, filter?: string) {
     if (filter === "missed") rows = rows.filter((c) => c.status === "missed");
     else if (filter === "incoming") rows = rows.filter((c) => c.direction === "in");
     else if (filter === "outgoing") rows = rows.filter((c) => c.direction === "out");
+    else if (filter === "declined") rows = rows.filter((c) => c.status === "declined");
     else if (filter === "voice") rows = rows.filter((c) => c.kind === "voice");
     else if (filter === "video") rows = rows.filter((c) => c.kind === "video");
     rows.sort((a, b) => b.createdAt - a.createdAt);
@@ -115,9 +119,14 @@ export async function activeCall(userId: string) {
     expireRinging(c, now);
     return c.status === "ringing" || c.status === "active";
   });
+  const waiting = data.calls.find((c) => {
+    if (c.ownerUserId !== userId) return false;
+    return c.status === "queued";
+  });
   const user = data.users.find((u) => u.id === userId);
   return {
     call: live ? publicCall(live, now) : null,
+    waiting: waiting ? publicCall(waiting, now) : null,
     lowDataCalls: Boolean(user?.lowDataCalls),
     hideCallOnLockScreen: Boolean(user?.hideCallOnLockScreen),
     callPrivacy: user?.callPrivacy ?? "everyone",
@@ -135,6 +144,8 @@ export async function startOutgoing(userId: string, threadId: string, kind: Call
     if (busyCall(data, userId)) {
       return { ok: false as const, error: "یک تماس دیگر در جریان است.", status: 409 };
     }
+    const flood = hitRateLimit(data, `callout:${userId}`, CALL_FLOOD_WINDOW_MS, CALL_FLOOD_MAX);
+    if (!flood.allowed) return { ok: false as const, error: "تماس پیاپی محدود شد.", status: 429 };
     const now = Date.now();
     const call: CallRecord = {
       id: randomId(),
@@ -160,10 +171,10 @@ export async function startIncomingDemo(userId: string, kind: CallKind) {
     if (!canReceiveCall(data, userId, "nixo")) {
       return { ok: false as const, error: "تنظیم حریم خصوصی تماس این ورودی را مسدود کرد.", status: 403 };
     }
-    if (busyCall(data, userId)) {
-      return { ok: false as const, error: "یک تماس دیگر در جریان است.", status: 409 };
-    }
+    const busy = busyCall(data, userId);
     const now = Date.now();
+    const flood = hitRateLimit(data, `callin:${userId}`, CALL_FLOOD_WINDOW_MS, CALL_FLOOD_MAX);
+    if (!flood.allowed) return { ok: false as const, error: "تماس ورودی پیاپی محدود شد.", status: 429 };
     const call: CallRecord = {
       id: randomId(),
       ownerUserId: userId,
@@ -173,7 +184,7 @@ export async function startIncomingDemo(userId: string, kind: CallKind) {
       peerColor: thread.color,
       kind,
       direction: "in",
-      status: "ringing",
+      status: busy ? "queued" : "ringing",
       createdAt: now,
     };
     data.calls.push(call);
@@ -197,7 +208,7 @@ export async function startIncomingDemo(userId: string, kind: CallKind) {
 export async function actOnCall(
   userId: string,
   callId: string,
-  action: "accept" | "connect" | "decline" | "end" | "message-decline",
+  action: "accept" | "connect" | "decline" | "end" | "message-decline" | "end-current-accept",
 ) {
   return mutateStore((data) => {
     const call = data.calls.find((c) => c.id === callId && c.ownerUserId === userId);
@@ -211,13 +222,25 @@ export async function actOnCall(
       call.status = "active";
       call.connectedAt = now;
     } else if (action === "accept") {
-      if (call.direction !== "in" || call.status !== "ringing") {
+      if (call.direction !== "in" || (call.status !== "ringing" && call.status !== "queued")) {
         return { ok: false as const, error: "تماس ورودی فعالی نیست.", status: 400 };
       }
       call.status = "active";
       call.connectedAt = now;
+    } else if (action === "end-current-accept") {
+      const current = busyCall(data, userId);
+      if (current && current.id !== call.id) {
+        current.status = "ended";
+        current.endedAt = now;
+        if (current.connectedAt) current.durationMs = now - current.connectedAt;
+      }
+      if (call.direction !== "in" || (call.status !== "queued" && call.status !== "ringing")) {
+        return { ok: false as const, error: "تماس منتظری نیست.", status: 400 };
+      }
+      call.status = "active";
+      call.connectedAt = now;
     } else if (action === "decline" || action === "message-decline") {
-      if (call.status !== "ringing") {
+      if (call.status !== "ringing" && call.status !== "queued") {
         return { ok: false as const, error: "تماس در حال زنگ نیست.", status: 400 };
       }
       call.status = call.direction === "in" ? "declined" : "ended";

@@ -9,6 +9,7 @@ import {
   Mic,
   MicOff,
   Minimize2,
+  MonitorUp,
   Phone,
   PhoneOff,
   PictureInPicture2,
@@ -22,7 +23,9 @@ import { cn } from "@/lib/utils";
 import { callKindFa, callStatusFa, formatCallClock } from "@/lib/call-copy";
 import {
   applyBitrate,
-  permissionMessage,
+  getMediaErrorMessage,
+  listAudioOutputs,
+  shareScreen,
   startMediaLoop,
   stopLoop,
   switchCamera,
@@ -37,27 +40,31 @@ export type LiveCall = {
   peerColor: string;
   kind: "voice" | "video";
   direction: "out" | "in";
-  status: "ringing" | "active" | "ended" | "declined" | "missed";
+  status: "ringing" | "active" | "ended" | "declined" | "missed" | "queued";
   createdAt: number;
   connectedAt: number | null;
 };
 
 export function CallStage({
   call,
+  waiting,
   lowData,
   hideLockInfo,
   myName,
   onClose,
   onMessageDecline,
+  onWaitingAction,
   minimized,
   onMinimized,
 }: {
   call: LiveCall;
+  waiting?: LiveCall | null;
   lowData: boolean;
   hideLockInfo: boolean;
   myName: string;
   onClose: () => void;
   onMessageDecline: () => void;
+  onWaitingAction?: (action: "accept" | "decline" | "end-current-accept", waitingId: string) => void;
   minimized: boolean;
   onMinimized: (v: boolean) => void;
 }) {
@@ -65,13 +72,17 @@ export function CallStage({
   const remoteRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const loopRef = useRef<LoopSession | null>(null);
-  const [phase, setPhase] = useState<"ringing" | "active" | "reconnect">(
+  const stopShareRef = useRef<(() => void) | null>(null);
+  const [phase, setPhase] = useState<"ringing" | "active" | "reconnect" | "poor">(
     call.status === "active" ? "active" : "ringing",
   );
   const [muted, setMuted] = useState(false);
   const [camOff, setCamOff] = useState(call.kind === "voice");
   const [facing, setFacing] = useState<"user" | "environment">("user");
-  const [speaker, setSpeaker] = useState<"earpiece" | "speaker">("speaker");
+  const [speaker, setSpeaker] = useState<"earpiece" | "speaker" | "bluetooth" | "headphones">("speaker");
+  const [sinks, setSinks] = useState<{ deviceId: string; label: string }[]>([]);
+  const [quality, setQuality] = useState<"auto" | "saver" | "high">(lowData ? "saver" : "auto");
+  const [sharing, setSharing] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [busy, setBusy] = useState(false);
   const incoming = call.direction === "in" && phase === "ringing";
@@ -93,6 +104,7 @@ export function CallStage({
     const onIce = () => {
       const st = session.pcLocal.iceConnectionState;
       if (st === "disconnected" || st === "failed") setPhase("reconnect");
+      else if (st === "checking") setPhase("poor");
       else if (st === "connected" || st === "completed") setPhase("active");
     };
     session.pcLocal.addEventListener("iceconnectionstatechange", onIce);
@@ -100,27 +112,43 @@ export function CallStage({
 
   async function mediaForConnect() {
     try {
-      const session = await startMediaLoop({ video: call.kind === "video", lowData });
+      const session = await startMediaLoop({
+        video: call.kind === "video",
+        lowData: quality === "saver" || lowData,
+      });
       attach(session);
       return true;
     } catch (err) {
-      toast.error(permissionMessage(err));
+      toast.error(getMediaErrorMessage(err));
       return false;
     }
   }
 
   useEffect(() => {
     if (incoming) return;
-    if (call.kind === "voice" || call.kind === "video") {
-      void mediaForConnect();
-    }
+    void mediaForConnect();
     return () => {
+      stopShareRef.current?.();
       stopLoop(loopRef.current);
       loopRef.current = null;
     };
-    // start once per call id
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [call.id]);
+
+  useEffect(() => {
+    void listAudioOutputs().then(setSinks);
+  }, []);
+
+  useEffect(() => {
+    const onOff = () => setPhase("reconnect");
+    const onOn = () => setPhase("poor");
+    window.addEventListener("offline", onOff);
+    window.addEventListener("online", onOn);
+    return () => {
+      window.removeEventListener("offline", onOff);
+      window.removeEventListener("online", onOn);
+    };
+  }, []);
 
   useEffect(() => {
     if (call.direction !== "out" || phase !== "ringing") return;
@@ -136,7 +164,7 @@ export function CallStage({
   }, [call.direction, call.id, phase]);
 
   useEffect(() => {
-    if (phase !== "active") return;
+    if (phase !== "active" && phase !== "poor") return;
     const started = Date.now();
     const t = window.setInterval(() => setElapsed(Date.now() - started), 500);
     return () => window.clearInterval(t);
@@ -157,6 +185,7 @@ export function CallStage({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action }),
     });
+    stopShareRef.current?.();
     stopLoop(loopRef.current);
     loopRef.current = null;
     if (action === "message-decline") onMessageDecline();
@@ -201,7 +230,7 @@ export function CallStage({
   }
 
   async function flipCam() {
-    if (!loopRef.current || call.kind !== "video") return;
+    if (!loopRef.current || call.kind !== "video" || sharing) return;
     const next = facing === "user" ? "environment" : "user";
     try {
       await switchCamera(loopRef.current, next);
@@ -222,36 +251,61 @@ export function CallStage({
     }
   }
 
-  async function toggleSpeaker() {
-    const next = speaker === "speaker" ? "earpiece" : "speaker";
-    setSpeaker(next);
+  async function pickSink(id: string, label: string) {
     const el = audioRef.current;
+    setSpeaker(
+      /bluetooth/i.test(label) ? "bluetooth" : /head|earbud/i.test(label) ? "headphones" : id ? "earpiece" : "speaker",
+    );
     if (el && "setSinkId" in el) {
       try {
-        await (el as HTMLAudioElement & { setSinkId: (id: string) => Promise<void> }).setSinkId("");
+        await (el as HTMLAudioElement & { setSinkId: (id: string) => Promise<void> }).setSinkId(id);
       } catch {
-        /* ignore */
+        toast.message("خروجی صدا توسط مرورگر محدود شد.");
       }
     }
-    toast.message(next === "speaker" ? "خروجی: بلندگو" : "خروجی: گوشی / پیش‌فرض دستگاه");
+  }
+
+  async function toggleShare() {
+    if (!loopRef.current || call.kind !== "video") {
+      toast.message("اشتراک صفحه فقط در تماس تصویری.");
+      return;
+    }
+    if (sharing) {
+      stopShareRef.current?.();
+      stopShareRef.current = null;
+      setSharing(false);
+      return;
+    }
+    try {
+      const stop = await shareScreen(loopRef.current);
+      stopShareRef.current = () => {
+        stop();
+        setSharing(false);
+      };
+      setSharing(true);
+    } catch {
+      toast.error("اشتراک صفحه لغو شد یا مرورگر اجازه نداد.");
+    }
   }
 
   useEffect(() => {
     const session = loopRef.current;
     if (!session) return;
-    void applyBitrate(session.pcLocal, lowData);
-  }, [lowData]);
+    void applyBitrate(session.pcLocal, lowData, quality);
+  }, [lowData, quality]);
 
   const statusText =
     phase === "reconnect"
       ? "در حال اتصال مجدد…"
-      : phase === "active"
-        ? "متصل · رسانه روی دستگاه رمز می‌شود"
-        : incoming
-          ? "تماس ورودی"
-          : "در حال زنگ…";
+      : phase === "poor"
+        ? "اتصال ضعیف · تماس حفظ می‌شود"
+        : phase === "active"
+          ? "متصل · رسانه روی دستگاه رمز می‌شود"
+          : incoming
+            ? "تماس ورودی"
+            : "در حال زنگ…";
 
-  if (minimized && phase === "active") {
+  if (minimized && (phase === "active" || phase === "poor" || phase === "reconnect")) {
     return (
       <button
         type="button"
@@ -264,7 +318,7 @@ export function CallStage({
         <span>
           <span className="block font-medium">{call.peerName}</span>
           <span className="text-[11px] text-amber-200" dir="ltr">
-            {formatCallClock(elapsed)}
+            {phase === "reconnect" ? "Reconnecting…" : formatCallClock(elapsed)}
           </span>
         </span>
       </button>
@@ -274,6 +328,23 @@ export function CallStage({
   return (
     <div className={cn("fixed inset-0 z-50 flex flex-col bg-[#071614] text-emerald-50", incoming && "bg-[#0b1c1a]")}>
       <audio ref={audioRef} autoPlay playsInline />
+      {waiting && onWaitingAction && (
+        <div className="z-10 border-b border-amber-300/30 bg-[#1a2e2a] px-4 py-3 text-sm">
+          <p className="font-medium">تماس همزمان از {waiting.peerName}</p>
+          <p className="text-[11px] text-amber-200">{callKindFa(waiting.kind)}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button type="button" size="sm" className="bg-emerald-500 text-[#071614]" onClick={() => onWaitingAction("accept", waiting.id)}>
+              پذیرش
+            </Button>
+            <Button type="button" size="sm" variant="secondary" onClick={() => onWaitingAction("end-current-accept", waiting.id)}>
+              قطع فعلی و پذیرش
+            </Button>
+            <Button type="button" size="sm" className="bg-rose-500 text-white" onClick={() => onWaitingAction("decline", waiting.id)}>
+              رد
+            </Button>
+          </div>
+        </div>
+      )}
       {call.kind === "video" && (
         <div className="relative min-h-0 flex-1 bg-black">
           <video ref={remoteRef} autoPlay playsInline className="h-full w-full object-cover" />
@@ -296,7 +367,7 @@ export function CallStage({
           </span>
           <p className="text-2xl font-semibold">{hideLockInfo && incoming ? "تماس خصوصی" : call.peerName}</p>
           <p className="text-sm text-amber-200">{statusText}</p>
-          {phase === "active" && (
+          {(phase === "active" || phase === "poor") && (
             <p className="text-lg tabular-nums" dir="ltr">
               {formatCallClock(elapsed)}
             </p>
@@ -308,7 +379,7 @@ export function CallStage({
           <p className="text-lg font-semibold">{call.peerName}</p>
           <p className="text-xs text-amber-200">
             {statusText}
-            {phase === "active" ? ` · ${formatCallClock(elapsed)}` : ""}
+            {phase === "active" || phase === "poor" ? ` · ${formatCallClock(elapsed)}` : ""}
           </p>
         </div>
       )}
@@ -316,7 +387,10 @@ export function CallStage({
       <div className="space-y-3 px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-3">
         <p className="text-center text-[11px] leading-5 text-emerald-100/55">
           سیگنال تماس روی سرور است؛ صدا و تصویر در این برش با WebRTC روی همین دستگاه حلقه می‌شود و نیکسو رسانه را نمی‌بیند.
-          تماس گروهی بعداً می‌آید.
+          تماس خصوصی برای سرور قابل شنیدن یا دیدن نیست. نیکسو جایگزین تماس اضطراری سیستم‌عامل نیست.
+        </p>
+        <p className="text-center text-[10px] text-emerald-100/40">
+          ضبط تماس فعال نیست. اگر بعداً اضافه شود، قبل از ضبط اطلاع‌رسانی واضح و رضایت لازم است.
         </p>
         {incoming ? (
           <div className="flex justify-center gap-3">
@@ -338,7 +412,11 @@ export function CallStage({
             <Ctrl on={muted} onClick={toggleMute} label={muted ? "صدا قطع" : "قطع میکروفون"}>
               {muted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
             </Ctrl>
-            <Ctrl on={speaker === "speaker"} onClick={() => void toggleSpeaker()} label="بلندگو">
+            <Ctrl
+              on={speaker === "speaker"}
+              onClick={() => void pickSink("", speaker === "speaker" ? "earpiece" : "speaker")}
+              label="بلندگو"
+            >
               <Volume2 className="size-5" />
             </Ctrl>
             {call.kind === "video" && (
@@ -348,6 +426,9 @@ export function CallStage({
                 </Ctrl>
                 <Ctrl on={false} onClick={() => void flipCam()} label="تعویض دوربین">
                   <SwitchCamera className="size-5" />
+                </Ctrl>
+                <Ctrl on={sharing} onClick={() => void toggleShare()} label={sharing ? "توقف اشتراک" : "اشتراک صفحه"}>
+                  <MonitorUp className="size-5" />
                 </Ctrl>
                 <Ctrl on={false} onClick={() => void pip()} label="تصویر در تصویر">
                   <PictureInPicture2 className="size-5" />
@@ -374,6 +455,30 @@ export function CallStage({
             >
               <PhoneOff className="size-6" />
             </Button>
+          </div>
+        )}
+        {!incoming && (
+          <div className="flex flex-wrap items-center justify-center gap-2 text-[11px]">
+            {(["auto", "saver", "high"] as const).map((q) => (
+              <button
+                key={q}
+                type="button"
+                className={cn("rounded-full px-2 py-1", quality === q ? "bg-amber-300 text-[#102824]" : "bg-white/10")}
+                onClick={() => setQuality(q)}
+              >
+                {q === "auto" ? "کیفیت خودکار" : q === "saver" ? "کم‌مصرف" : "کیفیت بالا"}
+              </button>
+            ))}
+            {sinks.map((s) => (
+              <button
+                key={s.deviceId}
+                type="button"
+                className="rounded-full bg-white/10 px-2 py-1"
+                onClick={() => void pickSink(s.deviceId, s.label)}
+              >
+                {s.label.slice(0, 18) || "خروجی"}
+              </button>
+            ))}
           </div>
         )}
         <p className="text-center text-[10px] text-emerald-100/40">

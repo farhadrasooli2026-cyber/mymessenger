@@ -1,8 +1,9 @@
 export type CallKindUi = "voice" | "video";
-export type CallStatusUi = "ringing" | "active" | "ended" | "declined" | "missed";
+export type CallStatusUi = "ringing" | "active" | "ended" | "declined" | "missed" | "queued";
 export type CallDirectionUi = "out" | "in";
 
 export function callStatusFa(status: CallStatusUi, direction: CallDirectionUi, kind: CallKindUi): string {
+  if (status === "queued") return "تماس منتظر (خط مشغول)";
   if (status === "ringing" && direction === "in") return "تماس ورودی";
   if (status === "ringing") return "در حال زنگ…";
   if (status === "active") return "متصل";

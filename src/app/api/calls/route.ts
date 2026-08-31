@@ -1,6 +1,7 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
 import { activeCall, listCalls, startOutgoing } from "@/lib/calls";
+import { listGroupCalls } from "@/lib/group-calls";
 
 export async function GET(request: Request) {
   const user = await requireActiveUser();
@@ -11,8 +12,13 @@ export async function GET(request: Request) {
     const live = await activeCall(user.id);
     return json({ ok: true, ...live });
   }
+  if (filter === "group") {
+    const group = await listGroupCalls(user.id);
+    return json({ ok: true, calls: group });
+  }
   const calls = await listCalls(user.id, filter);
-  return json({ ok: true, calls });
+  const group = filter === "all" || !filter ? await listGroupCalls(user.id) : [];
+  return json({ ok: true, calls: [...calls, ...group].sort((a, b) => b.createdAt - a.createdAt) });
 }
 
 export async function POST(request: Request) {

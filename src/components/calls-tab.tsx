@@ -9,6 +9,8 @@ import type { LiveCall } from "@/components/call-stage";
 export type HistoryCall = LiveCall & {
   endedAt: number | null;
   durationMs: number;
+  group?: boolean;
+  participantCount?: number;
 };
 
 export function CallsTab({
@@ -31,6 +33,8 @@ export function CallsTab({
     { id: "incoming", label: "ورودی" },
     { id: "outgoing", label: "خروجی" },
     { id: "missed", label: "بی‌پاسخ" },
+    { id: "declined", label: "ردشده" },
+    { id: "group", label: "گروهی" },
     { id: "voice", label: "صوتی" },
     { id: "video", label: "تصویری" },
   ];
@@ -39,7 +43,7 @@ export function CallsTab({
     <div className="flex h-full flex-col overflow-auto p-4 pb-24 md:pb-6">
       <h2 className="text-xl font-semibold">تماس‌ها</h2>
       <p className="mt-1 text-xs leading-6 text-emerald-100/60">
-        سابقه روی سرور فقط فراداده است (نوع، وضعیت، مدت). محتوا رمزنگاری‌شده روی دستگاه می‌ماند.
+        Incoming / Outgoing / Missed / Declined. برای هر تماس: Caller، تاریخ، ساعت، مدت، نوع و وضعیت. سابقه روی سرور فقط فراداده است.
       </p>
       {blockedHint && <p className="mt-2 text-xs text-rose-200">{blockedHint}</p>}
       <div className="mt-3 flex flex-wrap gap-1">
@@ -76,22 +80,29 @@ export function CallsTab({
               )}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate font-medium">{c.peerName}</p>
+              <p className="truncate font-medium">{c.peerName}{c.group ? " · گروهی" : ""}</p>
               <p className="text-[11px] text-emerald-100/60">
                 {callKindFa(c.kind)} · {callStatusFa(c.status, c.direction, c.kind)} · {formatCallWhen(c.createdAt)}
                 {c.durationMs > 0 ? ` · ${formatCallClock(c.durationMs)}` : ""}
+                {c.group && c.participantCount ? ` · ${c.participantCount} نفر` : ""}
               </p>
             </div>
+            {!c.group && (
+              <>
             <button type="button" className="grid size-9 place-items-center rounded-full bg-white/10" onClick={() => onCall(c.threadId, "voice")} aria-label="تماس صوتی">
               <Phone className="size-4" />
             </button>
             <button type="button" className="grid size-9 place-items-center rounded-full bg-white/10" onClick={() => onCall(c.threadId, "video")} aria-label="تماس تصویری">
               <Video className="size-4" />
             </button>
+              </>
+            )}
           </li>
         ))}
       </ul>
-      <p className="mt-6 text-[11px] leading-6 text-emerald-100/45">تماس گروهی صوتی و تصویری در معماری گروه‌ها می‌آید.</p>
+      <p className="mt-6 text-[11px] leading-6 text-emerald-100/45">
+        تماس گروهی از داخل گروه با Voice Call / Video Call شروع می‌شود. لینک Join Call فقط برای اعضای واردشده. NIXO جایگزین تماس اضطراری سیستم‌عامل نیست. ضبط تماس فعال نیست.
+      </p>
     </div>
   );
 }
