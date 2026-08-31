@@ -6,6 +6,8 @@ import type { CatalogCategory, CatalogItem, UserPhoto, UsernameChange, Visibilit
 import { defaultUserFields } from "@/lib/profile-types";
 import type { GroupPerms, GroupRole } from "@/lib/group-types";
 import { DEFAULT_GROUP_PERMS } from "@/lib/group-types";
+import type { CommunityPerms, CommunityRole, NotifyMode } from "@/lib/community-types";
+import { DEFAULT_COMMUNITY_PERMS } from "@/lib/community-types";
 import { DEFAULT_CATEGORIES, seedCatalogItems } from "@/lib/avatar-catalog";
 import { BG_CATEGORIES, seedBackgroundItems } from "@/lib/background-catalog";
 
@@ -112,7 +114,28 @@ function hydrateGroup(group: GroupRecord): GroupRecord {
     requests: Array.isArray(group.requests) ? group.requests : [],
     bans: Array.isArray(group.bans) ? group.bans : [],
     pinIds: Array.isArray(group.pinIds) ? group.pinIds : [],
+    communityId: group.communityId ?? null,
     deletedAt: group.deletedAt ?? null,
+  };
+}
+
+function hydrateCommunity(community: CommunityRecord): CommunityRecord {
+  return {
+    ...community,
+    description: community.description ?? "",
+    rules: community.rules ?? "",
+    username: community.username ?? null,
+    joinMode: community.joinMode === "open" || community.joinMode === "request" ? community.joinMode : "invite",
+    perms: { ...DEFAULT_COMMUNITY_PERMS, ...(community.perms ?? {}) },
+    inviteToken: community.inviteToken || "",
+    groupIds: Array.isArray(community.groupIds) ? community.groupIds : [],
+    channels: Array.isArray(community.channels) ? community.channels : [],
+    members: Array.isArray(community.members) ? community.members : [],
+    requests: Array.isArray(community.requests) ? community.requests : [],
+    bans: Array.isArray(community.bans) ? community.bans : [],
+    announcements: Array.isArray(community.announcements) ? community.announcements : [],
+    posts: Array.isArray(community.posts) ? community.posts : [],
+    deletedAt: community.deletedAt ?? null,
   };
 }
 
@@ -231,7 +254,7 @@ export type ChatMessage = {
 export type SafetyReport = {
   id: string;
   reporterId: string;
-  targetKind: "user" | "chat" | "group";
+  targetKind: "user" | "chat" | "group" | "community" | "channel";
   targetKey: string;
   threadId?: string;
   messageIds: string[];
@@ -309,6 +332,7 @@ export type GroupRecord = {
   requests: GroupJoinRequest[];
   bans: GroupBan[];
   pinIds: string[];
+  communityId: string | null;
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
@@ -343,6 +367,79 @@ export type GroupMessage = {
   deleted?: boolean;
 };
 
+export type CommunityMember = {
+  key: string;
+  kind: "user" | "seed";
+  role: CommunityRole;
+  name: string;
+  username: string | null;
+  joinedAt: number;
+  mutedUntil: number | null;
+  restrictedUntil: number | null;
+  notifyMode: NotifyMode;
+  leftAt: number | null;
+};
+
+export type CommunityJoinRequest = {
+  id: string;
+  userId: string;
+  name: string;
+  createdAt: number;
+  status: "pending" | "approved" | "rejected";
+};
+
+export type CommunityBan = { key: string; at: number };
+
+export type CommunityAnnouncement = {
+  id: string;
+  authorKey: string;
+  authorName: string;
+  body: string;
+  createdAt: number;
+};
+
+export type CommunityPost = {
+  id: string;
+  channelId: string;
+  authorKey: string;
+  authorName: string;
+  kind: "text" | "photo" | "video" | "file" | "link";
+  body: string;
+  createdAt: number;
+  deleted?: boolean;
+};
+
+export type CommunityChannel = {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+  createdAt: number;
+};
+
+export type CommunityRecord = {
+  id: string;
+  name: string;
+  description: string;
+  rules: string;
+  username: string | null;
+  color: string;
+  ownerUserId: string;
+  joinMode: "invite" | "request" | "open";
+  perms: CommunityPerms;
+  inviteToken: string;
+  groupIds: string[];
+  channels: CommunityChannel[];
+  members: CommunityMember[];
+  requests: CommunityJoinRequest[];
+  bans: CommunityBan[];
+  announcements: CommunityAnnouncement[];
+  posts: CommunityPost[];
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+};
+
 export type StoreData = {
   users: UserRecord[];
   challenges: ChallengeRecord[];
@@ -356,6 +453,7 @@ export type StoreData = {
   calls: CallRecord[];
   groups: GroupRecord[];
   groupMessages: GroupMessage[];
+  communities: CommunityRecord[];
   catalogCategories: CatalogCategory[];
   catalogItems: CatalogItem[];
   bgCategories: CatalogCategory[];
@@ -375,6 +473,7 @@ const EMPTY: StoreData = {
   calls: [],
   groups: [],
   groupMessages: [],
+  communities: [],
   catalogCategories: [],
   catalogItems: [],
   bgCategories: [],
@@ -415,6 +514,7 @@ async function readStore(): Promise<StoreData> {
       calls: Array.isArray(parsed.calls) ? parsed.calls : [],
       groups: Array.isArray(parsed.groups) ? parsed.groups.map(hydrateGroup) : [],
       groupMessages: Array.isArray(parsed.groupMessages) ? parsed.groupMessages : [],
+      communities: Array.isArray(parsed.communities) ? parsed.communities.map(hydrateCommunity) : [],
       catalogCategories: parsed.catalogCategories ?? [],
       catalogItems: parsed.catalogItems ?? [],
       bgCategories: parsed.bgCategories ?? [],

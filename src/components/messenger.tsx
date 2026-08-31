@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Ban, Flag, Lock, MessageCircle, Phone, Search, Send, Sparkles, Store, Timer, UserRound, Users, Video } from "lucide-react";
+import { Ban, Flag, Globe, Lock, MessageCircle, Phone, Search, Send, Sparkles, Store, Timer, UserRound, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { nixoSpaces } from "@/lib/brand";
@@ -42,6 +42,8 @@ import { CallStage, type LiveCall } from "@/components/call-stage";
 import { CallsTab, type HistoryCall } from "@/components/calls-tab";
 import { GroupCreate } from "@/components/group-create";
 import { GroupPane } from "@/components/group-pane";
+import { CommunityCreate } from "@/components/community-create";
+import { CommunityPane } from "@/components/community-pane";
 
 type Thread = {
   id: string;
@@ -307,6 +309,9 @@ export function Messenger({
   const [groups, setGroups] = useState<{ id: string; name: string; color: string; memberCount: number; updatedAt: number }[]>([]);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [createGroup, setCreateGroup] = useState(false);
+  const [communities, setCommunities] = useState<{ id: string; name: string; color: string; memberCount: number }[]>([]);
+  const [activeCommunityId, setActiveCommunityId] = useState<string | null>(null);
+  const [createCommunity, setCreateCommunity] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   const active = threads.find((t) => t.id === activeId) ?? null;
@@ -360,6 +365,15 @@ export function Messenger({
     setGroups(data.groups ?? []);
   }, []);
 
+  const loadCommunities = useCallback(async () => {
+    const res = await fetch("/api/communities", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = (await res.json()) as {
+      communities?: { id: string; name: string; color: string; memberCount: number }[];
+    };
+    setCommunities(data.communities ?? []);
+  }, []);
+
   useEffect(() => {
     const ac = new AbortController();
     fetch("/api/chats", { cache: "no-store", signal: ac.signal })
@@ -386,6 +400,13 @@ export function Messenger({
       .then((data) => {
         if (!data) return;
         setGroups(data.groups ?? []);
+      })
+      .catch(() => undefined);
+    fetch("/api/communities", { cache: "no-store", signal: ac.signal })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data) return;
+        setCommunities(data.communities ?? []);
       })
       .catch(() => undefined);
     loadOrCreateIdentity()
@@ -719,16 +740,58 @@ export function Messenger({
             <Users className="ml-1 size-3.5" />
             ایجاد گروه
           </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-9 w-full"
+            onClick={() => setCreateCommunity(true)}
+          >
+            <Globe className="ml-1 size-3.5" />
+            ایجاد جامعه
+          </Button>
         </div>
 
         <ScrollArea className="flex-1">
           <div className="space-y-1 px-2 pb-24">
+            {communities.map((community) => (
+              <button
+                key={community.id}
+                type="button"
+                onClick={() => {
+                  setActiveCommunityId(community.id);
+                  setActiveGroupId(null);
+                  setMobileChat(true);
+                  setTab("chats");
+                }}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-right transition",
+                  activeCommunityId === community.id ? "bg-sky-400/15" : "hover:bg-white/5",
+                )}
+              >
+                <span
+                  className="grid size-11 place-items-center rounded-2xl text-sm font-semibold text-[#071614]"
+                  style={{ background: community.color }}
+                >
+                  {community.name.slice(0, 1)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="truncate font-medium">{community.name}</span>
+                    <span className="text-[10px] text-sky-200">جامعه</span>
+                  </span>
+                  <span className="mt-0.5 block truncate text-xs text-emerald-100/60">
+                    {community.memberCount} عضو
+                  </span>
+                </span>
+              </button>
+            ))}
             {groups.map((group) => (
               <button
                 key={group.id}
                 type="button"
                 onClick={() => {
                   setActiveGroupId(group.id);
+                  setActiveCommunityId(null);
                   setMobileChat(true);
                   setTab("chats");
                 }}
@@ -761,6 +824,7 @@ export function Messenger({
                 onClick={() => {
                   setActiveId(thread.id);
                   setActiveGroupId(null);
+                  setActiveCommunityId(null);
                   setMobileChat(true);
                   setTab("chats");
                 }}
@@ -799,7 +863,34 @@ export function Messenger({
           mobileChat ? "flex" : "hidden md:flex",
         )}
       >
-        {tab === "chats" && activeGroupId ? (
+        {tab === "chats" && activeCommunityId ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <Button
+              type="button"
+              variant="ghost"
+              className="md:hidden text-white hover:bg-white/10"
+              onClick={() => {
+                setActiveCommunityId(null);
+                setMobileChat(false);
+              }}
+            >
+              گفتگوها
+            </Button>
+            <CommunityPane
+              key={activeCommunityId}
+              communityId={activeCommunityId}
+              userIdHint={userId}
+              onLeft={() => {
+                setActiveCommunityId(null);
+                void loadCommunities();
+              }}
+              onOpenGroup={(groupId) => {
+                setActiveCommunityId(null);
+                setActiveGroupId(groupId);
+              }}
+            />
+          </div>
+        ) : tab === "chats" && activeGroupId ? (
           <div className="flex min-h-0 flex-1 flex-col">
             <Button
               type="button"
@@ -1256,7 +1347,7 @@ export function Messenger({
           <div className="flex-1 overflow-auto p-5">
             <h2 className="text-xl font-semibold">فضاهای نیکسو</h2>
             <p className="mt-2 max-w-2xl text-sm leading-7 text-emerald-100/70">
-              همهٔ سرویس‌ها در یک هویت جمع می‌شوند. گفتگوی خصوصی، گروه‌ها، تماس، رسانه و E2EE زنده‌اند.
+              همهٔ سرویس‌ها در یک هویت جمع می‌شوند. گفتگوی خصوصی، گروه‌ها، جامعه‌ها، تماس، رسانه و E2EE زنده‌اند.
             </p>
             <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {nixoSpaces.map((space) => (
@@ -1282,6 +1373,19 @@ export function Messenger({
                       }}
                     >
                       ساخت گروه
+                    </Button>
+                  )}
+                  {space.id === "community" && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="mt-3 bg-amber-300 text-[#102824]"
+                      onClick={() => {
+                        setTab("chats");
+                        setCreateCommunity(true);
+                      }}
+                    >
+                      ساخت جامعه
                     </Button>
                   )}
                 </article>
@@ -1700,6 +1804,19 @@ export function Messenger({
             setTab("chats");
             setMobileChat(true);
             void loadGroups();
+          }}
+        />
+      )}
+      {createCommunity && (
+        <CommunityCreate
+          onClose={() => setCreateCommunity(false)}
+          onCreated={(id) => {
+            setCreateCommunity(false);
+            setActiveCommunityId(id);
+            setActiveGroupId(null);
+            setTab("chats");
+            setMobileChat(true);
+            void loadCommunities();
           }}
         />
       )}

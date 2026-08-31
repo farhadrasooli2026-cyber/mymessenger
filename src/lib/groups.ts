@@ -226,6 +226,7 @@ export async function createGroup(
       requests: [],
       bans: [],
       pinIds: [],
+      communityId: null,
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
