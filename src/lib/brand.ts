@@ -33,7 +33,7 @@ export const nixoSpaces = [
   { id: "story", title: "استوری", detail: "لحظه‌های کوتاه و موقت", live: true },
   { id: "voice", title: "تماس صوتی", detail: "تماس با معماری Zero Trust", live: false },
   { id: "video", title: "تماس تصویری", detail: "ارتباط چهره به چهره", live: false },
-  { id: "files", title: "اشتراک فایل", detail: "ارسال امن پرونده", live: false },
+  { id: "files", title: "اشتراک فایل", detail: "فعال: عکس، ویدیو، سند، E2EE تکه‌تکه", live: true },
   { id: "ai", title: "هوش مصنوعی", detail: "دستیار داخل گفتگو، نه جایگزین انسان", live: false },
   { id: "business", title: "کسب‌وکار", detail: "حساب تجاری و پاسخگویی", live: false },
   { id: "bot", title: "ربات", detail: "اتوماسیون با کمترین دسترسی", live: false },

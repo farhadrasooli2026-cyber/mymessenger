@@ -26,9 +26,14 @@ function hydrateUser(user: UserRecord): UserRecord {
   };
 }
 
+function hydrateKind(kind?: string): ChatMessage["kind"] {
+  if (kind === "voice" || kind === "photo" || kind === "video" || kind === "file") return kind;
+  return "text";
+}
+
 function hydrateMessage(message: ChatMessage & { text?: string }): ChatMessage {
   const extra = {
-    kind: message.kind === "voice" ? ("voice" as const) : ("text" as const),
+    kind: hydrateKind(message.kind),
     durationMs: message.durationMs,
     viewOnce: Boolean(message.viewOnce),
     disappearAfterMs: message.disappearAfterMs ?? null,
@@ -38,6 +43,10 @@ function hydrateMessage(message: ChatMessage & { text?: string }): ChatMessage {
     hiddenFor: Array.isArray(message.hiddenFor) ? message.hiddenFor : [],
     deletedEverywhere: Boolean(message.deletedEverywhere),
     forwarded: Boolean(message.forwarded),
+    blobId: message.blobId,
+    chunkCount: message.chunkCount,
+    byteLength: message.byteLength,
+    mimeClass: message.mimeClass,
   };
   if (message.enc === "e2ee-v1" && message.ciphertext && message.nonce) {
     return {
@@ -153,7 +162,7 @@ export type ChatMessage = {
   ciphertext: string;
   nonce: string;
   createdAt: number;
-  kind: "text" | "voice";
+  kind: "text" | "voice" | "photo" | "video" | "file";
   durationMs?: number;
   viewOnce?: boolean;
   disappearAfterMs?: number | null;
@@ -163,6 +172,10 @@ export type ChatMessage = {
   hiddenFor?: string[];
   deletedEverywhere?: boolean;
   forwarded?: boolean;
+  blobId?: string;
+  chunkCount?: number;
+  byteLength?: number;
+  mimeClass?: "image" | "video" | "file" | "audio";
 };
 
 export type SafetyReport = {

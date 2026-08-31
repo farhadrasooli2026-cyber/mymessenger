@@ -158,4 +158,30 @@ describe("private chat safety", () => {
     const hidden = await listMessages(userId, thread.id);
     expect(hidden?.messages.some((m) => m.id === keep!.id)).toBe(false);
   });
+
+  it("stores photo metadata as ciphertext and never the filename plaintext", async () => {
+    const userId = await activeUser("media_user");
+    const threads = await listThreads(userId);
+    const thread = threads.find((t) => t.peerKey === "nixo")!;
+    const key = await generateThreadKey();
+    const envelope = await encryptText(
+      key,
+      JSON.stringify({ name: "SECRET_SHOT.jpg", mime: "image/jpeg", caption: "hidden-cap", quality: "standard" }),
+    );
+    const sent = await sendMessage(userId, thread.id, {
+      ...envelope,
+      kind: "photo",
+      blobId: "aabbccddeeff00112233",
+      chunkCount: 1,
+      byteLength: 2048,
+      mimeClass: "image",
+      viewOnce: true,
+    });
+    expect(sent.ok).toBe(true);
+    const snap = await readStoreSnapshot();
+    const raw = JSON.stringify(snap.messages);
+    expect(raw).not.toContain("SECRET_SHOT.jpg");
+    expect(raw).not.toContain("hidden-cap");
+    expect(snap.messages.some((m) => m.kind === "photo" && m.blobId)).toBe(true);
+  });
 });

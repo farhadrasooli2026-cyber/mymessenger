@@ -63,23 +63,28 @@ export async function importRawKey(b64: string): Promise<CryptoKey> {
   return crypto.subtle.importKey("raw", asBufferSource(b64ToBytes(b64)), { name: "AES-GCM" }, true, ["encrypt", "decrypt"]);
 }
 
-export async function encryptText(key: CryptoKey, plaintext: string): Promise<CipherEnvelope> {
+export async function encryptBytes(key: CryptoKey, bytes: Uint8Array): Promise<CipherEnvelope> {
   const nonce = crypto.getRandomValues(new Uint8Array(12));
-  const encoded = new TextEncoder().encode(plaintext);
-  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv: asBufferSource(nonce) }, key, encoded);
-  return {
-    enc: ENC_V1,
-    ciphertext: bytesToB64(new Uint8Array(ct)),
-    nonce: bytesToB64(nonce),
-  };
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv: asBufferSource(nonce) }, key, asBufferSource(bytes));
+  return { enc: ENC_V1, ciphertext: bytesToB64(new Uint8Array(ct)), nonce: bytesToB64(nonce) };
 }
 
-export async function decryptText(key: CryptoKey, envelope: CipherEnvelope): Promise<string> {
+export async function decryptBytes(key: CryptoKey, envelope: CipherEnvelope): Promise<Uint8Array> {
   const pt = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: asBufferSource(b64ToBytes(envelope.nonce)) },
     key,
     asBufferSource(b64ToBytes(envelope.ciphertext)),
   );
+  return new Uint8Array(pt);
+}
+
+export async function encryptText(key: CryptoKey, plaintext: string): Promise<CipherEnvelope> {
+  const encoded = new TextEncoder().encode(plaintext);
+  return encryptBytes(key, encoded);
+}
+
+export async function decryptText(key: CryptoKey, envelope: CipherEnvelope): Promise<string> {
+  const pt = await decryptBytes(key, envelope);
   return new TextDecoder().decode(pt);
 }
 

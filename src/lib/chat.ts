@@ -5,16 +5,22 @@ import { blockState } from "@/lib/safety";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { ChatMessage, StoreData } from "@/lib/store";
 import { DELETE_EVERYONE_MS, VOICE_CIPHER_MAX, VOICE_MAX_MS } from "@/lib/voice";
+import { MEDIA_MAX_CHUNKS, MEDIA_MAX_BYTES } from "@/lib/media";
+import { deleteMediaBlob } from "@/lib/media-files";
 
 export type CipherPayload = {
   enc: "e2ee-v1";
   ciphertext: string;
   nonce: string;
-  kind?: "text" | "voice";
+  kind?: "text" | "voice" | "photo" | "video" | "file";
   durationMs?: number;
   viewOnce?: boolean;
   disappearAfterMs?: number | null;
   forwarded?: boolean;
+  blobId?: string;
+  chunkCount?: number;
+  byteLength?: number;
+  mimeClass?: "image" | "video" | "file" | "audio";
 };
 
 const B64 = /^[A-Za-z0-9+/]+=*$/;
@@ -27,28 +33,58 @@ export function parseCipherPayload(body: unknown): CipherPayload | null {
   if (typeof rec.ciphertext !== "string" || typeof rec.nonce !== "string") return null;
   const ciphertext = rec.ciphertext.trim();
   const nonce = rec.nonce.trim();
-  const kind = rec.kind === "voice" ? "voice" : "text";
-  const max = kind === "voice" ? VOICE_CIPHER_MAX : 24_000;
+  const kindRaw = rec.kind;
+  const kind =
+    kindRaw === "voice" || kindRaw === "photo" || kindRaw === "video" || kindRaw === "file" ? kindRaw : "text";
+  const media = kind === "photo" || kind === "video" || kind === "file";
+  const max = kind === "voice" ? VOICE_CIPHER_MAX : media ? 80_000 : 24_000;
   if (ciphertext.length < 8 || ciphertext.length > max) return null;
   if (nonce.length < 8 || nonce.length > 128) return null;
   if (!B64.test(ciphertext) || !B64.test(nonce)) return null;
+  let blobId: string | undefined;
+  let chunkCount: number | undefined;
+  let byteLength: number | undefined;
+  let mimeClass: CipherPayload["mimeClass"];
+  if (media) {
+    if (typeof rec.blobId !== "string" || !/^[a-f0-9]{8,64}$/i.test(rec.blobId)) return null;
+    const chunks = Number(rec.chunkCount);
+    const bytes = Number(rec.byteLength);
+    if (!Number.isInteger(chunks) || chunks < 1 || chunks > MEDIA_MAX_CHUNKS) return null;
+    if (!Number.isInteger(bytes) || bytes < 1 || bytes > MEDIA_MAX_BYTES) return null;
+    blobId = rec.blobId;
+    chunkCount = chunks;
+    byteLength = bytes;
+    mimeClass =
+      rec.mimeClass === "image" || rec.mimeClass === "video" || rec.mimeClass === "audio" || rec.mimeClass === "file"
+        ? rec.mimeClass
+        : kind === "photo"
+          ? "image"
+          : kind === "video"
+            ? "video"
+            : "file";
+  }
   let disappearAfterMs: number | null = null;
   if (typeof rec.disappearAfterMs === "number" && rec.disappearAfterMs > 0) {
     disappearAfterMs = Math.min(7 * 24 * 60 * 60 * 1000, Math.floor(rec.disappearAfterMs));
   }
   let durationMs: number | undefined;
-  if (kind === "voice" && typeof rec.durationMs === "number") {
-    durationMs = Math.min(VOICE_MAX_MS, Math.max(0, Math.floor(rec.durationMs)));
+  if ((kind === "voice" || kind === "video") && typeof rec.durationMs === "number") {
+    durationMs = Math.min(kind === "voice" ? VOICE_MAX_MS : 30 * 60 * 1000, Math.max(0, Math.floor(rec.durationMs)));
   }
+  const viewOnceOk = kind === "voice" || kind === "photo" || kind === "video";
   return {
     enc: "e2ee-v1",
     ciphertext,
     nonce,
     kind,
     durationMs,
-    viewOnce: kind === "voice" ? Boolean(rec.viewOnce) : false,
+    viewOnce: viewOnceOk ? Boolean(rec.viewOnce) : false,
     disappearAfterMs,
     forwarded: Boolean(rec.forwarded),
+    blobId,
+    chunkCount,
+    byteLength,
+    mimeClass,
   };
 }
 
@@ -93,6 +129,10 @@ export function publicMessage(message: ChatMessage, userId: string, now = Date.n
     deletedEverywhere: Boolean(live.deletedEverywhere),
     expired,
     forwarded: Boolean(live.forwarded),
+    blobId: live.blobId ?? null,
+    chunkCount: live.chunkCount ?? null,
+    byteLength: live.byteLength ?? null,
+    mimeClass: live.mimeClass ?? null,
   };
 }
 
@@ -129,8 +169,8 @@ export async function listThreads(userId: string) {
           ...thread,
           lastKind: live?.kind ?? null,
           lastEnc: live?.enc ?? null,
-          lastCiphertext: live?.kind === "voice" || live?.enc !== "e2ee-v1" ? null : live?.ciphertext ?? null,
-          lastNonce: live?.kind === "voice" || live?.enc !== "e2ee-v1" ? null : live?.nonce ?? null,
+          lastCiphertext: !live || live.kind !== "text" || live.enc !== "e2ee-v1" ? null : live.ciphertext,
+          lastNonce: !live || live.kind !== "text" || live.enc !== "e2ee-v1" ? null : live.nonce,
           lastAt: live?.createdAt ?? thread.updatedAt,
           ...safety,
         };
@@ -166,8 +206,8 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
         status: 403,
       };
     }
-    if (payload.viewOnce && payload.kind !== "voice") {
-      return { ok: false as const, error: "View Once فقط برای پیام صوتی این برش است.", status: 400 };
+    if (payload.viewOnce && payload.kind !== "voice" && payload.kind !== "photo" && payload.kind !== "video") {
+      return { ok: false as const, error: "View Once فقط برای صوت، عکس و ویدیو است.", status: 400 };
     }
     const now = Date.now();
     const mine: ChatMessage = {
@@ -189,6 +229,10 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
       hiddenFor: [],
       deletedEverywhere: false,
       forwarded: Boolean(payload.forwarded),
+      blobId: payload.blobId,
+      chunkCount: payload.chunkCount,
+      byteLength: payload.byteLength,
+      mimeClass: payload.mimeClass,
     };
     data.messages.push(mine);
     thread.updatedAt = now;
@@ -207,7 +251,7 @@ export async function deleteMessage(
   messageId: string,
   scope: "me" | "everyone",
 ) {
-  return mutateStore((data) => {
+  return mutateStore(async (data) => {
     const thread = data.threads.find((t) => t.id === threadId && t.ownerUserId === userId);
     if (!thread) return { ok: false as const, error: "گفتگو یافت نشد.", status: 404 };
     const message = data.messages.find((m) => m.id === messageId && m.threadId === threadId && m.ownerUserId === userId);
@@ -222,6 +266,7 @@ export async function deleteMessage(
       }
       purgeContent(message, now);
       message.deletedEverywhere = true;
+      if (message.blobId) await deleteMediaBlob(userId, message.blobId);
     } else {
       if (!message.hiddenFor) message.hiddenFor = [];
       if (!message.hiddenFor.includes(userId)) message.hiddenFor.push(userId);
@@ -231,19 +276,31 @@ export async function deleteMessage(
 }
 
 export async function markVoicePlayed(userId: string, threadId: string, messageId: string) {
-  return mutateStore((data) => {
+  return mutateStore(async (data) => {
     const message = data.messages.find((m) => m.id === messageId && m.threadId === threadId && m.ownerUserId === userId);
     if (!message) return { ok: false as const, error: "پیام یافت نشد.", status: 404 };
-    if (message.kind !== "voice") return { ok: false as const, error: "این پیام صوتی نیست.", status: 400 };
+    if (message.kind !== "voice" && message.kind !== "photo" && message.kind !== "video") {
+      return { ok: false as const, error: "این پیام یک‌بارمصرف نیست.", status: 400 };
+    }
     const now = Date.now();
     message.viewedAt = message.viewedAt ?? now;
     message.playCount = (message.playCount ?? 0) + 1;
     if (message.viewOnce) {
+      if (message.blobId) await deleteMediaBlob(userId, message.blobId);
       purgeContent(message, now);
     }
     expireIfNeeded(message, now);
     return { ok: true as const, message: publicMessage(message, userId, now) };
   });
+}
+
+export async function listSharedMedia(userId: string, threadId: string) {
+  const listed = await listMessages(userId, threadId);
+  if (!listed) return null;
+  const items = listed.messages.filter(
+    (m) => (m.kind === "photo" || m.kind === "video" || m.kind === "file" || m.kind === "voice") && !m.expired,
+  );
+  return { thread: listed.thread, items };
 }
 
 export const NIXO_STORY = {

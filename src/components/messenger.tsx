@@ -30,7 +30,10 @@ import {
 } from "@/lib/e2ee";
 import { VoiceComposer } from "@/components/voice-composer";
 import { VoicePlayer } from "@/components/voice-player";
+import { MediaDock } from "@/components/media-dock";
+import { MediaBubble } from "@/components/media-bubble";
 import { setVoiceSaveAllowed } from "@/lib/voice";
+import { defaultAuto, saveAutoSettings, setAutoSaveGallery, type AutoMode } from "@/lib/media";
 
 type Thread = {
   id: string;
@@ -38,7 +41,7 @@ type Thread = {
   peerName: string;
   peerTitle: string;
   color: string;
-  lastKind?: "text" | "voice" | null;
+  lastKind?: "text" | "voice" | "photo" | "video" | "file" | null;
   lastEnc: "e2ee-v1" | "purged" | null;
   lastCiphertext: string | null;
   lastNonce: string | null;
@@ -60,7 +63,7 @@ type Message = {
   createdAt: number;
   locked?: boolean;
   local?: boolean;
-  kind?: "text" | "voice";
+  kind?: "text" | "voice" | "photo" | "video" | "file";
   ciphertext?: string;
   nonce?: string;
   enc?: string;
@@ -69,6 +72,9 @@ type Message = {
   expired?: boolean;
   forwarded?: boolean;
   disappearAfterMs?: number | null;
+  blobId?: string | null;
+  chunkCount?: number | null;
+  byteLength?: number | null;
 };
 
 type Tab = "chats" | "calls" | "spaces" | "shop" | "me";
@@ -80,18 +86,40 @@ type WireMsg = {
   enc: string;
   ciphertext: string;
   nonce: string;
-  kind?: "text" | "voice";
+  kind?: "text" | "voice" | "photo" | "video" | "file";
   durationMs?: number | null;
   viewOnce?: boolean;
   expired?: boolean;
   forwarded?: boolean;
   disappearAfterMs?: number | null;
+  blobId?: string | null;
+  chunkCount?: number | null;
+  byteLength?: number | null;
 };
 
 async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> {
   const key = await loadOrCreateThreadKey(threadId);
   const remote: Message[] = [];
   for (const raw of raws) {
+    if (raw.kind === "photo" || raw.kind === "video" || raw.kind === "file") {
+      remote.push({
+        id: raw.id,
+        sender: raw.sender,
+        createdAt: raw.createdAt,
+        text: "",
+        kind: raw.kind,
+        enc: raw.enc,
+        ciphertext: raw.ciphertext,
+        nonce: raw.nonce,
+        viewOnce: raw.viewOnce,
+        expired: raw.expired || raw.enc !== "e2ee-v1",
+        forwarded: raw.forwarded,
+        blobId: raw.blobId,
+        chunkCount: raw.chunkCount,
+        byteLength: raw.byteLength,
+      });
+      continue;
+    }
     if (raw.kind === "voice") {
       remote.push({
         id: raw.id,
@@ -200,6 +228,11 @@ export function Messenger({
   const [blockedList, setBlockedList] = useState<{ peerKey: string; peerName: string; threadId: string | null }[]>([]);
   const [voiceRec, setVoiceRec] = useState(false);
   const [saveVoice, setSaveVoice] = useState(true);
+  const [sharedOpen, setSharedOpen] = useState(false);
+  const [sharedItems, setSharedItems] = useState<Message[]>([]);
+  const [viewer, setViewer] = useState<{ url: string; kind: string; name?: string } | null>(null);
+  const [autoMedia, setAutoMedia] = useState(defaultAuto());
+  const [gallerySave, setGallerySave] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   const active = threads.find((t) => t.id === activeId) ?? null;
@@ -218,7 +251,13 @@ export function Messenger({
           lastPreview:
             thread.lastKind === "voice"
               ? "پیام صوتی"
-              : preview ?? (thread.lastCiphertext ? "•••• پیام رمزنگاری‌شده" : "گفتگوی خصوصی"),
+              : thread.lastKind === "photo"
+                ? "عکس"
+                : thread.lastKind === "video"
+                  ? "ویدیو"
+                  : thread.lastKind === "file"
+                    ? "فایل"
+                    : preview ?? (thread.lastCiphertext ? "•••• پیام رمزنگاری‌شده" : "گفتگوی خصوصی"),
         };
       }),
     );
@@ -573,6 +612,19 @@ export function Messenger({
               <Button
                 type="button"
                 variant="ghost"
+                className="text-xs text-amber-200 hover:bg-white/10"
+                onClick={async () => {
+                  const res = await fetch(`/api/chats/${active.id}/media`);
+                  const data = await res.json();
+                  setSharedItems((data.items ?? []) as Message[]);
+                  setSharedOpen(true);
+                }}
+              >
+                رسانه‌ها
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
                 className="text-white hover:bg-white/10"
                 onClick={() => setSafetyOpen((v) => !v)}
               >
@@ -683,6 +735,40 @@ export function Messenger({
                               );
                             }}
                           />
+                        ) : msg.kind === "photo" || msg.kind === "video" || msg.kind === "file" ? (
+                          <MediaBubble
+                            msg={{
+                              id: msg.id,
+                              sender: msg.sender,
+                              createdAt: msg.createdAt,
+                              enc: msg.enc ?? "e2ee-v1",
+                              ciphertext: msg.ciphertext ?? "",
+                              nonce: msg.nonce ?? "",
+                              kind: msg.kind,
+                              blobId: msg.blobId,
+                              chunkCount: msg.chunkCount,
+                              byteLength: msg.byteLength,
+                              viewOnce: msg.viewOnce,
+                              expired: msg.expired,
+                              forwarded: msg.forwarded,
+                            }}
+                            threadId={active.id}
+                            threads={threads}
+                            onGone={async () => {
+                              const res = await fetch(`/api/chats/${active.id}`, { cache: "no-store" });
+                              if (!res.ok) return;
+                              const data = (await res.json()) as { messages: WireMsg[] };
+                              const remote = await mapRemote(active.id, data.messages);
+                              const key = await loadOrCreateThreadKey(active.id);
+                              const local = await loadLocalMessages(active.id, key);
+                              setMessages(
+                                [...local.map((m) => ({ ...m, local: true as const })), ...remote].sort(
+                                  (a, b) => a.createdAt - b.createdAt,
+                                ),
+                              );
+                            }}
+                            onOpen={(url, meta, m) => setViewer({ url, kind: m.kind, name: meta.name })}
+                          />
                         ) : (
                           <p className="px-3">{msg.text}</p>
                         )}
@@ -693,6 +779,20 @@ export function Messenger({
                 </div>
               </ScrollArea>
             </div>
+            <MediaDock
+              threadId={active.id}
+              disabled={!active.messagesAllowed || busy}
+              onSent={async () => {
+                const res = await fetch(`/api/chats/${active.id}`, { cache: "no-store" });
+                if (!res.ok) return;
+                const data = (await res.json()) as { messages: WireMsg[] };
+                const remote = await mapRemote(active.id, data.messages);
+                const key = await loadOrCreateThreadKey(active.id);
+                const local = await loadLocalMessages(active.id, key);
+                setMessages([...local.map((m) => ({ ...m, local: true as const })), ...remote].sort((a, b) => a.createdAt - b.createdAt));
+                await loadThreads();
+              }}
+            />
             <VoiceComposer
               threadId={active.id}
               disabled={!active.messagesAllowed || busy}
@@ -757,7 +857,7 @@ export function Messenger({
           <div className="flex-1 overflow-auto p-5">
             <h2 className="text-xl font-semibold">فضاهای نیکسو</h2>
             <p className="mt-2 max-w-2xl text-sm leading-7 text-emerald-100/70">
-              همهٔ سرویس‌ها در یک هویت جمع می‌شوند. گفتگوی خصوصی، پیام صوتی، مسدودسازی، گزارش و E2EE زنده‌اند. مدیا، تماس و گروه روی نقشه می‌مانند.
+              همهٔ سرویس‌ها در یک هویت جمع می‌شوند. گفتگوی خصوصی، پیام صوتی، رسانه و فایل، مسدودسازی، گزارش و E2EE زنده‌اند.
             </p>
             <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {nixoSpaces.map((space) => (
@@ -824,6 +924,39 @@ export function Messenger({
             {voiceRec && tab === "me" && (
               <p className="text-xs text-amber-200">ضبط صوتی در پس‌زمینهٔ همین برنامه ادامه دارد.</p>
             )}
+            <div className="max-w-xl rounded-2xl border border-white/10 bg-white/5 p-4 text-xs leading-6">
+              <p className="text-sm font-medium">دانلود خودکار رسانه</p>
+              {(["photos", "videos", "files", "voice"] as const).map((key) => (
+                <label key={key} className="mt-2 flex items-center justify-between gap-2">
+                  <span>{key === "photos" ? "عکس" : key === "videos" ? "ویدیو" : key === "files" ? "فایل" : "پیام صوتی"}</span>
+                  <select
+                    className="rounded bg-black/30 px-2 py-1"
+                    value={autoMedia[key]}
+                    onChange={(e) => {
+                      const next = { ...autoMedia, [key]: e.target.value as AutoMode };
+                      setAutoMedia(next);
+                      saveAutoSettings(next);
+                    }}
+                  >
+                    <option value="always">همیشه</option>
+                    <option value="wifi">فقط Wi-Fi</option>
+                    <option value="mobile">داده همراه</option>
+                    <option value="never">هرگز</option>
+                  </select>
+                </label>
+              ))}
+              <label className="mt-3 flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={gallerySave}
+                  onChange={(e) => {
+                    setGallerySave(e.target.checked);
+                    setAutoSaveGallery(e.target.checked);
+                  }}
+                />
+                ذخیرهٔ خودکار عکس‌های دریافتی (دانلود به دستگاه)
+              </label>
+            </div>
             <div className="max-w-xl rounded-2xl border border-white/10 bg-white/5 p-4">
               <p className="flex items-center gap-2 text-sm font-medium">
                 <Lock className="size-4 text-amber-200" />
@@ -963,6 +1096,35 @@ export function Messenger({
                 ثبت گزارش
               </Button>
             </div>
+          </div>
+        </div>
+      )}
+      {sharedOpen && active && (
+        <div className="fixed inset-0 z-40 grid place-items-center bg-black/70 p-4" onClick={() => setSharedOpen(false)}>
+          <div className="max-h-[80dvh] w-full max-w-md overflow-auto rounded-3xl bg-[#102824] p-5" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-semibold">رسانه این گفتگو</h2>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {sharedItems.length === 0 && <p className="col-span-3 text-xs text-emerald-100/60">هنوز عکسی، ویدیویی یا فایلی نیست.</p>}
+              {sharedItems.map((item) => (
+                <div key={item.id} className="rounded-xl bg-white/5 p-2 text-[10px]">
+                  {item.kind === "photo" ? "عکس" : item.kind === "video" ? "ویدیو" : item.kind === "file" ? "فایل" : item.kind === "voice" ? "صوت" : "پیوند"}
+                </div>
+              ))}
+            </div>
+            <Button type="button" className="mt-4 w-full bg-amber-300 text-[#102824]" onClick={() => setSharedOpen(false)}>بستن</Button>
+          </div>
+        </div>
+      )}
+      {viewer && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/85 p-4" onClick={() => setViewer(null)}>
+          <div className="max-h-[92dvh] w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+            {viewer.kind === "video" ? (
+              <video src={viewer.url} controls autoPlay className="max-h-[85dvh] w-full" />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={viewer.url} alt={viewer.name ?? ""} className="max-h-[85dvh] w-full object-contain" />
+            )}
+            <Button type="button" className="mt-3 w-full bg-amber-300 text-[#102824]" onClick={() => setViewer(null)}>بستن</Button>
           </div>
         </div>
       )}
