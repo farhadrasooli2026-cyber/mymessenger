@@ -27,9 +27,21 @@ export async function PATCH(request: Request, ctx: Ctx) {
     username: body.username === null || typeof body.username === "string" ? (body.username as string | null) : undefined,
     visibility: body.visibility === "private" || body.visibility === "public" ? body.visibility : undefined,
     commentsEnabled: typeof body.commentsEnabled === "boolean" ? body.commentsEnabled : undefined,
+    reactionsEnabled: typeof body.reactionsEnabled === "boolean" ? body.reactionsEnabled : undefined,
     allowForward: typeof body.allowForward === "boolean" ? body.allowForward : undefined,
+    allowCopy: typeof body.allowCopy === "boolean" ? body.allowCopy : undefined,
     discussionGroupId: body.discussionGroupId === null || typeof body.discussionGroupId === "string" ? (body.discussionGroupId as string | null) : undefined,
     adminPerms: body.adminPerms && typeof body.adminPerms === "object" ? (body.adminPerms as ChannelAdminPerms) : undefined,
+    photoDataUrl: body.photoDataUrl === null || typeof body.photoDataUrl === "string" ? (body.photoDataUrl as string | null) : undefined,
+    rules: typeof body.rules === "string" ? body.rules : undefined,
+    purpose:
+      body.purpose === "news" ||
+      body.purpose === "products" ||
+      body.purpose === "promotions" ||
+      body.purpose === "announcements" ||
+      body.purpose === "general"
+        ? body.purpose
+        : undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, channel: result.channel });

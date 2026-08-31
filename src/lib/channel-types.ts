@@ -4,11 +4,13 @@ export const CHANNEL_FLOOD_WINDOW_MS = 20_000;
 export const CHANNEL_FLOOD_MAX = 8;
 export const CHANNEL_SUBSCRIBE_WINDOW_MS = 60_000;
 export const CHANNEL_SUBSCRIBE_MAX = 12;
+export const CHANNEL_MAX_PINS = 5;
 
 export type ChannelStaffRole = Extract<GroupRole, "owner" | "admin" | "moderator">;
 export type ChannelNotify = "on" | "off" | "important";
-export type ChannelPostKind = "text" | "photo" | "video" | "voice" | "file" | "link" | "poll" | "album";
+export type ChannelPostKind = "text" | "photo" | "video" | "voice" | "file" | "link" | "poll" | "album" | "gif" | "quiz";
 export type ChannelPostStatus = "draft" | "scheduled" | "published";
+export type ChannelPurpose = "general" | "news" | "products" | "promotions" | "announcements";
 
 export type ChannelAdminPerms = {
   postMessages: boolean;
@@ -19,6 +21,9 @@ export type ChannelAdminPerms = {
   manageSubscribers: boolean;
   manageChannelInfo: boolean;
   manageOtherAdmins: boolean;
+  manageInvites: boolean;
+  manageBots: boolean;
+  manageAI: boolean;
 };
 
 export const DEFAULT_CHANNEL_ADMIN_PERMS: ChannelAdminPerms = {
@@ -30,6 +35,9 @@ export const DEFAULT_CHANNEL_ADMIN_PERMS: ChannelAdminPerms = {
   manageSubscribers: true,
   manageChannelInfo: true,
   manageOtherAdmins: false,
+  manageInvites: true,
+  manageBots: false,
+  manageAI: true,
 };
 
 export const CHANNEL_PERM_FA: Record<keyof ChannelAdminPerms, string> = {
@@ -41,6 +49,17 @@ export const CHANNEL_PERM_FA: Record<keyof ChannelAdminPerms, string> = {
   manageSubscribers: "مدیریت دنبال‌کننده",
   manageChannelInfo: "ویرایش اطلاعات کانال",
   manageOtherAdmins: "مدیریت ادمین‌های دیگر",
+  manageInvites: "مدیریت دعوت",
+  manageBots: "مدیریت ربات",
+  manageAI: "استفاده از AI کمکی",
+};
+
+export const PURPOSE_FA: Record<ChannelPurpose, string> = {
+  general: "عمومی",
+  news: "اخبار",
+  products: "محصولات",
+  promotions: "تخفیف",
+  announcements: "اطلاعیه",
 };
 
 export function formatSubscribers(n: number): string {

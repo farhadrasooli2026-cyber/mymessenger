@@ -56,6 +56,9 @@ export async function startGroupCall(userId: string, groupId: string, kind: Call
   return mutateStore((data) => {
     const ctx = liveMember(data, groupId, userId);
     if (!ctx) return { ok: false as const, error: "عضو این گروه نیستی.", status: 403 };
+    if (ctx.member.role !== "owner" && ctx.member.role !== "admin" && !ctx.group.perms.startCalls) {
+      return { ok: false as const, error: "طبق مجوز گروه اجازهٔ شروع تماس نداری.", status: 403 };
+    }
     const flood = hitRateLimit(data, `call:${userId}`, CALL_FLOOD_WINDOW_MS, CALL_FLOOD_MAX);
     if (!flood.allowed) return { ok: false as const, error: "تماس پیاپی محدود شد.", status: 429 };
     const open = (data.groupCalls ?? []).find((c) => c.groupId === groupId && c.status !== "ended");

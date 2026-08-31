@@ -11,8 +11,12 @@ export async function POST(request: Request, ctx: Ctx) {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return jsonError("درخواست نامعتبر است.");
   if (body.action === "notify") {
-    const ms = body.ms === null ? null : Number(body.ms);
-    const result = await setNotifyMute(user.id, id, Number.isFinite(ms as number) ? (ms as number) : null);
+    const result = await setNotifyMute(
+      user.id,
+      id,
+      body.ms === undefined ? undefined : body.ms === null ? null : Number(body.ms),
+      typeof body.mentions === "boolean" ? body.mentions : undefined,
+    );
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true, notifyMutedUntil: result.notifyMutedUntil });
   }
@@ -25,7 +29,7 @@ export async function POST(request: Request, ctx: Ctx) {
   const action = body.action as "remove" | "ban" | "unban" | "mute" | "restrict" | "role" | "transfer";
   const result = await moderateMember(user.id, id, String(body.targetKey ?? ""), action, {
     ms: typeof body.ms === "number" ? body.ms : undefined,
-    role: body.role === "admin" || body.role === "moderator" || body.role === "member" ? body.role : undefined,
+    confirm: typeof body.confirm === "string" ? body.confirm : undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, group: result.group });

@@ -883,6 +883,8 @@ export async function botPostChannel(token: string, channelId: string, body: str
       reactions: [] as { emoji: string; keys: string[] }[],
       comments: [],
       album: [] as string[],
+      views: [] as string[],
+      forwards: 0,
       createdAt: Date.now(),
     };
     data.channelPosts.unshift(post);

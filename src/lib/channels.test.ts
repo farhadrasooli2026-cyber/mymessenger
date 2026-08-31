@@ -9,10 +9,13 @@ import {
   createPost,
   deleteChannel,
   deletePost,
+  getChannel,
   joinByToken,
+  recordPostView,
   searchPublicChannels,
   setStaff,
   subscribe,
+  transferChannelOwner,
 } from "./channels";
 
 async function activeUser(username: string) {
@@ -110,5 +113,42 @@ describe("NIXO channels", () => {
     expect(blocked.ok).toBe(false);
     const ok = await deleteChannel(owner, created.channel.id);
     expect(ok.ok).toBe(true);
+  });
+
+  it("counts views server-side and requires TRANSFER confirmation for ownership", async () => {
+    const owner = await activeUser("ch_own2");
+    const fan = await activeUser("ch_fan2");
+    const created = await createChannel(owner, { name: "آمار", username: "nixo_stats", visibility: "public" });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const post = await createPost(owner, created.channel.id, { body: "پست آمار", kind: "text" });
+    expect(post.ok).toBe(true);
+    if (!post.ok) return;
+    await subscribe(fan, created.channel.id);
+    const viewed = await recordPostView(fan, created.channel.id, post.post.id);
+    expect(viewed.ok).toBe(true);
+    if (viewed.ok) expect(viewed.views).toBeGreaterThanOrEqual(1);
+    const noConfirm = await transferChannelOwner(owner, created.channel.id, fan, "nope");
+    expect(noConfirm.ok).toBe(false);
+    const moved = await transferChannelOwner(owner, created.channel.id, fan, "TRANSFER");
+    expect(moved.ok).toBe(true);
+  });
+
+  it("keeps subscriber lists off the public payload and publishes quizzes", async () => {
+    const owner = await activeUser("ch_own3");
+    const fan = await activeUser("ch_fan3");
+    const created = await createChannel(owner, { name: "عمومی", username: "nixo_pubq", visibility: "public" });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    await subscribe(fan, created.channel.id);
+    const asFan = await getChannel(fan, created.channel.id);
+    expect(asFan?.channel.subscribers).toEqual([]);
+    const quiz = await createPost(owner, created.channel.id, {
+      kind: "quiz",
+      poll: { question: "پایتخت؟", options: ["تهران", "اصفهان"], quiz: true, correctIndex: 0 },
+    });
+    expect(quiz.ok).toBe(true);
+    if (!quiz.ok) return;
+    expect(quiz.post.kind).toBe("quiz");
   });
 });

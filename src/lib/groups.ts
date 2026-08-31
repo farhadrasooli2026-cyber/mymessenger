@@ -7,12 +7,16 @@ import type { GroupMember, GroupMessage, GroupRecord, StoreData } from "@/lib/st
 import { emitNotification } from "@/lib/notify";
 import { canAddToGroup } from "@/lib/privacy";
 import {
+  DEFAULT_GROUP_ADMIN_PERMS,
   DEFAULT_GROUP_PERMS,
   GROUP_FLOOD_MAX,
   GROUP_FLOOD_WINDOW_MS,
   GROUP_MAX_MEMBERS,
   GROUP_MAX_PINS,
+  GROUP_STORAGE_MAX_ITEMS,
   rankRole,
+  type GroupAdminPerms,
+  type GroupHistoryMode,
   type GroupPerms,
   type GroupRole,
 } from "@/lib/group-types";
@@ -38,8 +42,24 @@ export function canManage(actor: GroupMember, target?: GroupMember) {
   return rankRole(actor.role) > rankRole(target.role);
 }
 
-export function canModContent(actor: GroupMember) {
+export function canModContent(actor: GroupMember, group: GroupRecord) {
+  if (actor.role === "owner") return true;
+  if (actor.role === "admin") return group.adminPerms.deleteMessages;
   return rankRole(actor.role) >= 2;
+}
+
+export function adminCan(group: GroupRecord, actor: GroupMember, perm: keyof GroupAdminPerms) {
+  if (actor.role === "owner") return true;
+  if (actor.role === "admin") return Boolean(group.adminPerms[perm]);
+  if (actor.role === "moderator" && (perm === "deleteMessages" || perm === "pinMessages")) return true;
+  return false;
+}
+
+function pushAudit(group: GroupRecord, actor: GroupMember, kind: string, detail: string) {
+  group.audit = [
+    { id: randomId(), at: Date.now(), actorKey: actor.key, actorName: actor.name, kind, detail },
+    ...(group.audit ?? []),
+  ].slice(0, 80);
 }
 
 function memberCanSend(group: GroupRecord, member: GroupMember, kind: GroupMessage["kind"], now: number) {
@@ -50,7 +70,7 @@ function memberCanSend(group: GroupRecord, member: GroupMember, kind: GroupMessa
   const allowed =
     kind === "poll"
       ? group.perms.createPolls || rankRole(member.role) >= 3
-      : kind === "photo"
+      : kind === "photo" || kind === "gif" || kind === "contact" || kind === "location"
         ? group.perms.sendPhotos
         : kind === "video"
           ? group.perms.sendVideos
@@ -82,6 +102,7 @@ function pushSystem(data: StoreData, group: GroupRecord, text: string, now: numb
 
 function publicGroup(group: GroupRecord, viewerKey: string) {
   const me = findMember(group, viewerKey);
+  const staff = Boolean(me && rankRole(me.role) >= 3);
   return {
     id: group.id,
     name: group.name,
@@ -90,14 +111,19 @@ function publicGroup(group: GroupRecord, viewerKey: string) {
     welcome: group.welcome,
     username: group.username,
     color: group.color,
+    photoDataUrl: group.photoDataUrl ?? null,
     joinMode: group.joinMode,
     maxMembers: group.maxMembers,
     perms: group.perms,
-    inviteToken: me && rankRole(me.role) >= 3 ? group.inviteToken : null,
+    adminPerms: staff ? group.adminPerms : null,
+    slowModeMs: group.slowModeMs ?? 0,
+    historyMode: group.historyMode ?? "all",
+    inviteToken: me && adminCan(group, me, "manageInvites") ? group.inviteToken : null,
     memberCount: group.members.filter(liveMember).length,
     pinIds: group.pinIds,
     myRole: me?.role ?? null,
     notifyMutedUntil: me?.notifyMutedUntil ?? null,
+    notifyMentions: me?.notifyMentions !== false,
     createdAt: group.createdAt,
     updatedAt: group.updatedAt,
     members: group.members.filter(liveMember).map((m) => ({
@@ -108,7 +134,9 @@ function publicGroup(group: GroupRecord, viewerKey: string) {
       mutedUntil: m.mutedUntil,
       restrictedUntil: m.restrictedUntil,
     })),
-    pendingRequests: me && rankRole(me.role) >= 3 ? group.requests.filter((r) => r.status === "pending") : [],
+    pendingRequests: me && adminCan(group, me, "addMembers") ? group.requests.filter((r) => r.status === "pending") : [],
+    bans: me && adminCan(group, me, "removeMembers") ? group.bans : [],
+    audit: staff ? (group.audit ?? []).slice(0, 40) : [],
   };
 }
 
@@ -131,8 +159,15 @@ export async function getGroup(userId: string, groupId: string) {
   const data = await readStoreSnapshot();
   const group = data.groups.find((g) => g.id === groupId && !g.deletedAt);
   if (!group || !findMember(group, userId)) return null;
+  const me = findMember(group, userId)!;
   const messages = data.groupMessages
     .filter((m) => m.groupId === groupId)
+    .filter((m) => {
+      if ((group.historyMode ?? "all") === "from-join" && me && rankRole(me.role) < 3) {
+        return m.createdAt >= me.joinedAt || m.kind === "system";
+      }
+      return true;
+    })
     .sort((a, b) => a.createdAt - b.createdAt)
     .map(publicGroupMessage);
   return { group: publicGroup(group, userId), messages };
@@ -144,6 +179,7 @@ export async function createGroup(
     name: string;
     description?: string;
     color?: string;
+    photoDataUrl?: string | null;
     memberKeys?: string[];
     joinMode?: GroupRecord["joinMode"];
     username?: string;
@@ -220,15 +256,20 @@ export async function createGroup(
       welcome: "",
       username,
       color: input.color && COLORS.includes(input.color) ? input.color : COLORS[members.length % COLORS.length]!,
+      photoDataUrl: typeof input.photoDataUrl === "string" && input.photoDataUrl.startsWith("data:image/") ? input.photoDataUrl.slice(0, 400_000) : null,
       ownerUserId: userId,
       joinMode: input.joinMode ?? "invite",
       maxMembers: GROUP_MAX_MEMBERS,
       perms: { ...DEFAULT_GROUP_PERMS },
+      adminPerms: { ...DEFAULT_GROUP_ADMIN_PERMS },
+      slowModeMs: 0,
+      historyMode: "all",
       inviteToken: randomId(),
       members,
       requests: [],
       bans: [],
       pinIds: [],
+      audit: [],
       communityId: null,
       createdAt: now,
       updatedAt: now,
@@ -253,8 +294,12 @@ export async function updateGroup(
     welcome: string;
     username: string | null;
     color: string;
+    photoDataUrl: string | null;
     joinMode: GroupRecord["joinMode"];
     perms: GroupPerms;
+    adminPerms: GroupAdminPerms;
+    slowModeMs: number;
+    historyMode: GroupHistoryMode;
     maxMembers: number;
   }>,
 ) {
@@ -263,11 +308,13 @@ export async function updateGroup(
     if (!group) return { ok: false as const, error: "گروه یافت نشد.", status: 404 };
     const me = findMember(group, userId);
     if (!me) return { ok: false as const, error: "عضو این گروه نیستی.", status: 403 };
-    const infoOk = me.role === "owner" || group.perms.changeInfo || rankRole(me.role) >= 3;
-    if (patch.perms && me.role !== "owner") {
-      return { ok: false as const, error: "فقط مالک مجوزها را تغییر می‌دهد.", status: 403 };
+    const infoOk = me.role === "owner" || adminCan(group, me, "manageGroup") || group.perms.changeInfo;
+    if (patch.perms || patch.adminPerms) {
+      if (me.role !== "owner" && !adminCan(group, me, "managePermissions")) {
+        return { ok: false as const, error: "اجازهٔ تغییر مجوز نداری.", status: 403 };
+      }
     }
-    if (!infoOk && !patch.perms) return { ok: false as const, error: "اجازهٔ ویرایش اطلاعات نداری.", status: 403 };
+    if (!infoOk && !patch.perms && !patch.adminPerms) return { ok: false as const, error: "اجازهٔ ویرایش اطلاعات نداری.", status: 403 };
     const now = Date.now();
     if (typeof patch.name === "string" && patch.name.trim().length >= 2) {
       group.name = patch.name.trim().slice(0, 48);
@@ -290,8 +337,33 @@ export async function updateGroup(
       group.color = patch.color;
       pushSystem(data, group, "عکس/رنگ گروه تغییر کرد.", now);
     }
-    if (patch.joinMode) group.joinMode = patch.joinMode;
-    if (patch.perms) group.perms = { ...DEFAULT_GROUP_PERMS, ...patch.perms };
+    if (patch.photoDataUrl !== undefined) {
+      group.photoDataUrl =
+        typeof patch.photoDataUrl === "string" && patch.photoDataUrl.startsWith("data:image/")
+          ? patch.photoDataUrl.slice(0, 400_000)
+          : null;
+      pushAudit(group, me, "photo", "عکس گروه تغییر کرد");
+    }
+    if (patch.joinMode) {
+      group.joinMode = patch.joinMode;
+      pushAudit(group, me, "privacy", `عضویت: ${patch.joinMode}`);
+    }
+    if (patch.perms) {
+      group.perms = { ...DEFAULT_GROUP_PERMS, ...patch.perms };
+      pushAudit(group, me, "permission", "مجوز اعضا تغییر کرد");
+    }
+    if (patch.adminPerms) {
+      group.adminPerms = { ...DEFAULT_GROUP_ADMIN_PERMS, ...patch.adminPerms };
+      pushAudit(group, me, "permission", "مجوز ادمین تغییر کرد");
+    }
+    if (typeof patch.slowModeMs === "number") {
+      group.slowModeMs = Math.max(0, Math.min(600_000, Math.floor(patch.slowModeMs)));
+      pushAudit(group, me, "slowmode", `Slow Mode ${group.slowModeMs}ms`);
+    }
+    if (patch.historyMode === "all" || patch.historyMode === "from-join") {
+      group.historyMode = patch.historyMode;
+      pushAudit(group, me, "history", group.historyMode);
+    }
     if (typeof patch.maxMembers === "number") {
       group.maxMembers = Math.min(GROUP_MAX_MEMBERS, Math.max(2, Math.floor(patch.maxMembers)));
     }
@@ -306,9 +378,10 @@ export async function rotateInvite(userId: string, groupId: string, action: "new
     const group = data.groups.find((g) => g.id === groupId && !g.deletedAt);
     if (!group) return { ok: false as const, error: "گروه یافت نشد.", status: 404 };
     const me = findMember(group, userId);
-    if (!me || rankRole(me.role) < 3) return { ok: false as const, error: "فقط ادمین لینک دعوت را مدیریت می‌کند.", status: 403 };
+    if (!me || !adminCan(group, me, "manageInvites")) return { ok: false as const, error: "فقط ادمین مجاز لینک دعوت را مدیریت می‌کند.", status: 403 };
     group.inviteToken = action === "revoke" ? "" : randomId();
     group.updatedAt = Date.now();
+    pushAudit(group, me, "invite", action === "revoke" ? "Invite Revoked" : "Invite Reset");
     return { ok: true as const, inviteToken: group.inviteToken || null };
   });
 }
@@ -375,7 +448,7 @@ export async function decideRequest(userId: string, groupId: string, requestId: 
     const group = data.groups.find((g) => g.id === groupId && !g.deletedAt);
     if (!group) return { ok: false as const, error: "گروه یافت نشد.", status: 404 };
     const me = findMember(group, userId);
-    if (!me || rankRole(me.role) < 3) return { ok: false as const, error: "اجازه نداری.", status: 403 };
+    if (!me || !adminCan(group, me, "addMembers")) return { ok: false as const, error: "اجازه نداری.", status: 403 };
     const req = group.requests.find((r) => r.id === requestId && r.status === "pending");
     if (!req) return { ok: false as const, error: "درخواست یافت نشد.", status: 404 };
     const now = Date.now();
@@ -406,7 +479,7 @@ export async function addMembers(userId: string, groupId: string, keys: string[]
     if (!group) return { ok: false as const, error: "گروه یافت نشد.", status: 404 };
     const me = findMember(group, userId);
     if (!me) return { ok: false as const, error: "عضو نیستی.", status: 403 };
-    if (!(me.role === "owner" || rankRole(me.role) >= 3 || group.perms.addMembers)) {
+    if (!(me.role === "owner" || adminCan(group, me, "addMembers") || group.perms.addMembers)) {
       return { ok: false as const, error: "اجازهٔ افزودن عضو نداری.", status: 403 };
     }
     const now = Date.now();
@@ -458,7 +531,7 @@ export async function moderateMember(
   groupId: string,
   targetKey: string,
   action: "remove" | "ban" | "unban" | "mute" | "restrict" | "role" | "transfer",
-  extra?: { ms?: number; role?: GroupRole },
+  extra?: { ms?: number; role?: GroupRole; confirm?: string },
 ) {
   return mutateStore((data) => {
     const group = data.groups.find((g) => g.id === groupId && !g.deletedAt);
@@ -468,12 +541,16 @@ export async function moderateMember(
     const target = group.members.find((m) => m.key === targetKey);
     const now = Date.now();
     if (action === "unban") {
-      if (!canManage(me)) return { ok: false as const, error: "اجازه نداری.", status: 403 };
+      if (!adminCan(group, me, "removeMembers")) return { ok: false as const, error: "اجازه نداری.", status: 403 };
       group.bans = group.bans.filter((b) => b.key !== targetKey);
+      pushAudit(group, me, "unban", targetKey);
       return { ok: true as const, group: publicGroup(group, userId) };
     }
     if (action === "transfer") {
       if (me.role !== "owner") return { ok: false as const, error: "فقط مالک می‌تواند مالکیت را واگذار کند.", status: 403 };
+      if (extra?.confirm !== "TRANSFER") {
+        return { ok: false as const, error: "برای انتقال مالکیت باید تأیید امنیتی TRANSFER ارسال شود.", status: 400 };
+      }
       if (!target || !liveMember(target) || target.kind !== "user") {
         return { ok: false as const, error: "عضو معتبر نیست.", status: 400 };
       }
@@ -481,17 +558,23 @@ export async function moderateMember(
       target.role = "owner";
       group.ownerUserId = target.key;
       pushSystem(data, group, `مالکیت به ${target.name} منتقل شد.`, now);
+      pushAudit(group, me, "owner", `مالکیت به ${target.name}`);
       return { ok: true as const, group: publicGroup(group, userId) };
     }
     if (!target || !liveMember(target)) return { ok: false as const, error: "عضو یافت نشد.", status: 404 };
     if (!canManage(me, target)) return { ok: false as const, error: "نمی‌توانی این عضو را مدیریت کنی.", status: 403 };
+    if ((action === "remove" || action === "ban") && !adminCan(group, me, "removeMembers")) {
+      return { ok: false as const, error: "اجازهٔ حذف/بن نداری.", status: 403 };
+    }
     if (action === "remove") {
       target.leftAt = now;
       pushSystem(data, group, `${target.name} از گروه حذف شد.`, now);
+      pushAudit(group, me, "remove", target.name);
     } else if (action === "ban") {
       target.leftAt = now;
       if (!group.bans.some((b) => b.key === targetKey)) group.bans.push({ key: targetKey, at: now });
       pushSystem(data, group, `${target.name} بن شد.`, now);
+      pushAudit(group, me, "ban", target.name);
     } else if (action === "mute") {
       target.mutedUntil = now + Math.min(30 * 24 * 3600_000, Math.max(60_000, extra?.ms ?? 3600_000));
       pushSystem(data, group, `ارسال پیام ${target.name} محدود شد.`, now);
@@ -555,14 +638,15 @@ export async function deleteGroup(userId: string, groupId: string) {
   });
 }
 
-export async function setNotifyMute(userId: string, groupId: string, ms: number | null) {
+export async function setNotifyMute(userId: string, groupId: string, ms?: number | null, mentions?: boolean) {
   return mutateStore((data) => {
     const group = data.groups.find((g) => g.id === groupId && !g.deletedAt);
     if (!group) return { ok: false as const, error: "گروه یافت نشد.", status: 404 };
     const me = findMember(group, userId);
     if (!me) return { ok: false as const, error: "عضو نیستی.", status: 403 };
-    me.notifyMutedUntil = ms && ms > 0 ? Date.now() + ms : null;
-    return { ok: true as const, notifyMutedUntil: me.notifyMutedUntil };
+    if (ms !== undefined) me.notifyMutedUntil = ms && ms > 0 ? Date.now() + ms : null;
+    if (typeof mentions === "boolean") me.notifyMentions = mentions;
+    return { ok: true as const, notifyMutedUntil: me.notifyMutedUntil, notifyMentions: me.notifyMentions !== false };
   });
 }
 
@@ -576,6 +660,7 @@ export async function sendGroupMessage(
     kind?: GroupMessage["kind"];
     replyToId?: string;
     mentions?: string[];
+    tags?: string[];
     blobId?: string;
     chunkCount?: number;
     poll?: { question: string; options: string[]; anonymous?: boolean; multiple?: boolean; closesAt?: number | null };
@@ -587,10 +672,30 @@ export async function sendGroupMessage(
     const me = findMember(group, userId);
     if (!me) return { ok: false as const, error: "عضو این گروه نیستی.", status: 403 };
     const now = Date.now();
-    const kind = payload.kind === "voice" || payload.kind === "photo" || payload.kind === "video" || payload.kind === "file" || payload.kind === "poll" ? payload.kind : "text";
+    const kind =
+      payload.kind === "voice" ||
+      payload.kind === "photo" ||
+      payload.kind === "video" ||
+      payload.kind === "file" ||
+      payload.kind === "poll" ||
+      payload.kind === "gif" ||
+      payload.kind === "contact" ||
+      payload.kind === "location"
+        ? payload.kind
+        : "text";
     const sendOk = memberCanSend(group, me, kind, now);
     if (!sendOk.ok) {
       return { ok: false as const, error: sendOk.error, status: 403 };
+    }
+    if ((group.slowModeMs ?? 0) > 0 && rankRole(me.role) < 3) {
+      const last = me.lastSentAt ?? 0;
+      if (now - last < group.slowModeMs) {
+        return { ok: false as const, error: "Slow Mode فعال است. کمی صبر کن.", status: 429 };
+      }
+    }
+    const stored = data.groupMessages.filter((m) => m.groupId === groupId && !m.deleted).length;
+    if (stored >= GROUP_STORAGE_MAX_ITEMS) {
+      return { ok: false as const, error: "ظرفیت ذخیرهٔ گروه پر است.", status: 413 };
     }
     const flood = hitRateLimit(data, `gmsg:${groupId}:${userId}`, GROUP_FLOOD_WINDOW_MS, GROUP_FLOOD_MAX, now);
     if (!flood.allowed) {
@@ -625,6 +730,7 @@ export async function sendGroupMessage(
       };
       data.groupMessages.push(msg);
       group.updatedAt = now;
+      me.lastSentAt = now;
       for (const member of group.members) {
         if (member.leftAt || member.key === userId || member.kind !== "user") continue;
         emitNotification(data, {
@@ -662,12 +768,16 @@ export async function sendGroupMessage(
       kind,
       replyToId: payload.replyToId,
       mentions: Array.isArray(payload.mentions) ? payload.mentions.slice(0, 12) : [],
+      tags: Array.isArray(payload.tags)
+        ? payload.tags.map((t) => t.replace(/^#/, "").slice(0, 32)).filter(Boolean).slice(0, 8)
+        : [],
       reactions: [],
       blobId: payload.blobId,
       chunkCount: payload.chunkCount,
     };
     data.groupMessages.push(msg);
     group.updatedAt = now;
+    me.lastSentAt = now;
     for (const member of group.members) {
       if (member.leftAt || member.key === userId || member.kind !== "user") continue;
       const mentioned = (msg.mentions ?? []).includes(member.key);
@@ -675,6 +785,7 @@ export async function sendGroupMessage(
         Boolean(msg.replyToId) &&
         data.groupMessages.some((g) => g.id === msg.replyToId && g.senderKey === member.key);
       if (member.notifyMutedUntil && member.notifyMutedUntil > now && !mentioned && !replied) continue;
+      if (mentioned && member.notifyMentions === false) continue;
       const kind = mentioned ? "mention" : replied ? "reply" : "group_message";
       emitNotification(data, {
         userId: member.key,
@@ -739,7 +850,7 @@ export async function pinMessage(userId: string, groupId: string, messageId: str
     if (!group) return { ok: false as const, error: "گروه یافت نشد.", status: 404 };
     const me = findMember(group, userId);
     if (!me) return { ok: false as const, error: "عضو نیستی.", status: 403 };
-    if (!(me.role === "owner" || rankRole(me.role) >= 3 || group.perms.pinMessages)) {
+    if (!(me.role === "owner" || adminCan(group, me, "pinMessages") || group.perms.pinMessages)) {
       return { ok: false as const, error: "اجازهٔ پین نداری.", status: 403 };
     }
     const exists = data.groupMessages.some((m) => m.id === messageId && m.groupId === groupId);
@@ -762,7 +873,7 @@ export async function deleteGroupMessage(userId: string, groupId: string, messag
     if (!me) return { ok: false as const, error: "عضو نیستی.", status: 403 };
     const msg = data.groupMessages.find((m) => m.id === messageId && m.groupId === groupId);
     if (!msg) return { ok: false as const, error: "پیام یافت نشد.", status: 404 };
-    if (msg.senderKey !== userId && !canModContent(me)) {
+    if (msg.senderKey !== userId && !canModContent(me, group)) {
       return { ok: false as const, error: "اجازهٔ حذف این پیام را نداری.", status: 403 };
     }
     msg.deleted = true;
@@ -780,6 +891,7 @@ export async function searchGroup(userId: string, groupId: string, q: string) {
   if (needle.length < 2) return { messages: [] as ReturnType<typeof publicGroupMessage>[] };
   const hits = listed.messages.filter((m) => {
     if (m.kind === "system") return (m.bodyFa ?? "").includes(q);
+    if (m.tags?.some((t) => t.toLowerCase().includes(needle) || `#${t}`.toLowerCase().includes(needle))) return true;
     if (m.kind === "poll") return (m.poll?.question ?? "").toLowerCase().includes(needle);
     return m.kind === "photo" || m.kind === "video" || m.kind === "file" || m.kind === "voice"
       ? needle === m.kind || ["عکس", "ویدیو", "فایل", "صوت", "photo", "video", "file", "voice", "link"].some((k) => k.includes(needle) || needle.includes(k))

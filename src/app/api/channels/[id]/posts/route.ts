@@ -1,6 +1,6 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
-import { commentPost, createPost, deleteComment, deletePost, editPost, pinPost, reactPost, votePoll } from "@/lib/channels";
+import { commentPost, createPost, deleteComment, deletePost, editPost, pinPost, reactPost, recordForward, recordPostView, votePoll } from "@/lib/channels";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -48,6 +48,16 @@ export async function POST(request: Request, ctx: Ctx) {
     const result = await votePoll(user.id, id, String(body.postId ?? ""), indexes);
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true, poll: result.poll });
+  }
+  if (body.action === "view") {
+    const result = await recordPostView(user.id, id, String(body.postId ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true, views: result.views });
+  }
+  if (body.action === "forward") {
+    const result = await recordForward(user.id, id, String(body.postId ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true, forwards: result.forwards });
   }
   const result = await createPost(user.id, id, {
     kind: typeof body.kind === "string" ? (body.kind as never) : "text",

@@ -4,8 +4,8 @@ import path from "node:path";
 import type { Channel } from "@/lib/identifiers";
 import type { CatalogCategory, CatalogItem, UserPhoto, UsernameChange, Visibility } from "@/lib/profile-types";
 import { defaultUserFields } from "@/lib/profile-types";
-import type { GroupPerms, GroupRole } from "@/lib/group-types";
-import { DEFAULT_GROUP_PERMS } from "@/lib/group-types";
+import type { GroupAdminPerms, GroupHistoryMode, GroupPerms, GroupRole } from "@/lib/group-types";
+import { DEFAULT_GROUP_ADMIN_PERMS, DEFAULT_GROUP_PERMS } from "@/lib/group-types";
 import type { CommunityPerms, CommunityRole, NotifyMode } from "@/lib/community-types";
 import { DEFAULT_COMMUNITY_PERMS } from "@/lib/community-types";
 import type { ChannelAdminPerms, ChannelNotify, ChannelPostKind, ChannelPostStatus, ChannelStaffRole } from "@/lib/channel-types";
@@ -218,14 +218,19 @@ function hydrateGroup(group: GroupRecord): GroupRecord {
     rules: group.rules ?? "",
     welcome: group.welcome ?? "",
     username: group.username ?? null,
+    photoDataUrl: group.photoDataUrl ?? null,
     joinMode: group.joinMode === "open" || group.joinMode === "request" ? group.joinMode : "invite",
     maxMembers: group.maxMembers || 256,
     perms: { ...DEFAULT_GROUP_PERMS, ...(group.perms ?? {}) },
+    adminPerms: { ...DEFAULT_GROUP_ADMIN_PERMS, ...(group.adminPerms ?? {}) },
+    slowModeMs: typeof group.slowModeMs === "number" ? group.slowModeMs : 0,
+    historyMode: group.historyMode === "from-join" ? "from-join" : "all",
     inviteToken: group.inviteToken || "",
     members: Array.isArray(group.members) ? group.members : [],
     requests: Array.isArray(group.requests) ? group.requests : [],
     bans: Array.isArray(group.bans) ? group.bans : [],
     pinIds: Array.isArray(group.pinIds) ? group.pinIds : [],
+    audit: Array.isArray(group.audit) ? group.audit : [],
     communityId: group.communityId ?? null,
     deletedAt: group.deletedAt ?? null,
   };
@@ -255,11 +260,17 @@ function hydratePubChannel(channel: PubChannelRecord): PubChannelRecord {
   return {
     ...channel,
     description: channel.description ?? "",
+    rules: channel.rules ?? "",
     username: channel.username ?? null,
+    photoDataUrl: channel.photoDataUrl ?? null,
     visibility: channel.visibility === "private" ? "private" : "public",
+    purpose: channel.purpose ?? "general",
+    businessId: channel.businessId ?? null,
     verified: Boolean(channel.verified),
     commentsEnabled: Boolean(channel.commentsEnabled),
+    reactionsEnabled: channel.reactionsEnabled !== false,
     allowForward: channel.allowForward !== false,
+    allowCopy: channel.allowCopy !== false,
     discussionGroupId: channel.discussionGroupId ?? null,
     inviteToken: channel.inviteToken || "",
     inviteMaxUses: typeof channel.inviteMaxUses === "number" ? channel.inviteMaxUses : null,
@@ -270,6 +281,12 @@ function hydratePubChannel(channel: PubChannelRecord): PubChannelRecord {
     subscribers: Array.isArray(channel.subscribers) ? channel.subscribers : [],
     bans: Array.isArray(channel.bans) ? channel.bans : [],
     pinIds: Array.isArray(channel.pinIds) ? channel.pinIds : [],
+    audit: Array.isArray(channel.audit) ? channel.audit : [],
+    liveActive: Boolean(channel.liveActive),
+    liveTitle: channel.liveTitle ?? "",
+    liveChatEnabled: channel.liveChatEnabled !== false,
+    liveChat: Array.isArray(channel.liveChat) ? channel.liveChat : [],
+    stories: Array.isArray(channel.stories) ? channel.stories : [],
     deletedAt: channel.deletedAt ?? null,
   };
 }
@@ -675,7 +692,18 @@ export type GroupMember = {
   mutedUntil: number | null;
   restrictedUntil: number | null;
   notifyMutedUntil: number | null;
+  notifyMentions?: boolean;
+  lastSentAt?: number | null;
   leftAt: number | null;
+};
+
+export type GroupAuditEvent = {
+  id: string;
+  at: number;
+  actorKey: string;
+  actorName: string;
+  kind: string;
+  detail: string;
 };
 
 export type GroupJoinRequest = {
@@ -699,15 +727,20 @@ export type GroupRecord = {
   welcome: string;
   username: string | null;
   color: string;
+  photoDataUrl: string | null;
   ownerUserId: string;
   joinMode: "invite" | "request" | "open";
   maxMembers: number;
   perms: GroupPerms;
+  adminPerms: GroupAdminPerms;
+  slowModeMs: number;
+  historyMode: GroupHistoryMode;
   inviteToken: string;
   members: GroupMember[];
   requests: GroupJoinRequest[];
   bans: GroupBan[];
   pinIds: string[];
+  audit: GroupAuditEvent[];
   communityId: string | null;
   createdAt: number;
   updatedAt: number;
@@ -733,9 +766,10 @@ export type GroupMessage = {
   nonce: string;
   bodyFa?: string;
   createdAt: number;
-  kind: "text" | "voice" | "photo" | "video" | "file" | "system" | "poll";
+  kind: "text" | "voice" | "photo" | "video" | "file" | "system" | "poll" | "gif" | "contact" | "location";
   replyToId?: string | null;
   mentions?: string[];
+  tags?: string[];
   reactions: { emoji: string; keys: string[] }[];
   poll?: GroupPoll;
   blobId?: string;
@@ -846,6 +880,34 @@ export type ChannelPoll = {
   multiple: boolean;
   closesAt: number | null;
   votes: { voterKey: string; indexes: number[] }[];
+  quiz?: boolean;
+  correctIndex?: number | null;
+};
+
+export type ChannelAuditEvent = {
+  id: string;
+  at: number;
+  actorKey: string;
+  actorName: string;
+  kind: string;
+  detail: string;
+};
+
+export type ChannelLiveChat = {
+  id: string;
+  authorKey: string;
+  authorName: string;
+  body: string;
+  createdAt: number;
+};
+
+export type ChannelStory = {
+  id: string;
+  body: string;
+  photoDataUrl: string | null;
+  createdAt: number;
+  expiresAt: number;
+  views: string[];
 };
 
 export type ChannelPost = {
@@ -864,6 +926,8 @@ export type ChannelPost = {
   comments: ChannelComment[];
   poll?: ChannelPoll;
   album: string[];
+  views: string[];
+  forwards: number;
   createdAt: number;
   deleted?: boolean;
 };
@@ -872,13 +936,19 @@ export type PubChannelRecord = {
   id: string;
   name: string;
   description: string;
+  rules: string;
   username: string | null;
   color: string;
+  photoDataUrl: string | null;
   visibility: "public" | "private";
+  purpose: import("@/lib/channel-types").ChannelPurpose;
+  businessId: string | null;
   ownerUserId: string;
   verified: boolean;
   commentsEnabled: boolean;
+  reactionsEnabled: boolean;
   allowForward: boolean;
+  allowCopy: boolean;
   discussionGroupId: string | null;
   inviteToken: string;
   inviteMaxUses: number | null;
@@ -889,6 +959,12 @@ export type PubChannelRecord = {
   subscribers: ChannelSubscriber[];
   bans: { key: string; at: number }[];
   pinIds: string[];
+  audit: ChannelAuditEvent[];
+  liveActive: boolean;
+  liveTitle: string;
+  liveChatEnabled: boolean;
+  liveChat: ChannelLiveChat[];
+  stories: ChannelStory[];
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
@@ -1133,7 +1209,16 @@ async function readStore(): Promise<StoreData> {
       groupMessages: Array.isArray(parsed.groupMessages) ? parsed.groupMessages : [],
       communities: Array.isArray(parsed.communities) ? parsed.communities.map(hydrateCommunity) : [],
       pubChannels: Array.isArray(parsed.pubChannels) ? parsed.pubChannels.map(hydratePubChannel) : [],
-      channelPosts: Array.isArray(parsed.channelPosts) ? parsed.channelPosts : [],
+      channelPosts: Array.isArray(parsed.channelPosts)
+        ? parsed.channelPosts.map((p) => ({
+            ...p,
+            album: Array.isArray(p.album) ? p.album : [],
+            views: Array.isArray(p.views) ? p.views : [],
+            forwards: typeof p.forwards === "number" ? p.forwards : 0,
+            reactions: Array.isArray(p.reactions) ? p.reactions : [],
+            comments: Array.isArray(p.comments) ? p.comments : [],
+          }))
+        : [],
       savedItems: Array.isArray(parsed.savedItems) ? parsed.savedItems : [],
       catalogCategories: parsed.catalogCategories ?? [],
       catalogItems: parsed.catalogItems ?? [],

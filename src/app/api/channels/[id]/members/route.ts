@@ -1,6 +1,6 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
-import { inviteDirect, moderateSubscriber, setNotify, setStaff, subscribe, unsubscribe } from "@/lib/channels";
+import { inviteDirect, liveChat, moderateSubscriber, publishChannelStory, setLive, setNotify, setStaff, subscribe, transferChannelOwner, unsubscribe } from "@/lib/channels";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -36,6 +36,26 @@ export async function POST(request: Request, ctx: Ctx) {
   if (body.action === "staff") {
     const role = body.role === "admin" || body.role === "moderator" || body.role === "none" ? body.role : "none";
     const result = await setStaff(user.id, id, String(body.targetId ?? ""), role);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true, channel: result.channel });
+  }
+  if (body.action === "transfer") {
+    const result = await transferChannelOwner(user.id, id, String(body.targetId ?? ""), String(body.confirm ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true, channel: result.channel });
+  }
+  if (body.action === "live") {
+    const result = await setLive(user.id, id, Boolean(body.active), typeof body.title === "string" ? body.title : undefined, typeof body.chatEnabled === "boolean" ? body.chatEnabled : undefined);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true, channel: result.channel });
+  }
+  if (body.action === "live-chat") {
+    const result = await liveChat(user.id, id, String(body.body ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true, liveChat: result.liveChat });
+  }
+  if (body.action === "story") {
+    const result = await publishChannelStory(user.id, id, String(body.body ?? ""), typeof body.photoDataUrl === "string" ? body.photoDataUrl : null);
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true, channel: result.channel });
   }

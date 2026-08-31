@@ -26,8 +26,12 @@ export async function PATCH(request: Request, ctx: Ctx) {
     welcome: typeof body.welcome === "string" ? body.welcome : undefined,
     username: body.username === null || typeof body.username === "string" ? (body.username as string | null) : undefined,
     color: typeof body.color === "string" ? body.color : undefined,
+    photoDataUrl: body.photoDataUrl === null || typeof body.photoDataUrl === "string" ? (body.photoDataUrl as string | null) : undefined,
     joinMode: body.joinMode === "open" || body.joinMode === "request" || body.joinMode === "invite" ? body.joinMode : undefined,
     perms: body.perms && typeof body.perms === "object" ? (body.perms as never) : undefined,
+    adminPerms: body.adminPerms && typeof body.adminPerms === "object" ? (body.adminPerms as never) : undefined,
+    slowModeMs: typeof body.slowModeMs === "number" ? body.slowModeMs : undefined,
+    historyMode: body.historyMode === "all" || body.historyMode === "from-join" ? body.historyMode : undefined,
     maxMembers: typeof body.maxMembers === "number" ? body.maxMembers : undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
