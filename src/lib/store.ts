@@ -24,6 +24,16 @@ import type {
   MiniGrant,
 } from "@/lib/bot-types";
 import type { AiChatRecord, AiLog, AiMemoryItem, AiMessageRecord, AiPrefs } from "@/lib/ai-types";
+import type {
+  BusinessRecord,
+  BusinessStaff,
+  BizCart,
+  BizMessage,
+  BizOrder,
+  BizProduct,
+  BizQuickReply,
+  BizThread,
+} from "@/lib/business-types";
 
 export type { CatalogCategory, CatalogItem };
 
@@ -531,7 +541,7 @@ export type ChatMessage = {
 export type SafetyReport = {
   id: string;
   reporterId: string;
-  targetKind: "user" | "chat" | "group" | "community" | "channel" | "story" | "bot" | "miniapp";
+  targetKind: "user" | "chat" | "group" | "community" | "channel" | "story" | "bot" | "miniapp" | "business";
   targetKey: string;
   threadId?: string;
   messageIds: string[];
@@ -910,6 +920,14 @@ export type StoreData = {
   aiMemory: AiMemoryItem[];
   aiPrefs: AiPrefs[];
   aiLogs: AiLog[];
+  businesses: BusinessRecord[];
+  bizStaff: BusinessStaff[];
+  bizProducts: BizProduct[];
+  bizReplies: BizQuickReply[];
+  bizThreads: BizThread[];
+  bizMessages: BizMessage[];
+  bizCarts: BizCart[];
+  bizOrders: BizOrder[];
 };
 
 const EMPTY: StoreData = {
@@ -956,6 +974,14 @@ const EMPTY: StoreData = {
   aiMemory: [],
   aiPrefs: [],
   aiLogs: [],
+  businesses: [],
+  bizStaff: [],
+  bizProducts: [],
+  bizReplies: [],
+  bizThreads: [],
+  bizMessages: [],
+  bizCarts: [],
+  bizOrders: [],
 };
 
 const STORE_PATH = path.join(
@@ -1023,6 +1049,14 @@ async function readStore(): Promise<StoreData> {
       aiMemory: Array.isArray(parsed.aiMemory) ? parsed.aiMemory : [],
       aiPrefs: Array.isArray(parsed.aiPrefs) ? parsed.aiPrefs : [],
       aiLogs: Array.isArray(parsed.aiLogs) ? parsed.aiLogs : [],
+      businesses: Array.isArray(parsed.businesses) ? parsed.businesses : [],
+      bizStaff: Array.isArray(parsed.bizStaff) ? parsed.bizStaff : [],
+      bizProducts: Array.isArray(parsed.bizProducts) ? parsed.bizProducts : [],
+      bizReplies: Array.isArray(parsed.bizReplies) ? parsed.bizReplies : [],
+      bizThreads: Array.isArray(parsed.bizThreads) ? parsed.bizThreads : [],
+      bizMessages: Array.isArray(parsed.bizMessages) ? parsed.bizMessages : [],
+      bizCarts: Array.isArray(parsed.bizCarts) ? parsed.bizCarts : [],
+      bizOrders: Array.isArray(parsed.bizOrders) ? parsed.bizOrders : [],
     };
   } catch {
     return structuredClone(EMPTY);
@@ -1140,4 +1174,14 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.aiMessages = (data.aiMessages ?? []).filter((m) => m.userId !== uid);
   data.aiMemory = (data.aiMemory ?? []).filter((m) => m.userId !== uid);
   data.aiPrefs = (data.aiPrefs ?? []).filter((p) => p.userId !== uid);
+  const ownedBiz = (data.businesses ?? []).filter((b) => b.ownerUserId === uid).map((b) => b.id);
+  data.businesses = (data.businesses ?? []).filter((b) => b.ownerUserId !== uid);
+  data.bizStaff = (data.bizStaff ?? []).filter((s) => s.userId !== uid && !ownedBiz.includes(s.businessId));
+  data.bizProducts = (data.bizProducts ?? []).filter((p) => !ownedBiz.includes(p.businessId));
+  data.bizReplies = (data.bizReplies ?? []).filter((r) => !ownedBiz.includes(r.businessId));
+  data.bizThreads = (data.bizThreads ?? []).filter((t) => t.customerId !== uid && !ownedBiz.includes(t.businessId));
+  const keepThreads = new Set((data.bizThreads ?? []).map((t) => t.id));
+  data.bizMessages = (data.bizMessages ?? []).filter((m) => keepThreads.has(m.threadId));
+  data.bizCarts = (data.bizCarts ?? []).filter((c) => c.userId !== uid && !ownedBiz.includes(c.businessId));
+  data.bizOrders = (data.bizOrders ?? []).filter((o) => o.customerId !== uid && !ownedBiz.includes(o.businessId));
 }

@@ -13,7 +13,9 @@ export async function GET(_request: Request, ctx: Ctx) {
   const { readStoreSnapshot } = await import("@/lib/store");
   const snap = await readStoreSnapshot();
   const asBot = (snap.bots ?? []).find((b) => b.id === userId);
-  if (asBot) {
+  const asBiz = (snap.businesses ?? []).find((b) => b.id === userId);
+  const asProduct = (snap.bizProducts ?? []).find((p) => p.id === userId);
+  if (asBot || asBiz || asProduct) {
     const file = await readUserPhoto(userId);
     if (!file) {
       return new NextResponse(DEFAULT_AVATAR_SVG, {

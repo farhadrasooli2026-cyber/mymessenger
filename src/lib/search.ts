@@ -109,6 +109,7 @@ export async function globalSearch(userId: string, input: SearchQuery) {
     const hits: SearchHit[] = [];
     const wantPeople = kind === "all" || kind === "users";
     const wantBots = kind === "all" || kind === "bots" || kind === "users";
+    const wantBiz = kind === "all" || kind === "business";
     const wantGroups = kind === "all" || kind === "groups";
     const wantChannels = kind === "all" || kind === "channels";
     const wantCommunities = kind === "all" || kind === "communities";
@@ -157,6 +158,24 @@ export async function globalSearch(userId: string, input: SearchQuery) {
           date: b.createdAt,
           kind: "bot",
           target: { type: "bot", id: b.id },
+        });
+      }
+    }
+
+    if (wantBiz) {
+      for (const b of data.businesses ?? []) {
+        const blob = `${b.username} ${b.name} ${b.description} ${b.category}`.toLowerCase();
+        if (!blob.includes(q)) continue;
+        hits.push({
+          id: `biz:${b.id}`,
+          scope: "business",
+          title: `${b.name}${b.verified ? " ✓" : ""}`,
+          preview: `@${b.username} · کسب‌وکار`,
+          sender: b.name,
+          chatName: "کسب‌وکار",
+          date: b.createdAt,
+          kind: "business",
+          target: { type: "business", id: b.id },
         });
       }
     }

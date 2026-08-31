@@ -106,7 +106,8 @@ export async function checkUsername(raw: string, selfId?: string) {
   const data = await readStoreSnapshot();
   const takenUser = data.users.some((u) => u.username === username && u.id !== selfId);
   const takenBot = (data.bots ?? []).some((b) => b.username === username && b.status !== "deleted");
-  const taken = takenUser || takenBot;
+  const takenBiz = (data.businesses ?? []).some((b) => b.username === username);
+  const taken = takenUser || takenBot || takenBiz;
   return { ok: true as const, available: !taken, username, reason: taken ? ("taken" as const) : ("free" as const) };
 }
 

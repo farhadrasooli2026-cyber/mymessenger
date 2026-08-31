@@ -21,6 +21,7 @@ const KIND_FA: Record<SearchKind, string> = {
   voice: "صوت",
   music: "موسیقی",
   bots: "ربات‌ها",
+  business: "کسب‌وکار",
 };
 
 export function SearchPanel({

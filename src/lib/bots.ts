@@ -101,6 +101,7 @@ document.getElementById("ask").onclick=function(){ parent.postMessage({type:"nix
 
 function usernameTaken(data: StoreData, username: string, exceptBotId?: string) {
   if (data.users.some((u) => u.username === username)) return true;
+  if ((data.businesses ?? []).some((b) => b.username === username)) return true;
   return data.bots.some((b) => b.username === username && b.id !== exceptBotId && b.status !== "deleted");
 }
 

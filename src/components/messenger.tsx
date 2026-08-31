@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { BackgroundPicker, type BgDraft } from "@/components/background-picker";
+import { BusinessDirectory } from "@/components/business-directory";
 import { ThemeApplicator } from "@/components/theme-applicator";
 import { defaultAppearance, type Appearance, type BackgroundSpec, type BubbleStyle, type TextSize } from "@/lib/appearance-types";
 import { backgroundPreview } from "@/lib/background-style";
@@ -803,6 +804,10 @@ export function Messenger({
     }
     if (hit.target.type === "bot") {
       router.push(`/app/bots/chat/${hit.target.id}`);
+      return;
+    }
+    if (hit.target.type === "business") {
+      router.push(`/app/business/b/${hit.target.id}`);
       return;
     }
     if (hit.target.type === "user") {
@@ -1731,7 +1736,7 @@ export function Messenger({
             blockedHint={active && !active.callsAllowed ? "تماس با مخاطب فعلی مسدود است." : undefined}
           />
         )}
-        {tab === "shop" && <Panel title="فروشگاه و پرداخت" body="فروشگاه، پرداخت و کیف پول بخشی از نیکسو خواهند بود، جدا از هستهٔ گفتگو و با کمترین دسترسی." />}
+        {tab === "shop" && <BusinessDirectory embedded />}
         {tab === "spaces" && (
           <div className="flex-1 overflow-auto p-5">
             <h2 className="text-xl font-semibold">فضاهای نیکسو</h2>
@@ -1805,6 +1810,16 @@ export function Messenger({
                       NIXO AI
                     </Link>
                   )}
+                  {space.id === "business" && (
+                    <Link href="/app/settings/business" className="mt-3 inline-flex h-8 items-center rounded-lg bg-amber-300 px-3 text-sm font-medium text-[#102824]">
+                      حساب Business
+                    </Link>
+                  )}
+                  {space.id === "shop" && (
+                    <Link href="/app/business" className="mt-3 inline-flex h-8 items-center rounded-lg bg-amber-300 px-3 text-sm font-medium text-[#102824]">
+                      Directory فروشگاه
+                    </Link>
+                  )}
                 </article>
               ))}
             </div>
@@ -1866,6 +1881,12 @@ export function Messenger({
             </Link>
             <Link href="/app/settings/ai" className="block text-sm text-amber-200">
               تنظیمات → AI → Data Controls
+            </Link>
+            <Link href="/app/business" className="block text-sm text-amber-200">
+              فروشگاه و کسب‌وکار
+            </Link>
+            <Link href="/app/settings/business" className="block text-sm text-amber-200">
+              تنظیمات → Business
             </Link>
             <Link href="/app/settings/story" className="block text-sm text-amber-200">
               تنظیمات → حریم خصوصی → استوری
@@ -2362,16 +2383,4 @@ function textClass(size: TextSize) {
   if (size === "large") return "text-base leading-7";
   if (size === "xl") return "text-lg leading-8";
   return "text-sm leading-7";
-}
-
-function Panel({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="flex flex-1 items-center justify-center p-8">
-      <div className="max-w-md rounded-3xl border border-white/10 bg-white/5 p-6 text-center">
-        <NixoMark size={48} className="mx-auto" />
-        <h2 className="mt-4 text-xl font-semibold">{title}</h2>
-        <p className="mt-3 text-sm leading-8 text-emerald-100/70">{body}</p>
-      </div>
-    </div>
-  );
 }
