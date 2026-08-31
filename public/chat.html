@@ -301,15 +301,17 @@
       div.className = `message ${isMe ? 'sent' : 'received'}`;
 
       let content = '';
-      if (data.message && data.message.startsWith('data:image')) {
-        const parts = data.message.split('||caption||');
+      const msg = data.message || '';
+
+      if (msg.startsWith('data:image') || msg.includes('/uploads/') && (msg.includes('.png') || msg.includes('.jpg') || msg.includes('.jpeg') || msg.includes('.webp'))) {
+        const parts = msg.split('||caption||');
         const imgSrc = parts[0];
         const caption = parts[1] || '';
-        content = `<img src="${imgSrc}" onclick="openFullImage('${imgSrc}')">` + (caption ? `<div>${caption}</div>` : '');
-      } else if (data.message && data.message.startsWith('data:audio')) {
-        content = `<audio controls src="${data.message}"></audio>`;
+        content = `<img src="${imgSrc}" onclick="openFullImage('${imgSrc}')">` + (caption ? `<div style="margin-top:5px;">${caption}</div>` : '');
+      } else if (msg.startsWith('data:audio') || msg.includes('/uploads/') && (msg.includes('.webm') || msg.includes('.ogg') || msg.includes('.mp3'))) {
+        content = `<audio controls src="${msg}"></audio>`;
       } else {
-        content = data.message;
+        content = msg;
       }
 
       div.innerHTML = content;
