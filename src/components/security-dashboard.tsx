@@ -50,6 +50,7 @@ export function SecurityDashboard() {
   const [vuln, setVuln] = useState("");
   const [contact, setContact] = useState("");
   const [busy, setBusy] = useState(false);
+  const [recovered, setRecovered] = useState(false);
 
   function load() {
     fetch("/api/security", { cache: "no-store" })
@@ -62,6 +63,11 @@ export function SecurityDashboard() {
 
   useEffect(() => {
     load();
+    try {
+      if (new URLSearchParams(window.location.search).get("recovered") === "1") setRecovered(true);
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   async function act(body: Record<string, unknown>) {
@@ -144,7 +150,16 @@ export function SecurityDashboard() {
           <Link href="/app/settings/privacy" className="text-amber-200">
             داشبورد حریم خصوصی
           </Link>
+          {" · "}
+          <Link href="/app/settings/devices" className="text-amber-200">
+            دستگاه‌ها
+          </Link>
         </p>
+        {recovered && (
+          <section className="rounded-2xl border border-amber-300/40 bg-amber-300/10 p-4 text-xs leading-6">
+            بازیابی موفق. نشست‌های دیگر باطل شدند. این Security Checkup را مرور کنید. Recovery Codeها را در جای امن نگه دارید — هر کد یک‌بارمصرف است. کلید E2EE خودکار به دستگاه جدید نمی‌آید؛ Restore پشتیبان لازم است.
+          </section>
+        )}
 
         <section className="rounded-2xl bg-white/5 p-4 text-sm">
           <h2 className="font-medium">Security Checkup</h2>
@@ -228,7 +243,7 @@ export function SecurityDashboard() {
           {dash.recoveryLeft > 0 && <p className="mt-2 text-[11px]">کد بازیابی باقی‌مانده: {dash.recoveryLeft}</p>}
           {codes && (
             <div className="mt-3 rounded-xl bg-black/30 p-3 text-xs">
-              <p>این کدها را الان ذخیره کنید. فقط هش آن‌ها روی سرور می‌ماند.</p>
+              Recovery Codes را در محل امن نگهداری کنید. هر کد فقط یک‌بار قابل استفاده است.
               <ul className="mt-2 grid grid-cols-2 gap-1 font-mono" dir="ltr">
                 {codes.map((c) => (
                   <li key={c}>{c}</li>

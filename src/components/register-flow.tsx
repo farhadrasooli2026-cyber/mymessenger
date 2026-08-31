@@ -16,7 +16,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-type Step = "start" | "verify" | "profile" | "complete" | "twostep";
+type Step = "start" | "verify" | "profile" | "complete" | "twostep" | "device" | "recover";
 type Channel = "phone" | "email";
 
 type SessionPayload = {
@@ -79,6 +79,14 @@ export function RegisterFlow() {
       if (cancelled) return;
       if (session.step === "complete") {
         router.replace("/app");
+        return;
+      }
+      if (session.step === "device") {
+        router.replace("/device");
+        return;
+      }
+      if (session.step === "recover") {
+        router.replace("/recover");
         return;
       }
       if (session.step === "profile") {
@@ -210,6 +218,11 @@ export function RegisterFlow() {
         toast.message("رمز دومرحله‌ای فعال است. عامل دوم را وارد کنید.");
         return;
       }
+      if (data.next === "/device") {
+        toast.message("New login detected from a new device. منتظر تأیید دستگاه مورد اعتماد بمانید.");
+        router.push("/device");
+        return;
+      }
       if (data.alreadyActive) {
         toast.message("این شناسه قبلاً به یک حساب فعال متصل است.");
         router.push("/app");
@@ -261,8 +274,19 @@ export function RegisterFlow() {
         setError(await parseError(res));
         return;
       }
+      const data = (await res.json()) as { next?: string; recovered?: boolean };
+      if (data.next === "/device") {
+        toast.message("New login detected. منتظر تأیید دستگاه مورد اعتماد.");
+        router.push("/device");
+        return;
+      }
+      if (data.recovered) {
+        toast.success("بازیابی انجام شد. نشست‌های دیگر باطل شدند.");
+        router.push(data.next || "/app/settings/security?recovered=1");
+        return;
+      }
       toast.success("ورود تکمیل شد.");
-      router.push("/app");
+      router.push(data.next || "/app");
     } finally {
       setBusy(false);
     }

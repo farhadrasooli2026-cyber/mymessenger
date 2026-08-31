@@ -32,9 +32,16 @@ export async function POST(request: Request) {
     challengeId: typeof body.challengeId === "string" ? body.challengeId : undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status, { retryAfterSec: "retryAfterSec" in result ? result.retryAfterSec : undefined });
-  await establishCompleteSession({
+  const established = await establishCompleteSession({
     userId: pending.user.id,
     challengeId: pending.session.challengeId,
+    recovery: pending.session.purpose === "recovery",
   });
-  return json({ ok: true, next: "/app", via: result.via });
+  const recovered = pending.session.purpose === "recovery";
+  return json({
+    ok: true,
+    via: result.via,
+    recovered,
+    next: established.pending ? "/device" : recovered ? "/app/settings/security?recovered=1" : "/app",
+  });
 }

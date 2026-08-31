@@ -28,6 +28,14 @@ export async function requireActiveSession() {
   return { user, session, profile: publicProfile(user, user.id) };
 }
 
+export async function requireDevicePending() {
+  const session = await readSession();
+  if (!session?.userId || session.step !== "device" || !session.sid) return null;
+  const user = await getUserById(session.userId);
+  if (!user || user.status !== "active") return null;
+  return { user, session };
+}
+
 export async function requireTwoStepPending() {
   const session = await readSession();
   if (!session?.userId || session.step !== "twostep") return null;

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { hashOtp, hmacIdentifier, newSalt, otpHashesEqual, randomId } from "@/lib/crypto-utils";
+import { APP_VERSION, DEVICE_INACTIVE_MS, deviceKindFa, parseUserAgent } from "@/lib/device-info";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { AuditEvent, DeviceSession, SecurityEventKind, StoreData, UserRecord } from "@/lib/store";
@@ -20,22 +21,6 @@ export function approxFromRequest(headers: Headers, ip: string): string {
     return "موقعیت تقریبی از شبکهٔ اتصال — بدون GPS";
   }
   return "موقعیت نامشخص — نیکسو موقعیت دقیق ذخیره نمی‌کند";
-}
-
-export function deviceLabel(userAgent: string) {
-  const ua = userAgent.toLowerCase();
-  if (ua.includes("iphone")) return "iPhone";
-  if (ua.includes("ipad")) return "iPad";
-  if (ua.includes("android") && ua.includes("mobile")) return "Android Phone";
-  if (ua.includes("android")) return "Android Tablet";
-  if (ua.includes("macintosh") || ua.includes("mac os")) return "Mac";
-  if (ua.includes("windows")) return "Windows PC";
-  if (ua.includes("linux")) return "Linux";
-  if (ua.includes("edg/")) return "مرورگر Edge";
-  if (ua.includes("chrome")) return "مرورگر Chrome";
-  if (ua.includes("firefox")) return "مرورگر Firefox";
-  if (ua.includes("safari")) return "مرورگر Safari";
-  return "دستگاه ناشناس";
 }
 
 export function appendAudit(
@@ -76,6 +61,8 @@ export function publicAudit(e: AuditEvent) {
     account_cancel: "لغو حذف حساب",
     identifier_change: "تغییر شماره یا ایمیل",
     restore: "بازیابی پشتیبان",
+    device_trust: "دستگاه مورد اعتماد تأیید شد",
+    device_deny: "دستگاه ناشناس رد شد",
   };
   return {
     id: e.id,
@@ -88,14 +75,25 @@ export function publicAudit(e: AuditEvent) {
 }
 
 export function publicDevice(d: DeviceSession, currentId?: string) {
+  const inactive = Date.now() - d.lastSeenAt > DEVICE_INACTIVE_MS;
+  const unknown = Boolean(d.pending) || !d.trusted;
   return {
     id: d.id,
     label: d.label,
+    name: d.name || d.label,
+    deviceType: d.deviceType,
+    deviceTypeFa: deviceKindFa(d.deviceType),
+    os: d.os,
+    appVersion: d.appVersion,
     userAgent: d.userAgent,
     approx: d.approx,
     createdAt: d.createdAt,
     lastSeenAt: d.lastSeenAt,
     current: d.id === currentId,
+    trusted: Boolean(d.trusted) && !d.pending,
+    pending: Boolean(d.pending),
+    unknown,
+    status: d.revokedAt ? ("revoked" as const) : inactive ? ("inactive" as const) : ("active" as const),
   };
 }
 
@@ -134,11 +132,23 @@ export function backupVerifier(secret: string) {
   return hmacIdentifier(`e2ee-backup:${secret.trim()}`);
 }
 
-export async function isDeviceActive(sessionId: string | undefined, userId: string) {
-  if (!sessionId) return false;
+export async function sessionDeviceStatus(sessionId: string | undefined, userId: string) {
+  if (!sessionId) return { ok: false as const, reason: "invalid" as const, pending: false, trusted: false };
   const data = await readStoreSnapshot();
   const d = (data.devices ?? []).find((x) => x.id === sessionId);
-  return Boolean(d && d.userId === userId && !d.revokedAt);
+  if (!d || d.userId !== userId) return { ok: false as const, reason: "invalid" as const, pending: false, trusted: false };
+  if (d.revokedAt) return { ok: false as const, reason: "revoked" as const, pending: false, trusted: false };
+  return {
+    ok: true as const,
+    reason: "ok" as const,
+    pending: Boolean(d.pending),
+    trusted: Boolean(d.trusted) && !d.pending,
+    device: d,
+  };
+}
+
+export async function isDeviceActive(sessionId: string | undefined, userId: string) {
+  return (await sessionDeviceStatus(sessionId, userId)).ok;
 }
 
 export async function createDeviceSessionForUser(input: {
@@ -146,13 +156,32 @@ export async function createDeviceSessionForUser(input: {
   ip: string;
   userAgent: string;
   approx: string;
+  recovery?: boolean;
 }) {
   return mutateStore((data) => {
     data.devices ??= [];
     const ua = input.userAgent.slice(0, 180);
-    const recent = data.devices.filter((d) => d.userId === input.userId && !d.revokedAt);
-    const isNewDevice = !recent.some((d) => d.userAgent === ua);
-    const suspicious = isNewDevice && recent.length > 0;
+    const parsed = parseUserAgent(ua);
+    const live = data.devices.filter((d) => d.userId === input.userId && !d.revokedAt);
+    const trustedLive = live.filter((d) => d.trusted && !d.pending);
+    const knownUa = live.some((d) => d.userAgent === ua && d.trusted && !d.pending);
+    const isNewDevice = !live.some((d) => d.userAgent === ua);
+    let pending = false;
+    let trusted = true;
+    if (input.recovery) {
+      pending = false;
+      trusted = true;
+    } else if (knownUa) {
+      pending = false;
+      trusted = true;
+    } else if (trustedLive.length === 0) {
+      pending = false;
+      trusted = true;
+    } else {
+      pending = true;
+      trusted = false;
+    }
+    const suspicious = pending || (isNewDevice && trustedLive.length > 0 && !input.recovery);
     const device: DeviceSession = {
       id: randomId(),
       userId: input.userId,
@@ -161,25 +190,78 @@ export async function createDeviceSessionForUser(input: {
       userAgent: ua,
       ipHint: ipHint(input.ip),
       approx: input.approx.slice(0, 120),
-      label: deviceLabel(ua),
+      label: parsed.name,
+      name: parsed.name,
+      deviceType: parsed.kind,
+      os: parsed.os,
+      appVersion: APP_VERSION,
+      trusted,
+      pending,
     };
     data.devices.unshift(device);
+    if (input.recovery) {
+      appendAudit(data, input.userId, "recovery", {
+        ip: input.ip,
+        userAgent: ua,
+        deviceSessionId: device.id,
+        detail: "بازیابی حساب؛ نشست‌های دیگر باطل می‌شوند",
+      });
+    }
     appendAudit(data, input.userId, isNewDevice ? "new_device" : "login", {
       ip: input.ip,
       userAgent: ua,
       deviceSessionId: device.id,
-      detail: suspicious ? "ورود از دستگاه جدید نسبت به نشست‌های قبلی" : device.label,
+      detail: pending
+        ? "New login detected from a new device — در انتظار تأیید دستگاه مورد اعتماد"
+        : device.name,
     });
     if (suspicious) {
       appendAudit(data, input.userId, "suspicious", {
         ip: input.ip,
         userAgent: ua,
         deviceSessionId: device.id,
-        detail: "ورود مشکوک: دستگاه جدید",
+        detail: "ورود مشکوک: دستگاه جدید یا ناشناس",
       });
     }
-    return { device, isNewDevice, suspicious };
+    return { device, isNewDevice, suspicious, pending };
   });
+}
+
+export async function approveDevice(userId: string, deviceId: string, actorSid: string | undefined, actorIp?: string) {
+  return mutateStore((data) => {
+    const actor = (data.devices ?? []).find((d) => d.id === actorSid && d.userId === userId && !d.revokedAt);
+    if (!actor || actor.pending || !actor.trusted) {
+      return { ok: false as const, status: 403, error: "فقط دستگاه Trusted می‌تواند دستگاه جدید را تأیید کند." };
+    }
+    const target = (data.devices ?? []).find((d) => d.id === deviceId && d.userId === userId && !d.revokedAt);
+    if (!target) {
+      return { ok: false as const, status: 404, error: "دستگاه یافت نشد." };
+    }
+    if (!target.pending && target.trusted) {
+      return { ok: true as const };
+    }
+    target.pending = false;
+    target.trusted = true;
+    appendAudit(data, userId, "device_trust", {
+      ip: actorIp,
+      deviceSessionId: target.id,
+      detail: `تأیید ${target.name} از ${actor.name}`,
+    });
+    return { ok: true as const };
+  });
+}
+
+export async function listUserDevices(userId: string, currentSid?: string) {
+  const data = await readStoreSnapshot();
+  const devices = (data.devices ?? [])
+    .filter((d) => d.userId === userId && !d.revokedAt)
+    .sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+  const mapped = devices.map((d) => publicDevice(d, currentSid));
+  return {
+    devices: mapped,
+    pending: mapped.filter((d) => d.pending),
+    trusted: mapped.filter((d) => d.trusted),
+  };
 }
 
 export async function touchDevice(sessionId: string | undefined, ip: string, userAgent: string) {
@@ -201,8 +283,20 @@ export async function revokeDevice(userId: string, deviceId: string, actorIp?: s
     appendAudit(data, userId, "revoke", {
       ip: actorIp,
       deviceSessionId: deviceId,
-      detail: `خروج از ${d.label}`,
+      detail: `خروج از ${d.name || d.label}`,
     });
+    if (d.pending || !d.trusted) {
+      appendAudit(data, userId, "device_deny", {
+        ip: actorIp,
+        deviceSessionId: deviceId,
+        detail: "Remove Device → Revoke Sessions → Security Alert",
+      });
+      appendAudit(data, userId, "suspicious", {
+        ip: actorIp,
+        deviceSessionId: deviceId,
+        detail: "دستگاه ناشناس حذف شد",
+      });
+    }
     return true;
   });
 }
@@ -299,7 +393,11 @@ export async function recentSecurityNotices(userId: string) {
   const since = Date.now() - 36 * 60 * 60 * 1000;
   return (data.audit ?? [])
     .filter((e) => e.userId === userId && e.createdAt >= since)
-    .filter((e) => e.kind === "new_device" || e.kind === "suspicious" || e.kind === "login")
+    .filter((e) =>
+      ["new_device", "suspicious", "login", "recovery", "identifier_change", "twostep_on", "twostep_off", "password", "device_trust", "device_deny"].includes(
+        e.kind,
+      ),
+    )
     .slice(0, 8)
     .map(publicAudit);
 }

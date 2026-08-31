@@ -16,6 +16,18 @@ import { randomId } from "@/lib/crypto-utils";
 
 export type { CatalogCategory, CatalogItem };
 
+function hydrateDevice(d: DeviceSession): DeviceSession {
+  return {
+    ...d,
+    name: d.name || d.label || "Unknown Device",
+    deviceType: d.deviceType ?? "unknown",
+    os: d.os || "Unknown",
+    appVersion: d.appVersion || "0.1.0-web",
+    pending: Boolean(d.pending),
+    trusted: d.pending ? false : d.trusted !== false,
+  };
+}
+
 function hydrateUser(user: UserRecord): UserRecord {
   return {
     ...defaultUserFields(),
@@ -371,6 +383,12 @@ export type DeviceSession = {
   ipHint: string;
   approx: string;
   label: string;
+  name: string;
+  deviceType: "phone" | "tablet" | "desktop" | "unknown";
+  os: string;
+  appVersion: string;
+  trusted: boolean;
+  pending: boolean;
   revokedAt?: number;
 };
 
@@ -390,7 +408,9 @@ export type SecurityEventKind =
   | "account_delete"
   | "account_cancel"
   | "identifier_change"
-  | "restore";
+  | "restore"
+  | "device_trust"
+  | "device_deny";
 
 export type AuditEvent = {
   id: string;
@@ -947,7 +967,7 @@ async function readStore(): Promise<StoreData> {
       catalogItems: parsed.catalogItems ?? [],
       bgCategories: parsed.bgCategories ?? [],
       bgItems: parsed.bgItems ?? [],
-      devices: Array.isArray(parsed.devices) ? parsed.devices : [],
+      devices: Array.isArray(parsed.devices) ? parsed.devices.map(hydrateDevice) : [],
       audit: Array.isArray(parsed.audit) ? parsed.audit : [],
       passkeyChallenges: Array.isArray(parsed.passkeyChallenges) ? parsed.passkeyChallenges : [],
       vulnReports: Array.isArray(parsed.vulnReports) ? parsed.vulnReports : [],

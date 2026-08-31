@@ -1808,6 +1808,9 @@ export function Messenger({
             <Link href="/app/settings/account" className="block text-sm text-amber-200">
               تنظیمات → حساب و پشتیبان
             </Link>
+            <Link href="/app/settings/devices" className="block text-sm text-amber-200">
+              تنظیمات → دستگاه‌ها
+            </Link>
             <Link href="/app/settings/story" className="block text-sm text-amber-200">
               تنظیمات → حریم خصوصی → استوری
             </Link>

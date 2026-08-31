@@ -8,7 +8,7 @@ export async function GET() {
     return jsonError("صندوق آزمایشی در این محیط غیرفعال است.", 404);
   }
   const session = await readSession();
-  if (!session || (session.step !== "verify" && session.step !== "profile")) {
+  if (!session || (session.step !== "verify" && session.step !== "profile" && session.step !== "recover")) {
     return jsonError("نشست تأیید یافت نشد.", 401);
   }
   const item = await readInbox(session.challengeId);

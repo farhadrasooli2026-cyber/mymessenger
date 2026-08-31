@@ -45,11 +45,12 @@ export async function POST(request: Request) {
         masked: result.masked,
       });
     }
-    await establishCompleteSession({ userId: result.userId, challengeId: session.challengeId });
+    const established = await establishCompleteSession({ userId: result.userId, challengeId: session.challengeId });
     return json({
       ok: true,
       alreadyActive: true,
-      next: "/app",
+      next: established.pending ? "/device" : "/app",
+      newLogin: established.pending,
       masked: result.masked,
     });
   }

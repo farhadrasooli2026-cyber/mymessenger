@@ -51,6 +51,11 @@ export function Landing({ signedIn, pendingSetup }: { signedIn: boolean; pending
             ))}
           </ul>
           <p className="text-xs text-emerald-100/55">قابل توسعه برای {brand.surfaces.join(" · ")}</p>
+          <p className="text-xs">
+            <Link href="/recover" className="text-amber-200">
+              دستگاه را از دست داده‌اید؟ بازیابی حساب — بدون دور زدن Verification
+            </Link>
+          </p>
         </section>
         {signedIn ? (
           <div className="rounded-3xl border border-white/10 bg-[#0f2f2c]/80 p-8 text-center shadow-2xl">

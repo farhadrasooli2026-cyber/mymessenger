@@ -2,7 +2,7 @@ import { cookies, headers } from "next/headers";
 import { config } from "@/lib/config";
 import { hashIp, signPayload, verifyPayload } from "@/lib/crypto-utils";
 
-export type RegisterStep = "verify" | "profile" | "complete" | "twostep";
+export type RegisterStep = "verify" | "profile" | "complete" | "twostep" | "device" | "recover";
 
 export type RegisterSession = {
   v: 1 | 2;
@@ -10,6 +10,7 @@ export type RegisterSession = {
   challengeId: string;
   userId?: string;
   sid?: string;
+  purpose?: "login" | "recovery";
   exp: number;
 };
 
@@ -39,8 +40,10 @@ export async function readSession(): Promise<RegisterSession | null> {
   if (!payload || (payload.v !== 1 && payload.v !== 2)) return null;
   if (payload.exp < Date.now()) return null;
   if (payload.sid && payload.userId) {
-    const { isDeviceActive } = await import("@/lib/security");
-    if (!(await isDeviceActive(payload.sid, payload.userId))) return null;
+    const { sessionDeviceStatus } = await import("@/lib/security");
+    const status = await sessionDeviceStatus(payload.sid, payload.userId);
+    if (!status.ok) return null;
+    if (payload.step === "complete" && (status.pending || !status.trusted)) return null;
   }
   return payload;
 }
@@ -64,23 +67,30 @@ export async function writeSession(session: Omit<RegisterSession, "v" | "exp">):
 export async function establishCompleteSession(input: {
   userId: string;
   challengeId: string;
-}): Promise<void> {
+  recovery?: boolean;
+}): Promise<{ pending: boolean; deviceId: string }> {
   const ip = await clientIp();
   const userAgent = await clientUserAgent();
   const hdrs = await headers();
-  const { approxFromRequest, createDeviceSessionForUser } = await import("@/lib/security");
-  const { device } = await createDeviceSessionForUser({
+  const { approxFromRequest, createDeviceSessionForUser, revokeAllOtherDevices } = await import("@/lib/security");
+  const { device, pending } = await createDeviceSessionForUser({
     userId: input.userId,
     ip,
     userAgent,
     approx: approxFromRequest(hdrs, ip),
+    recovery: input.recovery,
   });
+  if (input.recovery) {
+    await revokeAllOtherDevices(input.userId, device.id, ip);
+  }
   await writeSession({
-    step: "complete",
+    step: pending ? "device" : "complete",
     challengeId: input.challengeId,
     userId: input.userId,
     sid: device.id,
+    purpose: input.recovery ? "recovery" : "login",
   });
+  return { pending, deviceId: device.id };
 }
 
 export async function clearSession(): Promise<void> {
