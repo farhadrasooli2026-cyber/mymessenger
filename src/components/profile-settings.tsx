@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { USERNAME_HINT } from "@/lib/username";
+import { USERNAME_HINT, USERNAME_STATUS_LABEL } from "@/lib/username";
 
 type User = {
   firstName: string;
@@ -125,8 +125,9 @@ export function ProfileSettings({ initial }: { initial: User }) {
           <Label>نام کاربری</Label>
           <Input dir="ltr" value={username} onChange={(e) => setUsername(e.target.value)} className="h-11 bg-black/20 text-left" />
           <p className="text-xs text-emerald-100/55">{USERNAME_HINT} تغییر با محدودیت ضد سوءاستفاده انجام می‌شود.</p>
-          {userState === "free" && <p className="text-xs text-emerald-300">آزاد است.</p>}
-          {userState === "taken" && <p className="text-xs text-amber-200">گرفته شده است.</p>}
+          {userState === "free" && <p className="text-xs text-emerald-300">{USERNAME_STATUS_LABEL.free}</p>}
+          {userState === "taken" && <p className="text-xs text-amber-200">{USERNAME_STATUS_LABEL.taken}</p>}
+          {userState === "invalid" && <p className="text-xs text-red-200">{USERNAME_STATUS_LABEL.invalid}</p>}
           <Button type="button" variant="secondary" disabled={busy || (userState !== "idle" && userState !== "free")} onClick={() => save({ username })}>
             ذخیره نام کاربری
           </Button>

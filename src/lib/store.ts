@@ -98,9 +98,12 @@ function hydrateUser(user: UserRecord): UserRecord {
     privacyPhone: user.privacyPhone ?? "contacts",
     privacyFindPhone: user.privacyFindPhone ?? "contacts",
     privacyEmail: user.privacyEmail ?? "nobody",
+    privacyFindUsername: user.privacyFindUsername ?? "everyone",
     phoneAllowIds: Array.isArray(user.phoneAllowIds) ? user.phoneAllowIds : [],
     emailAllowIds: Array.isArray(user.emailAllowIds) ? user.emailAllowIds : [],
     findPhoneAllowIds: Array.isArray(user.findPhoneAllowIds) ? user.findPhoneAllowIds : [],
+    findUsernameAllowIds: Array.isArray(user.findUsernameAllowIds) ? user.findUsernameAllowIds : [],
+    officialVerified: Boolean(user.officialVerified),
     privacyLastSeen: user.privacyLastSeen ?? "everyone",
     lastSeenAllowIds: Array.isArray(user.lastSeenAllowIds) ? user.lastSeenAllowIds : [],
     privacyOnline: user.privacyOnline ?? "everyone",
@@ -383,9 +386,12 @@ export type UserRecord = {
   privacyPhone: import("@/lib/profile-types").Visibility3;
   privacyFindPhone: import("@/lib/profile-types").Visibility3;
   privacyEmail: import("@/lib/profile-types").Visibility3;
+  privacyFindUsername: import("@/lib/profile-types").Visibility3;
   phoneAllowIds: string[];
   emailAllowIds: string[];
   findPhoneAllowIds: string[];
+  findUsernameAllowIds: string[];
+  officialVerified: boolean;
   privacyLastSeen: Visibility;
   lastSeenAllowIds: string[];
   privacyOnline: Visibility;
@@ -581,6 +587,12 @@ export type FailedCycle = {
   identifierHash: string;
   count: number;
   lastAt: number;
+};
+
+export type UsernameHold = {
+  username: string;
+  fromUserId: string;
+  until: number;
 };
 
 export type ContactGroupKind = "family" | "friends" | "work" | "custom" | "";
@@ -1282,6 +1294,8 @@ export type StoreData = {
   contacts: ContactRecord[];
   contactInvites: ContactInvite[];
   contactRequests: ContactRequest[];
+  usernameHolds: UsernameHold[];
+  reservedUsernames: string[];
 };
 
 const EMPTY: StoreData = {
@@ -1361,6 +1375,8 @@ const EMPTY: StoreData = {
   contacts: [],
   contactInvites: [],
   contactRequests: [],
+  usernameHolds: [],
+  reservedUsernames: [],
 };
 
 const STORE_PATH = path.join(
@@ -1489,6 +1505,8 @@ async function readStore(): Promise<StoreData> {
       contacts: Array.isArray(parsed.contacts) ? parsed.contacts : [],
       contactInvites: Array.isArray(parsed.contactInvites) ? parsed.contactInvites : [],
       contactRequests: Array.isArray(parsed.contactRequests) ? parsed.contactRequests : [],
+      usernameHolds: Array.isArray(parsed.usernameHolds) ? parsed.usernameHolds : [],
+      reservedUsernames: Array.isArray(parsed.reservedUsernames) ? parsed.reservedUsernames : [],
     };
   } catch {
     return structuredClone(EMPTY);

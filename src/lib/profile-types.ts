@@ -65,9 +65,12 @@ export function defaultUserFields(): {
   privacyPhone: Visibility3;
   privacyFindPhone: Visibility3;
   privacyEmail: Visibility3;
+  privacyFindUsername: Visibility3;
   phoneAllowIds: string[];
   emailAllowIds: string[];
   findPhoneAllowIds: string[];
+  findUsernameAllowIds: string[];
+  officialVerified: boolean;
   privacyLastSeen: Visibility;
   lastSeenAllowIds: string[];
   privacyOnline: Visibility;
@@ -128,9 +131,12 @@ export function defaultUserFields(): {
     privacyPhone: "contacts",
     privacyFindPhone: "contacts",
     privacyEmail: "nobody",
+    privacyFindUsername: "everyone",
     phoneAllowIds: [],
     emailAllowIds: [],
     findPhoneAllowIds: [],
+    findUsernameAllowIds: [],
+    officialVerified: false,
     privacyLastSeen: "everyone",
     lastSeenAllowIds: [],
     privacyOnline: "everyone",

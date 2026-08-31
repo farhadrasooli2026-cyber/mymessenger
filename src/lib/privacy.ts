@@ -23,6 +23,14 @@ export function audienceAllows(
   return allowIds.includes(viewerId);
 }
 
+export function canFindByUsername(data: StoreData, target: UserRecord, viewerId: string) {
+  if (target.id === viewerId) return true;
+  if (target.status !== "active") return false;
+  if (target.accountStatus && target.accountStatus !== "active") return false;
+  if (pairBlocked(data, viewerId, target.id)) return false;
+  return audienceAllows(target.privacyFindUsername, target.contactIds, target.findUsernameAllowIds, viewerId);
+}
+
 export function pairBlocked(data: StoreData, a: string, b: string) {
   const ua = data.users.find((u) => u.id === a);
   const ub = data.users.find((u) => u.id === b);
@@ -76,9 +84,11 @@ export function snapshotPrivacy(user: UserRecord) {
     privacyPhone: user.privacyPhone,
     privacyFindPhone: user.privacyFindPhone,
     privacyEmail: user.privacyEmail,
+    privacyFindUsername: user.privacyFindUsername,
     phoneAllowIds: user.phoneAllowIds,
     emailAllowIds: user.emailAllowIds,
     findPhoneAllowIds: user.findPhoneAllowIds,
+    findUsernameAllowIds: user.findUsernameAllowIds,
     privacyPhoto: user.privacyPhoto,
     privacyBio: user.privacyBio,
     photoAllowIds: user.photoAllowIds,
@@ -120,6 +130,7 @@ export function privacyCheckup(user: UserRecord) {
     { id: "bio", label: "بیو", value: user.privacyBio, warn: user.privacyBio === "everyone" },
     { id: "phone", label: "شماره تلفن", value: user.privacyPhone, warn: user.privacyPhone === "everyone" },
     { id: "findPhone", label: "پیدا شدن با شماره", value: user.privacyFindPhone, warn: user.privacyFindPhone === "everyone" },
+    { id: "findUsername", label: "پیدا شدن با نام کاربری", value: user.privacyFindUsername, warn: user.privacyFindUsername === "everyone" },
     { id: "email", label: "ایمیل", value: user.privacyEmail, warn: user.privacyEmail === "everyone" },
     { id: "lastSeen", label: "آخرین بازدید", value: user.privacyLastSeen, warn: user.privacyLastSeen === "everyone" },
     { id: "online", label: "آنلاین", value: user.privacyOnline, warn: user.privacyOnline === "everyone" },
@@ -162,6 +173,8 @@ export async function updatePrivacy(userId: string, patch: Record<string, unknow
     if (p3) me.privacyPhone = p3;
     const f3 = vis3(patch.privacyFindPhone);
     if (f3) me.privacyFindPhone = f3;
+    const fu = vis3(patch.privacyFindUsername);
+    if (fu) me.privacyFindUsername = fu;
     const e3 = vis3(patch.privacyEmail);
     if (e3) me.privacyEmail = e3;
     const photo = vis4(patch.privacyPhoto);
@@ -186,6 +199,7 @@ export async function updatePrivacy(userId: string, patch: Record<string, unknow
       ["phoneAllowIds", "phoneAllowIds"],
       ["emailAllowIds", "emailAllowIds"],
       ["findPhoneAllowIds", "findPhoneAllowIds"],
+      ["findUsernameAllowIds", "findUsernameAllowIds"],
       ["photoAllowIds", "photoAllowIds"],
       ["bioAllowIds", "bioAllowIds"],
       ["lastSeenAllowIds", "lastSeenAllowIds"],

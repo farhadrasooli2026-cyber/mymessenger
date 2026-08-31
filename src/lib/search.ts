@@ -5,6 +5,9 @@ import type { ChannelPost, CommunityRecord, GroupRecord, PubChannelRecord } from
 import { publicProfile } from "@/lib/profile";
 import { blobMatches, matchScore, recencyBoost, suggestTerms } from "@/lib/search-match";
 import { SEARCH_FLOOD_MAX, SEARCH_FLOOD_WINDOW_MS, SEARCH_HISTORY_MAX, SEARCH_PAGE, type SearchHit, type SearchKind } from "@/lib/search-types";
+import { hmacIdentifier } from "@/lib/crypto-utils";
+import { normalizeEmail, normalizePhone } from "@/lib/identifiers";
+import { audienceAllows, canFindByUsername, pairBlocked } from "@/lib/privacy";
 
 function liveMember<T extends { key: string; leftAt?: number | null }>(m: T, userId: string) {
   return m.key === userId && !m.leftAt;
@@ -111,7 +114,7 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
   if (!me || q.length < 2) return [];
 
   const hits: SearchHit[] = [];
-  const wantPeople = kind === "all" || kind === "users";
+  const wantPeople = kind === "all" || kind === "users" || kind === "people";
   const wantChats = kind === "all" || kind === "chats";
   const wantBots = kind === "all" || kind === "bots" || kind === "users";
   const wantMini = kind === "all" || kind === "mini";
@@ -133,32 +136,83 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
     kind === "media";
 
   if (wantPeople) {
-    const allowList = q.length >= 3 || input.q.trim().startsWith("@");
-    if (allowList) {
-      for (const u of data.users) {
-        if (u.status !== "active" || !u.username || u.id === userId) continue;
-        if (me.blockedPeerKeys.includes(u.id) || u.blockedPeerKeys.includes(userId)) continue;
-        const view = publicProfile(u, userId);
-        const blob = `${u.username} ${view.displayName} ${view.bio}`;
-        if (!blobMatches(blob, q)) continue;
-        hits.push(
-          rank(
-            {
-              id: `user:${u.id}`,
-              scope: "user",
-              title: view.displayName || u.username,
-              preview: `@${u.username}${view.bio ? ` · ${view.bio.slice(0, 80)}` : ""}`,
-              sender: view.displayName,
-              chatName: "کاربران",
-              date: u.activatedAt ?? u.createdAt,
-              kind: "user",
-              photoUrl: view.photoHidden ? null : view.photoUrl,
-              target: { type: "user", id: u.id },
-            },
-            q,
-            u.username === q ? 20 : 0,
-          ),
-        );
+    const phone = normalizePhone(input.q);
+    const email = normalizeEmail(input.q);
+    if (phone || email) {
+      const floodId = hitRateLimit(data, `findid:${userId}`, 60_000, 20, Date.now());
+      if (floodId.allowed) {
+        const hash = hmacIdentifier((phone ?? email)!);
+        const found = data.users.find((u) => u.status === "active" && u.identifierHash === hash);
+        if (
+          found &&
+          found.id !== userId &&
+          (!found.accountStatus || found.accountStatus === "active") &&
+          !pairBlocked(data, userId, found.id)
+        ) {
+          const vis = phone ? found.privacyFindPhone : found.privacyEmail;
+          const allow = phone ? found.findPhoneAllowIds : found.emailAllowIds;
+          if (audienceAllows(vis, found.contactIds, allow, userId)) {
+            const view = publicProfile(found, userId);
+            hits.push(
+              rank(
+                {
+                  id: `user:${found.id}`,
+                  scope: "user",
+                  title: view.displayName || found.username || "کاربر",
+                  preview: found.username ? `@${found.username}` : "حساب نیکسو",
+                  sender: view.displayName,
+                  chatName: "افراد",
+                  date: found.activatedAt ?? found.createdAt,
+                  kind: "user",
+                  photoUrl: view.photoHidden ? null : view.photoUrl,
+                  verified: Boolean(found.officialVerified),
+                  username: found.username,
+                  target: { type: "user", id: found.id },
+                },
+                q,
+                40,
+              ),
+            );
+          }
+        }
+      }
+    } else {
+      const allowList = q.length >= 3 || input.q.trim().startsWith("@");
+      if (allowList) {
+        const byUsername = new Map<string, (typeof data.users)[number]>();
+        for (const u of data.users) {
+          if (u.username) byUsername.set(u.username, u);
+        }
+        const exact = byUsername.get(q);
+        const pool = exact ? [exact, ...data.users.filter((u) => u.id !== exact.id)] : data.users;
+        for (const u of pool) {
+          if (u.id === userId || !u.username) continue;
+          if (!canFindByUsername(data, u, userId)) continue;
+          const view = publicProfile(u, userId);
+          const blob = `${u.username} ${view.displayName}`;
+          const isExact = u.username === q;
+          if (!isExact && !blobMatches(blob, q) && !blobMatches(view.displayName, q)) continue;
+          hits.push(
+            rank(
+              {
+                id: `user:${u.id}`,
+                scope: "user",
+                title: view.displayName || u.username,
+                preview: `@${u.username}${view.bio ? ` · ${view.bio.slice(0, 80)}` : ""}`,
+                sender: view.displayName,
+                chatName: "افراد",
+                date: u.activatedAt ?? u.createdAt,
+                kind: "user",
+                photoUrl: view.photoHidden ? null : view.photoUrl,
+                verified: Boolean(u.officialVerified),
+                username: u.username,
+                target: { type: "user", id: u.id },
+              },
+              q,
+              (isExact ? 36 : 0) + (u.officialVerified ? 10 : 0),
+            ),
+          );
+        }
       }
     }
   }
@@ -505,6 +559,10 @@ export async function globalSearch(userId: string, input: SearchQuery) {
     const now = Date.now();
     const flood = hitRateLimit(data, `search:${userId}`, SEARCH_FLOOD_WINDOW_MS, SEARCH_FLOOD_MAX, now);
     if (!flood.allowed) {
+      data.audit = [
+        { id: `srch-${now}`, userId, kind: "suspicious" as const, createdAt: now, detail: "search-flood" },
+        ...(data.audit ?? []),
+      ].slice(0, 400);
       return { ok: false as const, error: "جستجو موقتاً محدود شد.", status: 429, retryAfterSec: flood.retryAfterSec };
     }
     const me = data.users.find((u) => u.id === userId);
@@ -562,6 +620,15 @@ export async function getSearchHistory(userId: string) {
   const data = await readStoreSnapshot();
   const me = data.users.find((u) => u.id === userId);
   return me?.searchHistory ?? [];
+}
+
+export async function removeSearchHistoryItem(userId: string, term: string) {
+  return mutateStore((data) => {
+    const me = data.users.find((u) => u.id === userId);
+    if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    me.searchHistory = me.searchHistory.filter((h) => h !== term);
+    return { ok: true as const, history: me.searchHistory };
+  });
 }
 
 export async function clearSearchHistory(userId: string) {

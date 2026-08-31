@@ -46,5 +46,6 @@ export const config = {
     maxLen: 20,
     changeCooldownMs: process.env.VITEST ? 0 : 24 * 60 * 60 * 1000,
     maxChangesPer30d: 3,
+    releaseHoldMs: process.env.VITEST ? 0 : 14 * 24 * 60 * 60 * 1000,
   },
 } as const;

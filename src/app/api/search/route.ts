@@ -1,6 +1,6 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
-import { clearSearchHistory, getSearchHistory, globalSearch } from "@/lib/search";
+import { clearSearchHistory, getSearchHistory, globalSearch, removeSearchHistoryItem } from "@/lib/search";
 import { SEARCH_KINDS, type SearchKind } from "@/lib/search-types";
 
 export async function GET(request: Request) {
@@ -35,9 +35,16 @@ export async function GET(request: Request) {
   return json(result);
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
   const user = await requireActiveUser();
   if (!user) return jsonError("نشست فعال نیست.", 401);
+  const url = new URL(request.url);
+  const item = url.searchParams.get("item");
+  if (item) {
+    const result = await removeSearchHistoryItem(user.id, item);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true, history: result.history });
+  }
   const result = await clearSearchHistory(user.id);
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true });

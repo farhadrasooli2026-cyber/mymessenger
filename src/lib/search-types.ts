@@ -5,6 +5,7 @@ export const SEARCH_HISTORY_MAX = 20;
 
 export const SEARCH_KINDS = [
   "all",
+  "people",
   "users",
   "chats",
   "messages",
@@ -61,6 +62,7 @@ export type SearchHit = {
   price?: number;
   currency?: string;
   category?: string;
+  username?: string | null;
   target: {
     type: "user" | "group" | "channel" | "community" | "chat" | "saved" | "bot" | "business" | "mini" | "product";
     id: string;

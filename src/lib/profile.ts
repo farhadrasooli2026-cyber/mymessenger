@@ -7,8 +7,9 @@ import { deleteUserPhoto, decodeDataUrl, saveUserPhoto } from "@/lib/photo-files
 import { seedInbox } from "@/lib/chat";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { UserRecord } from "@/lib/store";
-import { normalizeUsername } from "@/lib/username";
-import { audienceAllows } from "@/lib/privacy";
+import { normalizeUsername, usernameIssue } from "@/lib/username";
+import { audienceAllows, canFindByUsername } from "@/lib/privacy";
+import { hitRateLimit } from "@/lib/rate-limit";
 
 export const visibilitySchema = z.enum(["everyone", "contacts", "nobody", "selected"]);
 
@@ -78,6 +79,7 @@ export function publicProfile(user: UserRecord, viewerId?: string | null) {
     lastSeenAt: lastSeenVisible ? user.lastSeenAt || null : null,
     online: onlineVisible && user.lastSeenAt > 0 && Date.now() - user.lastSeenAt < 90_000,
     readReceipts: user.readReceipts,
+    verified: Boolean(user.officialVerified),
     restrictForward: user.restrictForward,
     restrictSave: user.restrictSave,
     restrictShare: user.restrictShare,
@@ -99,16 +101,33 @@ function photoUrlFor(user: UserRecord): string {
 }
 
 export async function checkUsername(raw: string, selfId?: string) {
-  const username = normalizeUsername(raw);
-  if (!username) {
-    return { ok: false as const, available: false, reason: "invalid" as const, username: null };
-  }
-  const data = await readStoreSnapshot();
-  const takenUser = data.users.some((u) => u.username === username && u.id !== selfId);
-  const takenBot = (data.bots ?? []).some((b) => b.username === username && b.status !== "deleted");
-  const takenBiz = (data.businesses ?? []).some((b) => b.username === username);
-  const taken = takenUser || takenBot || takenBiz;
-  return { ok: true as const, available: !taken, username, reason: taken ? ("taken" as const) : ("free" as const) };
+  return mutateStore((data) => {
+    const now = Date.now();
+    if (selfId) {
+      const flood = hitRateLimit(data, `uname:${selfId}`, 60_000, 30, now);
+      if (!flood.allowed) {
+        return { ok: false as const, available: false, reason: "limited" as const, username: null, status: 429 };
+      }
+    }
+    const issue = usernameIssue(raw);
+    const username = raw.trim().replace(/^@/, "").toLowerCase();
+    if (issue === "invalid") {
+      return { ok: false as const, available: false, reason: "invalid" as const, username: null };
+    }
+    if (issue === "reserved") {
+      return { ok: false as const, available: false, reason: "reserved" as const, username: null };
+    }
+    data.usernameHolds = (data.usernameHolds ?? []).filter((h) => h.until > now);
+    if ((data.reservedUsernames ?? []).some((r) => r.toLowerCase() === username)) {
+      return { ok: true as const, available: false, reason: "reserved" as const, username };
+    }
+    const held = data.usernameHolds.some((h) => h.username === username && h.fromUserId !== selfId);
+    const takenUser = data.users.some((u) => u.username === username && u.id !== selfId && u.status === "active");
+    const takenBot = (data.bots ?? []).some((b) => b.username === username && b.status !== "deleted");
+    const takenBiz = (data.businesses ?? []).some((b) => b.username === username);
+    const taken = held || takenUser || takenBot || takenBiz;
+    return { ok: true as const, available: !taken, username, reason: taken ? ("taken" as const) : ("free" as const) };
+  });
 }
 
 export async function completeProfile(userId: string, input: ProfileInput) {
@@ -160,7 +179,15 @@ export async function updateProfile(userId: string, input: Partial<ProfileInput>
     if (input.username && input.username !== user.username) {
       const next = normalizeUsername(input.username);
       if (!next) return { ok: false as const, status: 400, error: "نام کاربری معتبر نیست." };
-      if (data.users.some((u) => u.username === next && u.id !== userId) || (data.bots ?? []).some((b) => b.username === next && b.status !== "deleted")) {
+      data.usernameHolds = (data.usernameHolds ?? []).filter((h) => h.until > now);
+      const reserved = (data.reservedUsernames ?? []).some((r) => r.toLowerCase() === next);
+      const held = data.usernameHolds.some((h) => h.username === next && h.fromUserId !== userId);
+      if (reserved || held) return { ok: false as const, status: 409, error: "این نام کاربری در دسترس نیست." };
+      if (
+        data.users.some((u) => u.username === next && u.id !== userId) ||
+        (data.bots ?? []).some((b) => b.username === next && b.status !== "deleted") ||
+        (data.businesses ?? []).some((b) => b.username === next)
+      ) {
         return { ok: false as const, status: 409, error: "این نام کاربری گرفته شده است." };
       }
       const windowStart = now - 30 * 24 * 60 * 60 * 1000;
@@ -170,6 +197,9 @@ export async function updateProfile(userId: string, input: Partial<ProfileInput>
       }
       if (user.usernameChangedAt && now - user.usernameChangedAt < config.username.changeCooldownMs) {
         return { ok: false as const, status: 429, error: "برای تغییر دوباره نام کاربری باید صبر کنید." };
+      }
+      if (user.username && config.username.releaseHoldMs > 0) {
+        data.usernameHolds.push({ username: user.username, fromUserId: userId, until: now + config.username.releaseHoldMs });
       }
       user.usernameHistory.push({ from: user.username ?? "", to: next, at: now });
       user.username = next;
@@ -223,15 +253,14 @@ function applyProfile(user: UserRecord, input: ProfileInput, username: string, n
 export async function searchUsers(query: string, viewerId: string) {
   const q = query.trim().replace(/^@/, "").toLowerCase();
   if (q.length < 2) return [];
+  const allowList = q.length >= 3 || query.trim().startsWith("@");
+  if (!allowList) return [];
   const data = await readStoreSnapshot();
-  const me = data.users.find((u) => u.id === viewerId);
   return data.users
     .filter((u) => {
-      if (u.status !== "active" || !u.username || u.id === viewerId) return false;
-      if (!u.username.includes(q)) return false;
-      if (me?.blockedPeerKeys.includes(u.id)) return false;
-      if (u.blockedPeerKeys.includes(viewerId)) return false;
-      return true;
+      if (u.id === viewerId || !u.username) return false;
+      if (!canFindByUsername(data, u, viewerId)) return false;
+      return u.username.includes(q) || (u.displayName ?? "").toLowerCase().includes(q);
     })
     .slice(0, 12)
     .map((u) => publicProfile(u, viewerId));

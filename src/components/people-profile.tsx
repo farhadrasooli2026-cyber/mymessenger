@@ -19,6 +19,7 @@ type Profile = {
   online?: boolean;
   identifierMasked?: string;
   readReceipts?: boolean;
+  verified?: boolean;
 };
 
 export function PeopleProfile({ username }: { username: string }) {
@@ -105,7 +106,10 @@ export function PeopleProfile({ username }: { username: string }) {
       </Link>
       <div className="mt-4 text-center">
         <img src={profile.photoUrl} alt="" className="mx-auto size-24 rounded-3xl object-cover" />
-        <h1 className="mt-3 text-xl font-semibold">{profile.displayName}</h1>
+        <h1 className="mt-3 text-xl font-semibold">
+          {profile.displayName}
+          {profile.verified ? <span className="mr-1 text-amber-200"> ✓</span> : null}
+        </h1>
         {profile.username && (
           <p className="text-sm text-amber-200" dir="ltr">
             @{profile.username}

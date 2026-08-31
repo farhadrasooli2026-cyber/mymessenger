@@ -149,6 +149,13 @@ export function PrivacyDashboard() {
         </section>
 
         <section className="rounded-2xl bg-white/5 p-4 text-sm">
+          <h2 className="font-medium">پیدا شدن با Username</h2>
+          <p className="text-[11px] opacity-60">Everyone / Contacts / Nobody / استثنا. روی سرور اعمال می‌شود.</p>
+          <Radios value={str("privacyFindUsername")} options={V3} onChange={(id) => void save({ privacyFindUsername: id })} />
+          <Allow people={people} ids={list("findUsernameAllowIds")} onToggle={(next) => void save({ findUsernameAllowIds: next })} />
+        </section>
+
+        <section className="rounded-2xl bg-white/5 p-4 text-sm">
           <h2 className="font-medium">ایمیل</h2>
           <p className="text-[11px] opacity-60">پیش‌فرض: هیچ‌کس.</p>
           <Radios value={str("privacyEmail")} options={V3} onChange={(id) => void save({ privacyEmail: id })} />

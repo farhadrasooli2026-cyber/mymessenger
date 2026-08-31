@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { hashIp } from "./crypto-utils";
 import { completeProfile, updateProfile } from "./profile";
+import { updatePrivacy } from "./privacy";
 import { ackHumanChallenge, issueHumanChallenge, startRegistration, verifyOtp } from "./registration";
 import { getOutbox } from "./outbox";
 import { mutateStore, resetStoreForTests } from "./store";
 import { createChannel, createPost } from "./channels";
 import { createGroup } from "./groups";
-import { clearSearchHistory, globalSearch } from "./search";
+import { clearSearchHistory, globalSearch, removeSearchHistoryItem } from "./search";
 import { blobMatches, foldText, matchScore, suggestTerms } from "./search-match";
 import { listSaved, saveItem } from "./saved";
 import { createBusiness, upsertProduct } from "./business";
@@ -126,6 +127,41 @@ describe("NIXO search and saved messages", () => {
     expect(empty.history.length).toBe(0);
   });
 
+  it("hides users who disable username discovery and drops deleted accounts", async () => {
+    const a = await activeUser("sr_find_a");
+    const b = await activeUser("sr_find_b");
+    await updatePrivacy(b, { privacyFindUsername: "nobody" });
+    const hidden = await globalSearch(a, { q: "sr_find_b", kind: "people" });
+    expect(hidden.ok && hidden.hits.every((h) => h.target.id !== b)).toBe(true);
+    await updatePrivacy(b, { privacyFindUsername: "everyone" });
+    const shown = await globalSearch(a, { q: "@sr_find_b", kind: "people" });
+    expect(shown.ok && shown.hits.some((h) => h.target.id === b && h.verified === false)).toBe(true);
+    await mutateStore((data) => {
+      const u = data.users.find((x) => x.id === b);
+      if (u) u.accountStatus = "pending_deletion";
+    });
+    const gone = await globalSearch(a, { q: "sr_find_b", kind: "users" });
+    expect(gone.ok && gone.hits.every((h) => h.target.id !== b)).toBe(true);
+  });
+
+  it("does not leak extra data on phone lookup and can delete one history item", async () => {
+    const owner = await activeUser("sr_phown");
+    await mutateStore((data) => {
+      const u = data.users.find((x) => x.id === owner);
+      if (u) {
+        u.channel = "phone";
+        u.identifierHash = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+      }
+    });
+    const stranger = await activeUser("sr_phstr");
+    const miss = await globalSearch(stranger, { q: "09120001111", kind: "people" });
+    expect(miss.ok && miss.hits.length === 0).toBe(true);
+    const run = await globalSearch(stranger, { q: "sr_phown" });
+    expect(run.ok).toBe(true);
+    const cut = await removeSearchHistoryItem(stranger, "sr_phown");
+    expect(cut.ok && cut.history.includes("sr_phown")).toBe(false);
+  });
+
   it("hides private bio, skips two-letter user enumeration, and ranks fuzzy terms", async () => {
     const a = await activeUser("sr_enum");
     const b = await activeUser("sr_secretbio");
@@ -146,6 +182,17 @@ describe("NIXO search and saved messages", () => {
     expect(matchScore("photography", "pho")).toBeGreaterThan(60);
     expect(blobMatches("Phone Case", "phne")).toBe(true);
     expect(suggestTerms("pho")).toEqual(expect.arrayContaining(["photo", "phone", "photography"]));
+  });
+
+  it("does not resolve a previous username to the same account", async () => {
+    const a = await activeUser("sr_oldnm");
+    const b = await activeUser("sr_chgfrom");
+    const changed = await updateProfile(b, { username: "sr_chgto" });
+    expect(changed.ok).toBe(true);
+    const old = await globalSearch(a, { q: "@sr_chgfrom", kind: "people" });
+    expect(old.ok && old.hits.every((h) => h.target.id !== b)).toBe(true);
+    const neu = await globalSearch(a, { q: "@sr_chgto", kind: "people" });
+    expect(neu.ok && neu.hits.some((h) => h.target.id === b)).toBe(true);
   });
 
   it("filters products by price and category and does not index E2EE group text", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeUsername } from "./username";
+import { normalizeUsername, usernameIssue } from "./username";
 
 describe("username", () => {
   it("accepts valid handles and rejects reserved ones", () => {
@@ -8,5 +8,10 @@ describe("username", () => {
     expect(normalizeUsername("nixo")).toBeNull();
     expect(normalizeUsername("ab")).toBeNull();
     expect(normalizeUsername("1user")).toBeNull();
+    expect(normalizeUsername("admin")).toBeNull();
+    expect(normalizeUsername("administrator")).toBeNull();
+    expect(normalizeUsername("nixo_official")).toBeNull();
+    expect(usernameIssue("bad name")).toBe("invalid");
+    expect(usernameIssue("support")).toBe("reserved");
   });
 });

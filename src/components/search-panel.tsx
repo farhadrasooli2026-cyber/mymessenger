@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +11,7 @@ import { highlightText } from "@/lib/search-match";
 
 const KIND_FA: Record<SearchKind, string> = {
   all: "همه",
+  people: "افراد",
   users: "کاربران",
   chats: "چت‌ها",
   messages: "پیام‌ها",
@@ -41,6 +43,7 @@ export function SearchPanel({
   onClose: () => void;
   onOpen: (hit: SearchHit) => void;
 }) {
+  const router = useRouter();
   const [q, setQ] = useState(initialQuery ?? "");
   const [kind, setKind] = useState<SearchKind>("all");
   const [from, setFrom] = useState("");
@@ -56,12 +59,17 @@ export function SearchPanel({
   const [hasMore, setHasMore] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    fetch("/api/search?history=1", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => setHistory(d.history ?? []))
-      .catch(() => undefined);
+    const t = window.setTimeout(() => {
+      fetch("/api/search?history=1", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => setHistory(d.history ?? []))
+        .catch(() => undefined);
+    }, 0);
+    return () => window.clearTimeout(t);
   }, []);
 
   useEffect(() => {
@@ -79,7 +87,11 @@ export function SearchPanel({
   }, [q]);
 
   async function run(nextOffset = 0, seed = q) {
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
     setBusy(true);
+    setError(null);
     try {
       const fromMs = fromDate ? new Date(fromDate).getTime() : undefined;
       const toMs = toDate ? new Date(toDate).getTime() + 86_400_000 - 1 : undefined;
@@ -94,15 +106,24 @@ export function SearchPanel({
       if (minPrice) params.set("minPrice", minPrice);
       if (maxPrice) params.set("maxPrice", maxPrice);
       if (category.trim()) params.set("category", category.trim());
-      const res = await fetch(`/api/search?${params}`, { cache: "no-store" });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error ?? "جستجو نشد.");
+      const res = await fetch(`/api/search?${params}`, { cache: "no-store", signal: ac.signal });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data) {
+        setError(data?.error ?? (res.status >= 500 ? "Server Error" : "Network Error"));
+        toast.error(data?.error ?? "جستجو نشد.");
         return;
       }
       const remote = (data.hits ?? []) as SearchHit[];
       const local =
-        kind === "users" || kind === "groups" || kind === "channels" || kind === "communities" || kind === "bots" || kind === "business" || kind === "products" || kind === "mini"
+        kind === "users" ||
+        kind === "people" ||
+        kind === "groups" ||
+        kind === "channels" ||
+        kind === "communities" ||
+        kind === "bots" ||
+        kind === "business" ||
+        kind === "products" ||
+        kind === "mini"
           ? []
           : await searchLocalChats(threads, seed, { kind, from: from.trim() || undefined, fromDate: fromMs, toDate: toMs });
       const merged = [...(nextOffset === 0 ? local : []), ...remote];
@@ -118,6 +139,10 @@ export function SearchPanel({
       setHistory(data.history ?? history);
       setSuggestions(data.suggestions ?? suggestions);
       setNote(data.note ?? "");
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") return;
+      setError("Network Error / Timeout");
+      toast.error("جستجو قطع شد.");
     } finally {
       setBusy(false);
     }
@@ -142,10 +167,30 @@ export function SearchPanel({
             void run(0);
           }}
         >
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="کاربر، @username، چت، محصول، فایل…" className="h-10 bg-black/20" />
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="کاربر، @username، چت، محصول، فایل…"
+            className="h-10 bg-black/20"
+            enterKeyHint="search"
+            inputMode="search"
+            autoComplete="off"
+          />
           <Button type="submit" className="bg-amber-300 text-[#102824]" disabled={busy}>
-            بجو
+            {busy ? "…" : "بجو"}
           </Button>
+          {busy && (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                abortRef.current?.abort();
+                setBusy(false);
+              }}
+            >
+              توقف
+            </Button>
+          )}
         </form>
         {suggestions.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1">
@@ -211,17 +256,29 @@ export function SearchPanel({
             </div>
             <div className="mt-1 flex flex-wrap gap-1">
               {history.map((h) => (
-                <button
-                  key={h}
-                  type="button"
-                  className="rounded-full bg-white/10 px-2 py-0.5 text-[11px]"
-                  onClick={() => {
-                    setQ(h);
-                    void run(0, h);
-                  }}
-                >
-                  {h}
-                </button>
+                <span key={h} className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQ(h);
+                      void run(0, h);
+                    }}
+                  >
+                    {h}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-rose-200"
+                    aria-label="حذف"
+                    onClick={async () => {
+                      const res = await fetch(`/api/search?item=${encodeURIComponent(h)}`, { method: "DELETE" });
+                      const data = await res.json();
+                      setHistory(data.history ?? history.filter((x) => x !== h));
+                    }}
+                  >
+                    ×
+                  </button>
+                </span>
               ))}
             </div>
           </div>
@@ -230,37 +287,122 @@ export function SearchPanel({
           فقط چیزهایی که اجازهٔ دیدنشان را داری. متن چت خصوصی و گروه E2EE روی دستگاه است. {note}
         </p>
         <div className="mt-2 min-h-0 flex-1 space-y-1 overflow-auto">
-          {hits.length === 0 && !busy && <p className="text-xs text-emerald-100/50">نتیجه‌ای نیست.</p>}
-          {hits.map((hit) => (
-            <button
-              key={hit.id}
-              type="button"
-              className="block w-full rounded-xl bg-black/25 px-3 py-2 text-right"
-              onClick={() => onOpen(hit)}
-            >
-              <p className="text-sm font-medium">
-                {highlightText(hit.title, q).map((p, i) => (
-                  <span key={i} className={p.hit ? "bg-amber-300/50 text-[#102824]" : undefined}>
-                    {p.t}
-                  </span>
+          {busy && <p className="text-xs text-amber-200">Loading…</p>}
+          {error && <p className="text-xs text-rose-200">{error}</p>}
+          {hits.length === 0 && !busy && !error && <p className="text-xs text-emerald-100/50">No results found</p>}
+          {(["user", "chat", "group", "channel", "community", "bot", "mini", "business"] as const).map((scope) => {
+            const group = hits.filter((h) => h.scope === scope || (scope === "chat" && h.scope === "chatLocal"));
+            if (!group.length) return null;
+            const label =
+              scope === "user"
+                ? "People"
+                : scope === "chat"
+                  ? "Chats"
+                  : scope === "group"
+                    ? "Groups"
+                    : scope === "channel"
+                      ? "Channels"
+                      : scope === "bot"
+                        ? "Bots"
+                        : scope === "mini"
+                          ? "Mini Apps"
+                          : scope;
+            return (
+              <div key={scope}>
+                <p className="mt-2 text-[10px] uppercase tracking-wide text-emerald-100/40">{label}</p>
+                {group.map((hit) => (
+                  <div key={hit.id} className="mt-1 rounded-xl bg-black/25 px-3 py-2">
+                    <button type="button" className="block w-full text-right" onClick={() => onOpen(hit)}>
+                      <p className="text-sm font-medium">
+                        {highlightText(hit.title, q).map((p, i) => (
+                          <span key={i} className={p.hit ? "bg-amber-300/50 text-[#102824]" : undefined}>
+                            {p.t}
+                          </span>
+                        ))}
+                        {hit.verified ? <span className="mr-1 text-amber-200"> ✓</span> : null}
+                      </p>
+                      <p className="truncate text-xs text-emerald-100/70">
+                        {highlightText(hit.preview, q).map((p, i) => (
+                          <span key={`p${i}`} className={p.hit ? "bg-amber-300/40" : undefined}>
+                            {p.t}
+                          </span>
+                        ))}
+                      </p>
+                    </button>
+                    {hit.target.type === "user" && (
+                      <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
+                        <button
+                          type="button"
+                          className="rounded bg-white/10 px-2 py-0.5"
+                          onClick={() => {
+                            if (hit.username) router.push(`/app/u/${hit.username}`);
+                            else onOpen(hit);
+                          }}
+                        >
+                          Open Profile
+                        </button>
+                        <button type="button" className="rounded bg-white/10 px-2 py-0.5" onClick={() => onOpen(hit)}>
+                          Message
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded bg-white/10 px-2 py-0.5"
+                          onClick={() =>
+                            void fetch("/api/users/search", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ userId: hit.target.id }),
+                            }).then(() => toast.success("به مخاطبین اضافه شد."))
+                          }
+                        >
+                          Add Contact
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded bg-white/10 px-2 py-0.5"
+                          onClick={() =>
+                            void fetch("/api/contacts", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ action: "block", peerKey: hit.target.id, blocked: true }),
+                            }).then(() => toast.success("مسدود شد."))
+                          }
+                        >
+                          Block
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded bg-white/10 px-2 py-0.5"
+                          onClick={() =>
+                            void fetch("/api/contacts", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ action: "report", peerKey: hit.target.id, category: "spam" }),
+                            }).then(() => toast.success("گزارش ارسال شد."))
+                          }
+                        >
+                          Report
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 ))}
-                {hit.verified ? " ✓" : ""}
-              </p>
-              <p className="truncate text-xs text-emerald-100/70">
-                {highlightText(hit.preview, q).map((p, i) => (
-                  <span key={`p${i}`} className={p.hit ? "bg-amber-300/40" : undefined}>
-                    {p.t}
-                  </span>
-                ))}
-              </p>
-              <p className="text-[10px] text-emerald-100/45">
-                {hit.kind} · {hit.sender ? `${hit.sender} · ` : ""}
-                {hit.chatName} · {new Date(hit.date).toLocaleDateString("fa-IR")}
-                {hit.price != null ? ` · ${hit.price} ${hit.currency}` : ""}
-                {hit.location ? ` · ${hit.location}` : ""}
-              </p>
-            </button>
-          ))}
+              </div>
+            );
+          })}
+          {hits
+            .filter((h) => !["user", "chat", "chatLocal", "group", "channel", "community", "bot", "mini", "business"].includes(h.scope))
+            .map((hit) => (
+              <button
+                key={hit.id}
+                type="button"
+                className="block w-full rounded-xl bg-black/25 px-3 py-2 text-right"
+                onClick={() => onOpen(hit)}
+              >
+                <p className="text-sm font-medium">{hit.title}</p>
+                <p className="truncate text-xs text-emerald-100/70">{hit.preview}</p>
+              </button>
+            ))}
           {hasMore && (
             <Button type="button" variant="secondary" className="w-full" disabled={busy} onClick={() => void run(offset)}>
               نتایج بیشتر

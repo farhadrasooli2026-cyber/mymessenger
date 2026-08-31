@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
-import { USERNAME_HINT, normalizeUsername } from "@/lib/username";
+import { USERNAME_HINT, USERNAME_STATUS_LABEL, normalizeUsername } from "@/lib/username";
 import type { Visibility } from "@/lib/profile-types";
 import { backgroundPreview } from "@/lib/background-style";
 import { cn } from "@/lib/utils";
@@ -57,7 +57,10 @@ export function ProfileSetup() {
     const t = window.setTimeout(() => {
       fetch(`/api/username?u=${encodeURIComponent(n)}`)
         .then((r) => r.json())
-        .then((d) => setRemoteUser(d.available ? "free" : "taken"))
+        .then((d) => {
+          if (d.reason === "invalid" || d.reason === "reserved") setRemoteUser("taken");
+          else setRemoteUser(d.available ? "free" : "taken");
+        })
         .catch(() => setRemoteUser("taken"));
     }, 350);
     return () => window.clearTimeout(t);
@@ -163,10 +166,10 @@ export function ProfileSetup() {
             <Label>نام کاربری</Label>
             <Input dir="ltr" value={username} onChange={(e) => setUsername(e.target.value)} className="h-11 bg-black/20 text-left" placeholder="nixo_user" />
             <p className="text-xs text-emerald-100/55">{USERNAME_HINT}</p>
-            {userState === "checking" && <p className="text-xs">در حال بررسی...</p>}
-            {userState === "free" && <p className="text-xs text-emerald-300">این نام کاربری آزاد است.</p>}
-            {userState === "taken" && <p className="text-xs text-amber-200">این نام کاربری گرفته شده است.</p>}
-            {userState === "invalid" && <p className="text-xs text-red-200">نام کاربری معتبر نیست یا رزرو شده.</p>}
+            {userState === "checking" && <p className="text-xs">{USERNAME_STATUS_LABEL.checking}</p>}
+            {userState === "free" && <p className="text-xs text-emerald-300">{USERNAME_STATUS_LABEL.free}</p>}
+            {userState === "taken" && <p className="text-xs text-amber-200">{USERNAME_STATUS_LABEL.taken}</p>}
+            {userState === "invalid" && <p className="text-xs text-red-200">{USERNAME_STATUS_LABEL.invalid}</p>}
           </div>
         )}
 

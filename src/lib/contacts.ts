@@ -4,7 +4,7 @@ import { normalizeEmail, normalizePhone } from "@/lib/identifiers";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { ContactGroupKind, ContactRecord, StoreData } from "@/lib/store";
-import { audienceAllows, pairBlocked, setBlockedPeer } from "@/lib/privacy";
+import { audienceAllows, canFindByUsername, pairBlocked, setBlockedPeer } from "@/lib/privacy";
 import { publicProfile } from "@/lib/profile";
 import { normalizeUsername } from "@/lib/username";
 import { openDm } from "@/lib/chat";
@@ -403,7 +403,7 @@ export async function findUsername(userId: string, raw: string) {
     if (!username) return { ok: true as const, user: null };
     const found = data.users.find((u) => u.status === "active" && u.username === username);
     if (!found || found.id === userId) return { ok: true as const, user: null };
-    if (pairBlocked(data, userId, found.id)) return { ok: true as const, user: null };
+    if (!canFindByUsername(data, found, userId)) return { ok: true as const, user: null };
     return { ok: true as const, user: publicProfile(found, userId) };
   });
 }
@@ -414,7 +414,7 @@ export async function viewPerson(viewerId: string, username: string) {
   if (!un) return { ok: false as const, error: "نام کاربری معتبر نیست.", status: 400 };
   const target = data.users.find((u) => u.status === "active" && u.username === un);
   if (!target) return { ok: false as const, error: "پروفایل در دسترس نیست.", status: 404 };
-  if (pairBlocked(data, viewerId, target.id) && viewerId !== target.id) {
+  if (!canFindByUsername(data, target, viewerId)) {
     return { ok: false as const, error: "پروفایل در دسترس نیست.", status: 404 };
   }
   const profile = publicProfile(target, viewerId);
