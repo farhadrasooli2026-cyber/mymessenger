@@ -1029,6 +1029,44 @@ export type PubChannelRecord = {
   deletedAt: number | null;
 };
 
+export type MusicTrack = {
+  id: string;
+  ownerUserId: string;
+  kind: import("@/lib/music-types").MusicKind;
+  title: string;
+  artist: string;
+  album: string;
+  mime: string;
+  size: number;
+  durationMs: number;
+  favorite: boolean;
+  cache: boolean;
+  blocked: boolean;
+  privacy: "private" | "shared";
+  lastPositionMs: number;
+  createdAt: number;
+  deletedAt: number | null;
+};
+
+export type MusicPlaylist = {
+  id: string;
+  ownerUserId: string;
+  name: string;
+  trackIds: string[];
+  createdAt: number;
+  deletedAt: number | null;
+};
+
+export type MusicClaim = {
+  id: string;
+  userId: string;
+  trackId: string | null;
+  catalogId: string | null;
+  reason: string;
+  status: "open" | "review" | "removed";
+  createdAt: number;
+};
+
 export type GalleryItem = {
   id: string;
   ownerUserId: string;
@@ -1142,6 +1180,10 @@ export type StoreData = {
   galleryItems: GalleryItem[];
   galleryAlbums: GalleryAlbum[];
   galleryPrefs: import("@/lib/gallery-types").GalleryPrefs[];
+  musicTracks: MusicTrack[];
+  musicPlaylists: MusicPlaylist[];
+  musicPrefs: import("@/lib/music-types").MusicPrefs[];
+  musicClaims: MusicClaim[];
   catalogCategories: CatalogCategory[];
   catalogItems: CatalogItem[];
   bgCategories: CatalogCategory[];
@@ -1214,6 +1256,10 @@ const EMPTY: StoreData = {
   galleryItems: [],
   galleryAlbums: [],
   galleryPrefs: [],
+  musicTracks: [],
+  musicPlaylists: [],
+  musicPrefs: [],
+  musicClaims: [],
   catalogCategories: [],
   catalogItems: [],
   bgCategories: [],
@@ -1326,6 +1372,19 @@ async function readStore(): Promise<StoreData> {
         : [],
       galleryAlbums: Array.isArray(parsed.galleryAlbums) ? parsed.galleryAlbums : [],
       galleryPrefs: Array.isArray(parsed.galleryPrefs) ? parsed.galleryPrefs : [],
+      musicTracks: Array.isArray(parsed.musicTracks)
+        ? parsed.musicTracks.map((i) => ({
+            ...i,
+            favorite: Boolean(i.favorite),
+            cache: Boolean(i.cache),
+            blocked: Boolean(i.blocked),
+            lastPositionMs: i.lastPositionMs ?? 0,
+            deletedAt: i.deletedAt ?? null,
+          }))
+        : [],
+      musicPlaylists: Array.isArray(parsed.musicPlaylists) ? parsed.musicPlaylists : [],
+      musicPrefs: Array.isArray(parsed.musicPrefs) ? parsed.musicPrefs : [],
+      musicClaims: Array.isArray(parsed.musicClaims) ? parsed.musicClaims : [],
       catalogCategories: parsed.catalogCategories ?? [],
       catalogItems: parsed.catalogItems ?? [],
       bgCategories: parsed.bgCategories ?? [],
@@ -1466,6 +1525,10 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.galleryItems = (data.galleryItems ?? []).filter((s) => s.ownerUserId !== uid);
   data.galleryAlbums = (data.galleryAlbums ?? []).filter((s) => s.ownerUserId !== uid);
   data.galleryPrefs = (data.galleryPrefs ?? []).filter((s) => s.userId !== uid);
+  data.musicTracks = (data.musicTracks ?? []).filter((s) => s.ownerUserId !== uid);
+  data.musicPlaylists = (data.musicPlaylists ?? []).filter((s) => s.ownerUserId !== uid);
+  data.musicPrefs = (data.musicPrefs ?? []).filter((s) => s.userId !== uid);
+  data.musicClaims = (data.musicClaims ?? []).filter((s) => s.userId !== uid);
   data.backups = (data.backups ?? []).filter((b) => b.userId !== uid);
   data.calls = (data.calls ?? []).filter((c) => c.ownerUserId !== uid && c.peerKey !== uid);
   data.userStories = (data.userStories ?? []).filter((s) => s.ownerUserId !== uid);

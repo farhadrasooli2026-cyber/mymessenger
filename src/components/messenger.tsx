@@ -1949,6 +1949,12 @@ export function Messenger({
             <Link href="/app/wallet" className="block text-sm text-amber-200">
               NIXO Wallet
             </Link>
+            <Link href="/app/music" className="block text-sm text-amber-200">
+              موسیقی نیکسو
+            </Link>
+            <Link href="/app/settings/audio" className="block text-sm text-amber-200">
+              تنظیمات → Data & Storage → Audio
+            </Link>
             <Link href="/app/gallery" className="block text-sm text-amber-200">
               گالری نیکسو
             </Link>

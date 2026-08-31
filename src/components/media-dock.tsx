@@ -66,6 +66,9 @@ export function MediaDock({
   const abortRef = useRef(false);
   const [nixoOpen, setNixoOpen] = useState(false);
   const [nixoItems, setNixoItems] = useState<{ id: string; name: string; mediaUrl: string }[]>([]);
+  const [audioOpen, setAudioOpen] = useState(false);
+  const [audioItems, setAudioItems] = useState<{ id: string; title: string; artist: string; streamUrl: string; catalog: boolean }[]>([]);
+  const [videoTone, setVideoTone] = useState("");
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   function addFiles(list: FileList | File[]) {
@@ -244,6 +247,20 @@ export function MediaDock({
         }}>
           نیکسو
         </Button>
+        <Button type="button" size="sm" variant="ghost" className="text-xs text-amber-200" disabled={disabled} onClick={async () => {
+          const res = await fetch("/api/music", { cache: "no-store" });
+          const data = await res.json();
+          setAudioItems([...(data.catalog ?? []), ...(data.items ?? [])].map((t: { id: string; title: string; artist: string; streamUrl: string; catalog?: boolean }) => ({
+            id: t.id,
+            title: t.title,
+            artist: t.artist,
+            streamUrl: t.streamUrl,
+            catalog: Boolean(t.catalog),
+          })));
+          setAudioOpen(true);
+        }}>
+          صوت
+        </Button>
         <Button type="button" size="sm" variant="ghost" className="text-amber-200" disabled={disabled} onClick={() => fileRef.current?.click()} aria-label="فایل">
           <Paperclip className="size-4" />
         </Button>
@@ -278,6 +295,36 @@ export function MediaDock({
               ))}
             </div>
             <Button type="button" variant="ghost" className="mt-3 w-full text-white" onClick={() => setNixoOpen(false)}>بستن</Button>
+          </div>
+        </div>
+      )}
+      {audioOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4">
+          <div className="max-h-[80dvh] w-full max-w-sm overflow-auto rounded-3xl bg-[#102824] p-4">
+            <p className="font-medium">صوت نیکسو</p>
+            <p className="text-[11px] opacity-60">فایل مجاز خودت یا تن اصل نیکسو. کپی‌رایت تجاری اینجا نیست.</p>
+            <div className="mt-2 space-y-1">
+              {audioItems.map((it) => (
+                <button
+                  key={`${it.catalog}-${it.id}`}
+                  type="button"
+                  className="block w-full rounded-xl bg-white/10 px-3 py-2 text-right text-xs"
+                  onClick={async () => {
+                    const res = await fetch(it.streamUrl);
+                    if (!res.ok) {
+                      toast.error("دسترسی صوت رد شد.");
+                      return;
+                    }
+                    const blob = await res.blob();
+                    addFiles([new File([blob], `${it.title}.wav`, { type: blob.type || "audio/wav" })]);
+                    setAudioOpen(false);
+                  }}
+                >
+                  {it.title} · {it.artist}
+                </button>
+              ))}
+            </div>
+            <Button type="button" variant="ghost" className="mt-3 w-full text-white" onClick={() => setAudioOpen(false)}>بستن</Button>
           </div>
         </div>
       )}
@@ -378,6 +425,7 @@ export function MediaDock({
                 <div className="p-4 text-sm">
                   <p>{current.file.name}</p>
                   <p className="text-xs text-emerald-100/60">{current.file.type || "file"} · {formatBytes(current.file.size)}</p>
+                  {current.file.type.startsWith("audio/") && <audio src={current.url} controls className="mt-2 w-full" />}
                   {current.file.type === "application/pdf" && <iframe title="preview" src={current.url} className="mt-2 h-48 w-full rounded bg-white" />}
                   {current.file.type.startsWith("text/") && <p className="mt-2 text-xs">پیش‌نمایش متن پس از ارسال در حباب فایل.</p>}
                 </div>
@@ -410,6 +458,15 @@ export function MediaDock({
                   <Input type="number" min={0} value={trimEnd} onChange={(e) => setTrimEnd(Number(e.target.value) || 0)} className="mt-1 h-8 bg-black/20" />
                 </label>
                 <Button type="button" size="sm" variant="secondary" onClick={() => setRotation((r) => r + 90)}>چرخش پخش</Button>
+                <label className="col-span-2">
+                  صدای مجاز نیکسو روی ویدیو (برچسب مجوز؛ میکس حرفه‌ای جدا است)
+                  <select className="mt-1 w-full rounded bg-black/30 p-1" value={videoTone} onChange={(e) => { setVideoTone(e.target.value); if (e.target.value) setCaption((c) => c.includes("♪") ? c : `${c} ♪ ${e.target.value}`.trim()); }}>
+                    <option value="">بدون تن اصل</option>
+                    <option value="نبض کهربا">نبض کهربا</option>
+                    <option value="نسیم سبز">نسیم سبز</option>
+                    <option value="شب آرام">شب آرام</option>
+                  </select>
+                </label>
               </div>
             )}
             <p className="mt-2 text-[11px] text-emerald-100/60">{sizeLabel}</p>

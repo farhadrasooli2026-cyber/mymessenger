@@ -298,13 +298,14 @@ export function StoryComposer({ onClose, onPublished }: { onClose: () => void; o
                 <button key={e} type="button" onClick={() => setStickers((s) => [...s, { emoji: e, x: 20 + s.length * 8, y: 30 }].slice(0, 8))}>{e}</button>
               ))}
             </div>
-            <p className="mt-2 text-[11px]">موسیقی مجاز نیکسو (مجوز داخلی)</p>
+            <p className="mt-2 text-[11px]">موسیقی مجاز نیکسو (مجوز داخلی — نه کاتالوگ تجاری)</p>
             <div className="flex flex-wrap gap-1 text-[11px]">
               <button type="button" className={cn("rounded px-2 py-1", !musicId ? "bg-amber-300 text-[#102824]" : "bg-white/10")} onClick={() => setMusicId(null)}>بدون موسیقی</button>
               {STORY_MUSIC.map((m) => (
                 <button key={m.id} type="button" className={cn("rounded px-2 py-1", musicId === m.id ? "bg-amber-300 text-[#102824]" : "bg-white/10")} onClick={() => setMusicId(m.id)}>{m.label}</button>
               ))}
             </div>
+            <a href="/app/music" className="mt-1 block text-[11px] text-amber-200">کتابخانه موسیقی نیکسو</a>
             <Input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="لینک (https://)" dir="ltr" className="mt-2 bg-black/20 text-left text-xs" />
             <p className="mt-2 text-[11px]">موضوع کسب‌وکار</p>
             <div className="flex flex-wrap gap-1 text-[11px]">

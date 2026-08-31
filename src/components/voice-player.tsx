@@ -34,7 +34,7 @@ export type VoiceMsg = {
   viewedAt?: number | null;
 };
 
-const SPEEDS = [1, 1.5, 2] as const;
+const SPEEDS = [0.5, 1, 1.5, 2] as const;
 
 function Waveform({
   peaks,

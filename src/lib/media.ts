@@ -34,7 +34,7 @@ const DANGEROUS = new Set([
 ]);
 
 const ALLOWED = new Set([
-  "jpg", "jpeg", "png", "webp", "gif", "heic", "mp4", "webm", "mov", "m4v", "mp3", "m4a", "ogg", "wav",
+  "jpg", "jpeg", "png", "webp", "gif", "heic", "mp4", "webm", "mov", "m4v", "mp3", "m4a", "ogg", "wav", "flac",
   "pdf", "zip", "rar", "7z", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv",
 ]);
 
@@ -64,6 +64,7 @@ export function sniffMagic(bytes: Uint8Array): { ok: boolean; mime: string; warn
   if (ascii.startsWith("ID3") || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0)) return { ok: true, mime: "audio/mpeg" };
   if (ascii.startsWith("OggS")) return { ok: true, mime: "audio/ogg" };
   if (ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WAVE") return { ok: true, mime: "audio/wav" };
+  if (ascii.startsWith("fLaC")) return { ok: true, mime: "audio/flac" };
   return { ok: true, mime: "application/octet-stream", warning: "امضای فایل ناشناخته است؛ فقط پس از بررسی مجاز ذخیره می‌شود." };
 }
 
