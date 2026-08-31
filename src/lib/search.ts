@@ -176,7 +176,7 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
             preview: "گفتگوی خصوصی · متن پیام روی دستگاه است",
             sender: t.peerName,
             chatName: "چت‌ها",
-            date: t.updatedAt ?? t.createdAt,
+            date: t.updatedAt,
             kind: "chat",
             target: { type: "chat", id: t.id },
           },

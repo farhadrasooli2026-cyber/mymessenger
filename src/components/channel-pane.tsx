@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { CHANNEL_PERM_FA, formatSubscribers, type ChannelAdminPerms } from "@/lib/channel-types";
+import { ROLE_FA } from "@/lib/group-types";
 import { blobMatches } from "@/lib/search-match";
 
 const REACTS = ["❤️", "👍", "😂", "😮", "😢", "🔥"];

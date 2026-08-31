@@ -12,6 +12,7 @@ import { decryptText, encryptText, loadOrCreateThreadKey } from "@/lib/e2ee";
 import { MUTE_PRESETS, PERM_FA, ROLE_FA, type GroupPerms, type GroupRole } from "@/lib/group-types";
 import { backgroundPreview } from "@/lib/background-style";
 import type { Appearance } from "@/lib/appearance-types";
+import { BackgroundPicker, type BgDraft } from "@/components/background-picker";
 import { blobMatches } from "@/lib/search-match";
 
 type GMember = {

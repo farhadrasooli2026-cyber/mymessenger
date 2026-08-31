@@ -4,6 +4,7 @@ import { randomId } from "@/lib/crypto-utils";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import { collectSearchHits } from "@/lib/search";
+import { extractMemoryCandidate, runAiEngine, type AiEngineInput } from "@/lib/ai-engine";
 import {
   AI_FREE,
   DEFAULT_AI_PREFS,

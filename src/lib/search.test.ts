@@ -156,6 +156,9 @@ describe("NIXO search and saved messages", () => {
       username: "nixo_sr_store",
       category: "electronics",
       description: "فروشگاه آزمایشی جستجو نیکسو.",
+      website: "https://nixo.example",
+      phone: "09001112233",
+      email: "store@nixo.test",
       address: "تهران",
     });
     expect(biz.ok).toBe(true);

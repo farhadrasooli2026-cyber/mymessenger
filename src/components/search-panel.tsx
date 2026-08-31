@@ -65,11 +65,11 @@ export function SearchPanel({
   }, []);
 
   useEffect(() => {
-    if (q.trim().length < 2) {
-      setSuggestions([]);
-      return;
-    }
     const t = window.setTimeout(() => {
+      if (q.trim().length < 2) {
+        setSuggestions([]);
+        return;
+      }
       fetch(`/api/search?suggest=1&q=${encodeURIComponent(q)}`, { cache: "no-store" })
         .then((r) => r.json())
         .then((d) => setSuggestions(d.suggestions ?? []))
