@@ -8,6 +8,8 @@ import type { GroupPerms, GroupRole } from "@/lib/group-types";
 import { DEFAULT_GROUP_PERMS } from "@/lib/group-types";
 import type { CommunityPerms, CommunityRole, NotifyMode } from "@/lib/community-types";
 import { DEFAULT_COMMUNITY_PERMS } from "@/lib/community-types";
+import type { ChannelAdminPerms, ChannelNotify, ChannelPostKind, ChannelPostStatus, ChannelStaffRole } from "@/lib/channel-types";
+import { DEFAULT_CHANNEL_ADMIN_PERMS } from "@/lib/channel-types";
 import { DEFAULT_CATEGORIES, seedCatalogItems } from "@/lib/avatar-catalog";
 import { BG_CATEGORIES, seedBackgroundItems } from "@/lib/background-catalog";
 
@@ -136,6 +138,29 @@ function hydrateCommunity(community: CommunityRecord): CommunityRecord {
     announcements: Array.isArray(community.announcements) ? community.announcements : [],
     posts: Array.isArray(community.posts) ? community.posts : [],
     deletedAt: community.deletedAt ?? null,
+  };
+}
+
+function hydratePubChannel(channel: PubChannelRecord): PubChannelRecord {
+  return {
+    ...channel,
+    description: channel.description ?? "",
+    username: channel.username ?? null,
+    visibility: channel.visibility === "private" ? "private" : "public",
+    verified: Boolean(channel.verified),
+    commentsEnabled: Boolean(channel.commentsEnabled),
+    allowForward: channel.allowForward !== false,
+    discussionGroupId: channel.discussionGroupId ?? null,
+    inviteToken: channel.inviteToken || "",
+    inviteMaxUses: typeof channel.inviteMaxUses === "number" ? channel.inviteMaxUses : null,
+    inviteUses: channel.inviteUses ?? 0,
+    inviteExpiresAt: channel.inviteExpiresAt ?? null,
+    adminPerms: { ...DEFAULT_CHANNEL_ADMIN_PERMS, ...(channel.adminPerms ?? {}) },
+    staff: Array.isArray(channel.staff) ? channel.staff : [],
+    subscribers: Array.isArray(channel.subscribers) ? channel.subscribers : [],
+    bans: Array.isArray(channel.bans) ? channel.bans : [],
+    pinIds: Array.isArray(channel.pinIds) ? channel.pinIds : [],
+    deletedAt: channel.deletedAt ?? null,
   };
 }
 
@@ -440,6 +465,84 @@ export type CommunityRecord = {
   deletedAt: number | null;
 };
 
+export type ChannelStaff = {
+  userId: string;
+  role: ChannelStaffRole;
+  name: string;
+};
+
+export type ChannelSubscriber = {
+  userId: string;
+  name: string;
+  username: string | null;
+  subscribedAt: number;
+  notify: ChannelNotify;
+  leftAt: number | null;
+};
+
+export type ChannelComment = {
+  id: string;
+  authorKey: string;
+  authorName: string;
+  body: string;
+  createdAt: number;
+};
+
+export type ChannelPoll = {
+  question: string;
+  options: string[];
+  anonymous: boolean;
+  multiple: boolean;
+  closesAt: number | null;
+  votes: { voterKey: string; indexes: number[] }[];
+};
+
+export type ChannelPost = {
+  id: string;
+  channelId: string;
+  authorKey: string;
+  authorName: string;
+  kind: ChannelPostKind;
+  body: string;
+  caption: string;
+  status: ChannelPostStatus;
+  scheduledAt: number | null;
+  publishedAt: number | null;
+  editedAt: number | null;
+  reactions: { emoji: string; keys: string[] }[];
+  comments: ChannelComment[];
+  poll?: ChannelPoll;
+  album: string[];
+  createdAt: number;
+  deleted?: boolean;
+};
+
+export type PubChannelRecord = {
+  id: string;
+  name: string;
+  description: string;
+  username: string | null;
+  color: string;
+  visibility: "public" | "private";
+  ownerUserId: string;
+  verified: boolean;
+  commentsEnabled: boolean;
+  allowForward: boolean;
+  discussionGroupId: string | null;
+  inviteToken: string;
+  inviteMaxUses: number | null;
+  inviteUses: number;
+  inviteExpiresAt: number | null;
+  adminPerms: ChannelAdminPerms;
+  staff: ChannelStaff[];
+  subscribers: ChannelSubscriber[];
+  bans: { key: string; at: number }[];
+  pinIds: string[];
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+};
+
 export type StoreData = {
   users: UserRecord[];
   challenges: ChallengeRecord[];
@@ -454,6 +557,8 @@ export type StoreData = {
   groups: GroupRecord[];
   groupMessages: GroupMessage[];
   communities: CommunityRecord[];
+  pubChannels: PubChannelRecord[];
+  channelPosts: ChannelPost[];
   catalogCategories: CatalogCategory[];
   catalogItems: CatalogItem[];
   bgCategories: CatalogCategory[];
@@ -474,6 +579,8 @@ const EMPTY: StoreData = {
   groups: [],
   groupMessages: [],
   communities: [],
+  pubChannels: [],
+  channelPosts: [],
   catalogCategories: [],
   catalogItems: [],
   bgCategories: [],
@@ -515,6 +622,8 @@ async function readStore(): Promise<StoreData> {
       groups: Array.isArray(parsed.groups) ? parsed.groups.map(hydrateGroup) : [],
       groupMessages: Array.isArray(parsed.groupMessages) ? parsed.groupMessages : [],
       communities: Array.isArray(parsed.communities) ? parsed.communities.map(hydrateCommunity) : [],
+      pubChannels: Array.isArray(parsed.pubChannels) ? parsed.pubChannels.map(hydratePubChannel) : [],
+      channelPosts: Array.isArray(parsed.channelPosts) ? parsed.channelPosts : [],
       catalogCategories: parsed.catalogCategories ?? [],
       catalogItems: parsed.catalogItems ?? [],
       bgCategories: parsed.bgCategories ?? [],

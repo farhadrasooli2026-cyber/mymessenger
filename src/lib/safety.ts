@@ -95,10 +95,11 @@ export async function fileReport(
       if (!community) return { ok: false as const, error: "جامعه یافت نشد.", status: 404 };
     }
     if (input.targetKind === "channel") {
-      const found = data.communities.some(
-        (c) => !c.deletedAt && (c.channels.some((ch) => ch.id === input.targetKey) || c.id === input.targetKey),
+      const inCommunity = data.communities.some(
+        (c) => !c.deletedAt && c.channels.some((ch) => ch.id === input.targetKey),
       );
-      if (!found) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
+      const inPub = data.pubChannels.some((c) => c.id === input.targetKey && !c.deletedAt);
+      if (!inCommunity && !inPub) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
     }
     const report = {
       id: randomId(),

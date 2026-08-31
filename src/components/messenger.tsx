@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Ban, Flag, Globe, Lock, MessageCircle, Phone, Search, Send, Sparkles, Store, Timer, UserRound, Users, Video } from "lucide-react";
+import { Ban, Flag, Globe, Lock, MessageCircle, Phone, Radio, Search, Send, Sparkles, Store, Timer, UserRound, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { nixoSpaces } from "@/lib/brand";
@@ -44,6 +44,8 @@ import { GroupCreate } from "@/components/group-create";
 import { GroupPane } from "@/components/group-pane";
 import { CommunityCreate } from "@/components/community-create";
 import { CommunityPane } from "@/components/community-pane";
+import { ChannelCreate } from "@/components/channel-create";
+import { ChannelPane } from "@/components/channel-pane";
 
 type Thread = {
   id: string;
@@ -312,6 +314,10 @@ export function Messenger({
   const [communities, setCommunities] = useState<{ id: string; name: string; color: string; memberCount: number }[]>([]);
   const [activeCommunityId, setActiveCommunityId] = useState<string | null>(null);
   const [createCommunity, setCreateCommunity] = useState(false);
+  const [pubChannels, setPubChannels] = useState<{ id: string; name: string; color: string; subscriberCount: number; username: string | null }[]>([]);
+  const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
+  const [createChannel, setCreateChannel] = useState(false);
+  const [channelHits, setChannelHits] = useState<{ id: string; name: string; username: string | null; subscriberCount: number }[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
 
   const active = threads.find((t) => t.id === activeId) ?? null;
@@ -374,6 +380,15 @@ export function Messenger({
     setCommunities(data.communities ?? []);
   }, []);
 
+  const loadChannels = useCallback(async () => {
+    const res = await fetch("/api/channels", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = (await res.json()) as {
+      channels?: { id: string; name: string; color: string; subscriberCount: number; username: string | null }[];
+    };
+    setPubChannels(data.channels ?? []);
+  }, []);
+
   useEffect(() => {
     const ac = new AbortController();
     fetch("/api/chats", { cache: "no-store", signal: ac.signal })
@@ -407,6 +422,13 @@ export function Messenger({
       .then((data) => {
         if (!data) return;
         setCommunities(data.communities ?? []);
+      })
+      .catch(() => undefined);
+    fetch("/api/channels", { cache: "no-store", signal: ac.signal })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data) return;
+        setPubChannels(data.channels ?? []);
       })
       .catch(() => undefined);
     loadOrCreateIdentity()
@@ -722,6 +744,9 @@ export function Messenger({
                 const res = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`);
                 const data = await res.json();
                 setHits(data.users ?? []);
+                const ch = await fetch(`/api/channels?q=${encodeURIComponent(query)}`);
+                const found = await ch.json();
+                setChannelHits(found.channels ?? []);
               }}
             >
               <Search className="size-3.5" />
@@ -731,6 +756,22 @@ export function Messenger({
             <p key={hit.id} className="rounded-lg bg-white/5 px-2 py-1 text-xs">
               {hit.displayName} <span dir="ltr">@{hit.username}</span>
             </p>
+          ))}
+          {channelHits.map((hit) => (
+            <button
+              key={hit.id}
+              type="button"
+              className="block w-full rounded-lg bg-white/5 px-2 py-1 text-right text-xs"
+              onClick={() => {
+                setActiveChannelId(hit.id);
+                setActiveCommunityId(null);
+                setActiveGroupId(null);
+                setTab("chats");
+                setMobileChat(true);
+              }}
+            >
+              کانال {hit.name} {hit.username ? `@${hit.username}` : ""}
+            </button>
           ))}
           <Button
             type="button"
@@ -749,10 +790,50 @@ export function Messenger({
             <Globe className="ml-1 size-3.5" />
             ایجاد جامعه
           </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-9 w-full"
+            onClick={() => setCreateChannel(true)}
+          >
+            <Radio className="ml-1 size-3.5" />
+            ایجاد کانال
+          </Button>
         </div>
 
         <ScrollArea className="flex-1">
           <div className="space-y-1 px-2 pb-24">
+            {pubChannels.map((ch) => (
+              <button
+                key={ch.id}
+                type="button"
+                onClick={() => {
+                  setActiveChannelId(ch.id);
+                  setActiveCommunityId(null);
+                  setActiveGroupId(null);
+                  setMobileChat(true);
+                  setTab("chats");
+                }}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-right transition",
+                  activeChannelId === ch.id ? "bg-violet-400/15" : "hover:bg-white/5",
+                )}
+              >
+                <span className="grid size-11 place-items-center rounded-2xl text-sm font-semibold text-[#071614]" style={{ background: ch.color }}>
+                  {ch.name.slice(0, 1)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="truncate font-medium">{ch.name}</span>
+                    <span className="text-[10px] text-violet-200">کانال</span>
+                  </span>
+                  <span className="mt-0.5 block truncate text-xs text-emerald-100/60">
+                    {ch.username ? `@${ch.username} · ` : ""}
+                    {ch.subscriberCount} دنبال‌کننده
+                  </span>
+                </span>
+              </button>
+            ))}
             {communities.map((community) => (
               <button
                 key={community.id}
@@ -760,6 +841,7 @@ export function Messenger({
                 onClick={() => {
                   setActiveCommunityId(community.id);
                   setActiveGroupId(null);
+                  setActiveChannelId(null);
                   setMobileChat(true);
                   setTab("chats");
                 }}
@@ -792,6 +874,7 @@ export function Messenger({
                 onClick={() => {
                   setActiveGroupId(group.id);
                   setActiveCommunityId(null);
+                  setActiveChannelId(null);
                   setMobileChat(true);
                   setTab("chats");
                 }}
@@ -825,6 +908,7 @@ export function Messenger({
                   setActiveId(thread.id);
                   setActiveGroupId(null);
                   setActiveCommunityId(null);
+                  setActiveChannelId(null);
                   setMobileChat(true);
                   setTab("chats");
                 }}
@@ -863,7 +947,34 @@ export function Messenger({
           mobileChat ? "flex" : "hidden md:flex",
         )}
       >
-        {tab === "chats" && activeCommunityId ? (
+        {tab === "chats" && activeChannelId ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <Button
+              type="button"
+              variant="ghost"
+              className="md:hidden text-white hover:bg-white/10"
+              onClick={() => {
+                setActiveChannelId(null);
+                setMobileChat(false);
+              }}
+            >
+              گفتگوها
+            </Button>
+            <ChannelPane
+              key={activeChannelId}
+              channelId={activeChannelId}
+              userIdHint={userId}
+              onLeft={() => {
+                setActiveChannelId(null);
+                void loadChannels();
+              }}
+              onOpenGroup={(groupId) => {
+                setActiveChannelId(null);
+                setActiveGroupId(groupId);
+              }}
+            />
+          </div>
+        ) : tab === "chats" && activeCommunityId ? (
           <div className="flex min-h-0 flex-1 flex-col">
             <Button
               type="button"
@@ -1347,7 +1458,7 @@ export function Messenger({
           <div className="flex-1 overflow-auto p-5">
             <h2 className="text-xl font-semibold">فضاهای نیکسو</h2>
             <p className="mt-2 max-w-2xl text-sm leading-7 text-emerald-100/70">
-              همهٔ سرویس‌ها در یک هویت جمع می‌شوند. گفتگوی خصوصی، گروه‌ها، جامعه‌ها، تماس، رسانه و E2EE زنده‌اند.
+              همهٔ سرویس‌ها در یک هویت جمع می‌شوند. گفتگوی خصوصی، گروه، جامعه، کانال، تماس و E2EE زنده‌اند.
             </p>
             <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {nixoSpaces.map((space) => (
@@ -1386,6 +1497,19 @@ export function Messenger({
                       }}
                     >
                       ساخت جامعه
+                    </Button>
+                  )}
+                  {space.id === "channel" && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="mt-3 bg-amber-300 text-[#102824]"
+                      onClick={() => {
+                        setTab("chats");
+                        setCreateChannel(true);
+                      }}
+                    >
+                      ساخت کانال
                     </Button>
                   )}
                 </article>
@@ -1817,6 +1941,20 @@ export function Messenger({
             setTab("chats");
             setMobileChat(true);
             void loadCommunities();
+          }}
+        />
+      )}
+      {createChannel && (
+        <ChannelCreate
+          onClose={() => setCreateChannel(false)}
+          onCreated={(id) => {
+            setCreateChannel(false);
+            setActiveChannelId(id);
+            setActiveCommunityId(null);
+            setActiveGroupId(null);
+            setTab("chats");
+            setMobileChat(true);
+            void loadChannels();
           }}
         />
       )}
