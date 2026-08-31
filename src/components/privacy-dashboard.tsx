@@ -211,8 +211,9 @@ export function PrivacyDashboard() {
           <h2 className="font-medium">استوری و ظاهر</h2>
           <p className="text-xs">حریم پیش‌فرض استوری: {str("defaultStoryPrivacy")}</p>
           <Link href="/app/settings/story" className="mt-1 inline-block text-xs text-amber-200">
-            تنظیمات ← حریم خصوصی ← استوری
+            Settings → Privacy → Stories
           </Link>
+          <p className="mt-2 text-[11px] opacity-70">وضعیت کوتاه و استوری از Online / Last Seen جدا هستند.</p>
           <p className="mt-2 text-[11px] opacity-70">پس‌زمینه و تم ظاهر فقط برای تو در پروفایل عمومی نیست.</p>
         </section>
 

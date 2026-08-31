@@ -792,7 +792,15 @@ export async function publishBusinessStory(userId: string, businessId: string, b
   const b = data.businesses.find((x) => x.id === businessId);
   if (!b) return { ok: false as const, status: 404, error: "کسب‌وکار نیست." };
   const text = `${b.name} · ${body}`.slice(0, 400);
-  return createStory(userId, { kind: "text", body: text, caption: "Business Story", visibility: "everyone" });
+  return createStory(userId, {
+    kind: "text",
+    body: text,
+    caption: "Business Story",
+    visibility: "everyone",
+    purpose: "announcement",
+    source: "business",
+    sourceId: businessId,
+  });
 }
 
 export { ALL_BIZ_PERMS };

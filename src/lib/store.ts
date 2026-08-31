@@ -90,6 +90,10 @@ function hydrateUser(user: UserRecord): UserRecord {
     statusPrivacy: user.statusPrivacy ?? "everyone",
     statusAllowIds: Array.isArray(user.statusAllowIds) ? user.statusAllowIds : [],
     defaultStoryPrivacy: user.defaultStoryPrivacy ?? "everyone",
+    defaultHideFromIds: Array.isArray(user.defaultHideFromIds) ? user.defaultHideFromIds : [],
+    storyAllowReplies: user.storyAllowReplies !== false,
+    storyAllowShare: user.storyAllowShare !== false,
+    storyArchiveEnabled: user.storyArchiveEnabled !== false,
     searchHistory: Array.isArray(user.searchHistory) ? user.searchHistory : [],
     privacyPhone: user.privacyPhone ?? "contacts",
     privacyFindPhone: user.privacyFindPhone ?? "contacts",
@@ -291,6 +295,44 @@ function hydratePubChannel(channel: PubChannelRecord): PubChannelRecord {
   };
 }
 
+function hydrateUserStory(story: UserStory): UserStory {
+  const kinds = ["text", "photo", "video", "gif", "sticker", "location"] as const;
+  return {
+    ...story,
+    kind: kinds.includes(story.kind as (typeof kinds)[number]) ? story.kind : "text",
+    caption: story.caption ?? "",
+    bg: story.bg || "#102824",
+    font: story.font || "vazir",
+    align: story.align === "left" || story.align === "center" ? story.align : "right",
+    filter: story.filter || "none",
+    rotate: Number(story.rotate) || 0,
+    zoom: Number(story.zoom) || 1,
+    overlay: story.overlay ?? "",
+    textSize: typeof story.textSize === "number" ? story.textSize : 22,
+    textX: typeof story.textX === "number" ? story.textX : 50,
+    textY: typeof story.textY === "number" ? story.textY : 50,
+    blur: Number(story.blur) || 0,
+    drawData: story.drawData ?? "",
+    stickers: Array.isArray(story.stickers) ? story.stickers : [],
+    location: story.location ?? "",
+    media: story.media ?? "",
+    musicId: story.musicId ?? null,
+    linkUrl: story.linkUrl ?? "",
+    mentions: Array.isArray(story.mentions) ? story.mentions : [],
+    allowShare: story.allowShare !== false,
+    allowReplies: story.allowReplies !== false,
+    visibility: story.visibility ?? "everyone",
+    allowIds: Array.isArray(story.allowIds) ? story.allowIds : [],
+    hideFromIds: Array.isArray(story.hideFromIds) ? story.hideFromIds : [],
+    purpose: story.purpose ?? "general",
+    source: story.source === "business" || story.source === "channel" ? story.source : "user",
+    sourceId: story.sourceId ?? null,
+    draft: Boolean(story.draft),
+    videoDurationMs: typeof story.videoDurationMs === "number" ? story.videoDurationMs : 0,
+    deletedAt: story.deletedAt ?? null,
+  };
+}
+
 export type UserStatus = "pending_profile" | "active";
 
 export type UserRecord = {
@@ -328,6 +370,10 @@ export type UserRecord = {
   statusPrivacy: Visibility;
   statusAllowIds: string[];
   defaultStoryPrivacy: "everyone" | "contacts" | "closeFriends" | "selected";
+  defaultHideFromIds: string[];
+  storyAllowReplies: boolean;
+  storyAllowShare: boolean;
+  storyArchiveEnabled: boolean;
   searchHistory: string[];
   privacyPhone: import("@/lib/profile-types").Visibility3;
   privacyFindPhone: import("@/lib/profile-types").Visibility3;
@@ -592,7 +638,7 @@ export type StoryView = {
 export type UserStory = {
   id: string;
   ownerUserId: string;
-  kind: "text" | "photo" | "video";
+  kind: import("@/lib/story-types").StoryKind;
   body: string;
   caption: string;
   bg: string;
@@ -602,14 +648,27 @@ export type UserStory = {
   rotate: number;
   zoom: number;
   overlay: string;
+  textSize: number;
+  textX: number;
+  textY: number;
+  blur: number;
+  drawData: string;
+  stickers: { emoji: string; x: number; y: number }[];
+  location: string;
   media: string;
   musicId: string | null;
   linkUrl: string;
   mentions: string[];
   allowShare: boolean;
-  visibility: "everyone" | "contacts" | "closeFriends" | "selected";
+  allowReplies: boolean;
+  visibility: import("@/lib/story-types").StoryVisibility;
   allowIds: string[];
   hideFromIds: string[];
+  purpose: import("@/lib/story-types").StoryPurpose;
+  source: "user" | "business" | "channel";
+  sourceId: string | null;
+  draft: boolean;
+  videoDurationMs: number;
   createdAt: number;
   expiresAt: number;
   deletedAt: number | null;
@@ -1200,7 +1259,7 @@ async function readStore(): Promise<StoreData> {
       messages: (parsed.messages ?? []).map(hydrateMessage),
       reports: parsed.reports ?? [],
       storyViews: parsed.storyViews ?? [],
-      userStories: Array.isArray(parsed.userStories) ? parsed.userStories : [],
+      userStories: Array.isArray(parsed.userStories) ? parsed.userStories.map(hydrateUserStory) : [],
       storyWatches: Array.isArray(parsed.storyWatches) ? parsed.storyWatches : [],
       storyReactions: Array.isArray(parsed.storyReactions) ? parsed.storyReactions : [],
       storyReplies: Array.isArray(parsed.storyReplies) ? parsed.storyReplies : [],

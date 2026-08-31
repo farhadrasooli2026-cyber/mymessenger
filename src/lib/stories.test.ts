@@ -7,6 +7,7 @@ import { mutateStore, resetStoreForTests } from "./store";
 import {
   createStory,
   deleteStory,
+  getStoryMedia,
   listArchive,
   listStoryFeed,
   updateStorySettings,
@@ -124,5 +125,28 @@ describe("NIXO stories", () => {
     expect(ok.ok).toBe(true);
     const feed = await listStoryFeed(other);
     expect(feed.rings.some((r) => r.items.some((s) => s.id === created.story.id))).toBe(false);
+  });
+
+  it("keeps drafts off the public feed and signs media for authorized viewers only", async () => {
+    const owner = await activeUser("st_dft");
+    const other = await activeUser("st_dfo");
+    const draft = await createStory(owner, { kind: "text", body: "پیش‌نویس", draft: true });
+    expect(draft.ok).toBe(true);
+    if (!draft.ok) return;
+    const otherFeed = await listStoryFeed(other);
+    expect(otherFeed.rings.some((r) => r.items.some((s) => s.id === draft.story.id))).toBe(false);
+    const peek = await viewUserStory(other, draft.story.id);
+    expect(peek.ok).toBe(false);
+    const tiny = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAGfAD/2Q==";
+    const photo = await createStory(owner, { kind: "photo", media: tiny, visibility: "selected", allowIds: [] });
+    expect(photo.ok).toBe(true);
+    if (!photo.ok) return;
+    const denied = await getStoryMedia(other, photo.story.id, "0.dead");
+    expect(denied.ok).toBe(false);
+    const selected = await createStory(owner, { kind: "text", body: "فقط تو", visibility: "selected", allowIds: [other] });
+    expect(selected.ok).toBe(true);
+    if (!selected.ok) return;
+    const allowed = await listStoryFeed(other);
+    expect(allowed.rings.some((r) => r.items.some((s) => s.id === selected.story.id))).toBe(true);
   });
 });

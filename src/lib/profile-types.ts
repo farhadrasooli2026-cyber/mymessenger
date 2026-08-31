@@ -57,6 +57,10 @@ export function defaultUserFields(): {
   statusPrivacy: Visibility;
   statusAllowIds: string[];
   defaultStoryPrivacy: "everyone" | "contacts" | "closeFriends" | "selected";
+  defaultHideFromIds: string[];
+  storyAllowReplies: boolean;
+  storyAllowShare: boolean;
+  storyArchiveEnabled: boolean;
   searchHistory: string[];
   privacyPhone: Visibility3;
   privacyFindPhone: Visibility3;
@@ -114,6 +118,10 @@ export function defaultUserFields(): {
     statusPrivacy: "everyone",
     statusAllowIds: [],
     defaultStoryPrivacy: "everyone",
+    defaultHideFromIds: [],
+    storyAllowReplies: true,
+    storyAllowShare: true,
+    storyArchiveEnabled: true,
     searchHistory: [],
     privacyPhone: "contacts",
     privacyFindPhone: "contacts",

@@ -10,7 +10,7 @@ export async function GET(_req: Request, ctx: Ctx) {
   const { id } = await ctx.params;
   const result = await listViewers(user.id, id);
   if (!result.ok) return jsonError(result.error, result.status);
-  return json({ ok: true, viewers: result.viewers, reactions: result.reactions, replies: result.replies });
+  return json({ ok: true, viewers: result.viewers, reactions: result.reactions, replies: result.replies, analytics: result.analytics });
 }
 
 export async function POST(request: Request, ctx: Ctx) {

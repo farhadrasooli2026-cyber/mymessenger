@@ -12,17 +12,22 @@ type Settings = {
   closeFriendIds: string[];
   mutedStoryUserIds: string[];
   storyNotifyOffIds: string[];
+  defaultHideFromIds: string[];
   statusPreset: string;
   statusText: string;
   statusPrivacy: string;
   statusAllowIds: string[];
   defaultStoryPrivacy: string;
+  storyAllowReplies: boolean;
+  storyAllowShare: boolean;
+  storyArchiveEnabled: boolean;
   people: { id: string; name: string; username: string | null }[];
 };
 
 export function StorySettings() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [archive, setArchive] = useState<StoryItem[]>([]);
+  const [drafts, setDrafts] = useState<StoryItem[]>([]);
   const [view, setView] = useState<StoryItem[] | null>(null);
 
   async function load() {
@@ -32,6 +37,9 @@ export function StorySettings() {
     const arch = await fetch("/api/stories?archive=1", { cache: "no-store" });
     const a = await arch.json();
     setArchive(a.archive ?? []);
+    const dr = await fetch("/api/stories?drafts=1", { cache: "no-store" });
+    const d2 = await dr.json();
+    setDrafts(d2.drafts ?? []);
   }
 
   useEffect(() => {
@@ -42,6 +50,10 @@ export function StorySettings() {
     fetch("/api/stories?archive=1", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => setArchive(d.archive ?? []))
+      .catch(() => undefined);
+    fetch("/api/stories?drafts=1", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setDrafts(d.drafts ?? []))
       .catch(() => undefined);
   }, []);
 
@@ -68,7 +80,7 @@ export function StorySettings() {
         <div className="flex items-center gap-2">
           <NixoMark size={36} />
           <div>
-            <p className="text-xs text-amber-200">تنظیمات ← حریم خصوصی ← استوری</p>
+            <p className="text-xs text-amber-200">Settings → Privacy → Stories</p>
             <h1 className="text-xl font-semibold">استوری و وضعیت</h1>
           </div>
         </div>
@@ -116,6 +128,26 @@ export function StorySettings() {
             </label>
           ))}
           {settings.people.length === 0 && <p className="text-xs opacity-50">هنوز کاربر دیگری در این محیط نیست.</p>}
+          <p className="mt-3 text-xs">Hide Story From (پیش‌فرض)</p>
+          {settings.people.map((p) => (
+            <label key={`h-${p.id}`} className="mt-1 flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={(settings.defaultHideFromIds ?? []).includes(p.id)} onChange={() => void save({ defaultHideFromIds: toggle(settings.defaultHideFromIds ?? [], p.id) })} />
+              مخفی از {p.name}
+            </label>
+          ))}
+          <label className="mt-3 flex items-center gap-2 text-xs">
+            <input type="checkbox" checked={settings.storyAllowReplies} onChange={(e) => void save({ storyAllowReplies: e.target.checked })} />
+            Replies
+          </label>
+          <label className="mt-1 flex items-center gap-2 text-xs">
+            <input type="checkbox" checked={settings.storyAllowShare} onChange={(e) => void save({ storyAllowShare: e.target.checked })} />
+            Sharing
+          </label>
+          <label className="mt-1 flex items-center gap-2 text-xs">
+            <input type="checkbox" checked={settings.storyArchiveEnabled} onChange={(e) => void save({ storyArchiveEnabled: e.target.checked })} />
+            Archive
+          </label>
+          <p className="mt-2 text-[11px] opacity-60">Online / Last Seen جدا از استوری در Privacy عمومی تنظیم می‌شود.</p>
         </section>
         <section className="rounded-2xl bg-white/5 p-4 text-sm">
           <h2 className="font-medium">اعلان استوری</h2>
@@ -152,6 +184,28 @@ export function StorySettings() {
               </button>
             ))}
           {settings.mutedStoryUserIds.length === 0 && <p className="text-xs opacity-50">کسی بی‌صدا نیست.</p>}
+        </section>
+        <section className="rounded-2xl bg-white/5 p-4 text-sm">
+          <h2 className="font-medium">پیش‌نویس‌ها</h2>
+          {drafts.map((s) => (
+            <div key={s.id} className="mt-1 flex items-center justify-between text-xs">
+              <span>{s.kind} · {new Date(s.createdAt).toLocaleString("fa-IR")}</span>
+              <button
+                type="button"
+                className="text-amber-200"
+                onClick={() =>
+                  void fetch("/api/stories", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "publish-draft", storyId: s.id }),
+                  }).then(() => load())
+                }
+              >
+                انتشار
+              </button>
+            </div>
+          ))}
+          {drafts.length === 0 && <p className="text-xs opacity-50">پیش‌نویسی نیست.</p>}
         </section>
         <section className="rounded-2xl bg-white/5 p-4 text-sm">
           <h2 className="font-medium">بایگانی استوری</h2>
