@@ -9,7 +9,6 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// ایجاد پوشه آپلود برای ذخیره عکس و وویس
 const uploadDir = path.join(__dirname, 'public', 'uploads');
 if (!fs.existsSync(uploadDir)){
   fs.existsSync(path.join(__dirname, 'public')) || fs.mkdirSync(path.join(__dirname, 'public'));
@@ -45,10 +44,13 @@ db.serialize(() => {
 
 app.post('/api/register', (req, res) => {
   const { username, email, phone, password, gender } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'نام کاربری و رمز عبور الزامی است.' });
+  }
   const stmt = db.prepare('INSERT INTO users (username, email, phone, password, gender, status) VALUES (?, ?, ?, ?, ?, ?)');
-  stmt.run(username, email, phone, password, gender, 'offline', function (err) {
+  stmt.run(username, email, phone, password, gender || 'مرد', 'offline', function (err) {
     if (err) return res.status(400).json({ error: 'این نام کاربری قبلاً ثبت شده است.' });
-    res.json({ success: true, user: { username, gender } });
+    res.json({ success: true, user: { username, gender: gender || 'مرد', profilePic: '', bio: '' } });
   });
   stmt.finalize();
 });
@@ -56,9 +58,26 @@ app.post('/api/register', (req, res) => {
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   db.get('SELECT username, gender, profilePic, bio, status, lastSeen FROM users WHERE username = ? AND password = ?', [username, password], (err, row) => {
-    if (err || !row) return res.status(401).json({ error: 'اطلاعات ورود اشتباه است.' });
+    if (err || !row) return res.status(401).json({ error: 'نام کاربری یا رمز عبور اشتباه است.' });
     res.json({ success: true, user: row });
   });
+});
+
+app.post('/api/update-profile', (req, res) => {
+  const { username, profilePic, bio } = req.body;
+  db.run(
+    'UPDATE users SET profilePic = ?, bio = ? WHERE username = ?',
+    [profilePic || '', bio || '', username],
+    function (err) {
+      if (err) {
+        return res.status(500).json({ error: 'خطا در ذخیره اطلاعات در دیتابیس.' });
+      }
+      db.get('SELECT username, gender, profilePic, bio, status, lastSeen FROM users WHERE username = ?', [username], (err, row) => {
+        if (err || !row) return res.status(404).json({ error: 'کاربر یافت نشد.' });
+        res.json({ success: true, user: row });
+      });
+    }
+  );
 });
 
 app.get('/api/users', (req, res) => {
@@ -87,27 +106,19 @@ io.on('connection', (socket) => {
 
   socket.on('send_private_message', (data) => {
     let { sender, receiver, message } = data;
-
-    // پردازش فایل‌های بیس‌صدا یا تصویر و ذخیره روی سرور همراه با حفظ کامل کپشن
     if (message && (message.startsWith('data:image') || message.startsWith('data:audio'))) {
       const parts = message.split('||caption||');
       const rawData = parts[0];
       const caption = parts[1] !== undefined ? '||caption||' + parts[1] : '';
-
       const matches = rawData.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
       if (matches && matches.length === 3) {
-        const mimeType = matches[1];
-        const base64Data = matches[2];
-        const ext = mimeType.split('/')[1] || 'png';
+        const ext = matches[1].split('/')[1] || 'png';
         const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
         const filePath = path.join(uploadDir, fileName);
-        
         try {
-          fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+          fs.writeFileSync(filePath, Buffer.from(matches[2], 'base64'));
           message = `/uploads/${fileName}${caption}`;
-        } catch (e) {
-          console.error('File write error:', e);
-        }
+        } catch (e) {}
       }
     }
 
@@ -116,9 +127,7 @@ io.on('connection', (socket) => {
       if (!err) {
         const payload = { sender, receiver, message };
         const receiverSocketId = userSockets[receiver];
-        if (receiverSocketId) {
-          io.to(receiverSocketId).emit('receive_private_message', payload);
-        }
+        if (receiverSocketId) io.to(receiverSocketId).emit('receive_private_message', payload);
         socket.emit('message_sent', payload);
       }
     });
