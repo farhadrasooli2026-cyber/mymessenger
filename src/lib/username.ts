@@ -41,10 +41,9 @@ export const USERNAME_MAX = 20;
 
 function looksOfficialImpersonation(raw: string) {
   if (raw === "nixouser1" || raw.startsWith("nixouser")) return false;
-  if (raw === "nixo" || raw.startsWith("nixo_") || raw.endsWith("_nixo")) return true;
-  if (raw.includes("official") || raw.includes("administrator")) return true;
   const compact = raw.replace(/[._]/g, "");
-  if (compact === "nixoofficial" || compact === "officialnixo" || compact === "nixoadmin") return true;
+  if (compact === "nixoofficial" || compact === "officialnixo" || compact === "nixoadmin" || compact === "adminnixo") return true;
+  if (raw === "nixo_official" || raw === "official_nixo" || raw === "nixo_admin" || raw === "admin_nixo") return true;
   return false;
 }
 
