@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,8 +39,23 @@ export function BotsHub() {
   }
 
   useEffect(() => {
-    load();
-  }, [category]);
+    fetch("/api/bots?mine=1", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.ok) setMine(d.bots ?? []);
+      })
+      .catch(() => undefined);
+    const cat = category ? `&category=${encodeURIComponent(category)}` : "";
+    fetch(`/api/bots?q=${encodeURIComponent(q)}${cat}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.ok) {
+          setBots(d.bots ?? []);
+          setMini(d.miniApps ?? []);
+        }
+      })
+      .catch(() => undefined);
+  }, [category, q]);
 
   return (
     <main className="min-h-dvh bg-[#071614] p-5 text-emerald-50">

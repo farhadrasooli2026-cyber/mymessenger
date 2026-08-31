@@ -29,7 +29,12 @@ export function MiniAppFrame({ miniId }: { miniId: string }) {
   }
 
   useEffect(() => {
-    load();
+    fetch(`/api/mini?id=${encodeURIComponent(miniId)}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.ok) setPack(d as Init);
+      })
+      .catch(() => undefined);
   }, [miniId]);
 
   useEffect(() => {

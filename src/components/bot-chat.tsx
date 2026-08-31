@@ -41,7 +41,19 @@ export function BotChat({ botId }: { botId: string }) {
   }
 
   useEffect(() => {
-    load();
+    fetch(`/api/bots/chat?botId=${encodeURIComponent(botId)}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d.ok) return;
+        setName(d.bot.name);
+        setUsername(d.bot.username);
+        setVerified(Boolean(d.bot.verified));
+        setStarted(Boolean(d.chat?.started));
+        setNotify(d.chat?.notify ?? "on");
+        setMessages(d.messages ?? []);
+        setMini(d.miniApps ?? []);
+      })
+      .catch(() => undefined);
   }, [botId]);
 
   async function act(body: Record<string, unknown>) {

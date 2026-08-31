@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ type Dash = {
 };
 
 export function BotStudio({ botId }: { botId?: string }) {
+  const router = useRouter();
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [description, setDescription] = useState("");
@@ -56,7 +58,16 @@ export function BotStudio({ botId }: { botId?: string }) {
   }
 
   useEffect(() => {
-    load();
+    if (!botId) return;
+    fetch(`/api/bots/${botId}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.ok) {
+          setDash(d as Dash);
+          setWebhook(d.bot.webhookUrl ?? "");
+        }
+      })
+      .catch(() => undefined);
   }, [botId]);
 
   async function create(e: React.FormEvent) {
@@ -75,7 +86,7 @@ export function BotStudio({ botId }: { botId?: string }) {
       }
       setToken(data.token);
       toast.success("ربات ساخته شد. توکن را کپی کنید.");
-      window.location.href = `/app/bots/${data.bot.id}`;
+      router.push(`/app/bots/${data.bot.id}`);
     } finally {
       setBusy(false);
     }

@@ -1766,14 +1766,14 @@ export function Messenger({
                     </Button>
                   )}
                   {space.id === "bot" && (
-                    <a href="/app/bots" className="mt-3 inline-flex h-8 items-center rounded-lg bg-amber-300 px-3 text-sm font-medium text-[#102824]">
+                    <Link href="/app/bots" className="mt-3 inline-flex h-8 items-center rounded-lg bg-amber-300 px-3 text-sm font-medium text-[#102824]">
                       ربات‌ها و Directory
-                    </a>
+                    </Link>
                   )}
                   {space.id === "mini" && (
-                    <a href="/app/bots" className="mt-3 inline-flex h-8 items-center rounded-lg bg-amber-300 px-3 text-sm font-medium text-[#102824]">
+                    <Link href="/app/bots" className="mt-3 inline-flex h-8 items-center rounded-lg bg-amber-300 px-3 text-sm font-medium text-[#102824]">
                       Mini Apps
-                    </a>
+                    </Link>
                   )}
                 </article>
               ))}

@@ -650,7 +650,7 @@ export async function userSendToBot(userId: string, botId: string, text: string)
     if (!user || user.blockedPeerKeys.includes(`bot:${botId}`)) {
       return { ok: false as const, status: 403, error: "ارسال ممکن نیست." };
     }
-    let chat = chatOf(data, botId, userId);
+    const chat = chatOf(data, botId, userId);
     if (!chat || chat.stoppedAt) return { ok: false as const, status: 403, error: "ابتدا Start را بزن." };
     const body = text.trim().slice(0, 2000);
     if (!body) return { ok: false as const, status: 400, error: "پیام خالی است." };
