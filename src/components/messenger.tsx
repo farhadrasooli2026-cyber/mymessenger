@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Ban, Flag, Lock, MessageCircle, Phone, Search, Send, Sparkles, Store, Timer, UserRound } from "lucide-react";
+import { Ban, Flag, Lock, MessageCircle, Phone, Search, Send, Sparkles, Store, Timer, UserRound, Video } from "lucide-react";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { nixoSpaces } from "@/lib/brand";
@@ -38,6 +38,8 @@ import { DisappearPicker, msFromChoice, type TimerChoice } from "@/components/di
 import { ExpiryBadge } from "@/components/expiry-badge";
 import { ViewOnceShield } from "@/components/view-once-shield";
 import { labelDisappear, systemCaptureText, systemDisappearText } from "@/lib/disappear";
+import { CallStage, type LiveCall } from "@/components/call-stage";
+import { CallsTab, type HistoryCall } from "@/components/calls-tab";
 
 type Thread = {
   id: string;
@@ -290,6 +292,14 @@ export function Messenger({
   const [textTimer, setTextTimer] = useState<TimerChoice>("inherit");
   const [customMs, setCustomMs] = useState(120_000);
   const [timerOpen, setTimerOpen] = useState(false);
+  const [peerSheet, setPeerSheet] = useState(false);
+  const [liveCall, setLiveCall] = useState<LiveCall | null>(null);
+  const [callMin, setCallMin] = useState(false);
+  const [callHistory, setCallHistory] = useState<HistoryCall[]>([]);
+  const [callFilter, setCallFilter] = useState("all");
+  const [lowDataCalls, setLowDataCalls] = useState(false);
+  const [hideCallLock, setHideCallLock] = useState(false);
+  const [callPrivacy, setCallPrivacy] = useState<"everyone" | "contacts" | "nobody" | "selected">("everyone");
   const endRef = useRef<HTMLDivElement>(null);
 
   const active = threads.find((t) => t.id === activeId) ?? null;
@@ -368,6 +378,28 @@ export function Messenger({
   }, [router, decorateThreads]);
 
   useEffect(() => {
+    const t = window.setInterval(() => {
+      void fetch("/api/calls?live=1", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!data) return;
+          setLowDataCalls(Boolean(data.lowDataCalls));
+          setHideCallLock(Boolean(data.hideCallOnLockScreen));
+          if (data.callPrivacy) setCallPrivacy(data.callPrivacy);
+          const incoming = data.call as LiveCall | null;
+          setLiveCall((cur) => {
+            if (cur && (cur.status === "active" || cur.direction === "out")) return cur;
+            if (incoming && incoming.status === "ringing") return incoming;
+            if (cur && cur.direction === "in" && cur.status === "ringing" && !incoming) return null;
+            return cur;
+          });
+        })
+        .catch(() => undefined);
+    }, 2500);
+    return () => window.clearInterval(t);
+  }, []);
+
+  useEffect(() => {
     if (!activeId) return;
     const ac = new AbortController();
     const threadId = activeId;
@@ -425,6 +457,16 @@ export function Messenger({
     }, 2500);
     return () => window.clearInterval(tick);
   }, [activeId]);
+
+  useEffect(() => {
+    if (tab !== "calls") return;
+    void fetch(`/api/calls?filter=${encodeURIComponent(callFilter)}`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.calls) setCallHistory(data.calls as HistoryCall[]);
+      })
+      .catch(() => undefined);
+  }, [tab, callFilter]);
 
   async function onSend(e: React.FormEvent) {
     e.preventDefault();
@@ -486,6 +528,47 @@ export function Messenger({
     toast.success(blocked ? "این شخص مسدود شد." : "مسدودسازی برداشته شد.");
     setSafetyOpen(false);
     await loadThreads();
+  }
+
+  async function startCall(threadId: string, kind: "voice" | "video") {
+    const thread = threads.find((t) => t.id === threadId);
+    if (thread && !thread.callsAllowed) {
+      toast.error("تماس با این شخص محدود شده است.");
+      return;
+    }
+    const res = await fetch("/api/calls", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadId, kind }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      toast.error(data.error ?? "تماس شروع نشد.");
+      return;
+    }
+    setCallMin(false);
+    setLiveCall(data.call as LiveCall);
+    if ("Notification" in window && Notification.permission === "default") void Notification.requestPermission();
+  }
+
+  async function refreshCalls() {
+    const res = await fetch(`/api/calls?filter=${encodeURIComponent(callFilter)}`, { cache: "no-store" });
+    if (!res.ok) return;
+    const data = (await res.json()) as { calls: HistoryCall[] };
+    setCallHistory(data.calls ?? []);
+  }
+
+  async function sendBusyMessage(threadId: string) {
+    const key = await loadOrCreateThreadKey(threadId);
+    const envelope = await encryptText(key, "الان نمی‌توانم پاسخ بدهم.");
+    await fetch(`/api/chats/${threadId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(envelope),
+    });
+    setActiveId(threadId);
+    setTab("chats");
+    setMobileChat(true);
   }
 
   async function submitReport() {
@@ -666,18 +749,39 @@ export function Messenger({
                 گفتگوها
               </Button>
               <span
-                className="grid size-10 place-items-center rounded-2xl text-sm font-semibold text-[#071614]"
+                className="grid size-10 cursor-pointer place-items-center rounded-2xl text-sm font-semibold text-[#071614]"
                 style={{ background: active.color }}
+                onClick={() => setPeerSheet(true)}
               >
                 {active.peerName.slice(0, 1)}
               </span>
-              <div className="min-w-0 flex-1">
+              <button type="button" className="min-w-0 flex-1 text-right" onClick={() => setPeerSheet(true)}>
                 <p className="truncate font-medium">{active.peerName}</p>
                 <p className="flex items-center gap-1 text-[11px] text-[color:var(--nixo-accent,#6ee7b7)]/80">
                   <Lock className="size-3" />
                   رمزنگاری سرتاسری روی این دستگاه · {active.peerTitle}
                 </p>
-              </div>
+              </button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-white hover:bg-white/10"
+                disabled={!active.callsAllowed}
+                onClick={() => void startCall(active.id, "voice")}
+                aria-label="تماس صوتی"
+              >
+                <Phone className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-white hover:bg-white/10"
+                disabled={!active.callsAllowed}
+                onClick={() => void startCall(active.id, "video")}
+                aria-label="تماس تصویری"
+              >
+                <Video className="size-4" />
+              </Button>
               <Button
                 type="button"
                 variant="ghost"
@@ -1037,13 +1141,26 @@ export function Messenger({
         )}
 
         {tab === "calls" && (
-          <Panel
-            title="تماس"
-            body={
-              active && !active.callsAllowed
-                ? "تماس با این شخص محدود شده است؛ مسدودسازی پیام، تماس و تعامل را با هم قطع می‌کند. تماس صوتی و تصویری کامل در بخش جداگانهٔ نیکسو پیاده می‌شود."
-                : "تماس صوتی و تصویری با معماری Zero Trust در بخش جداگانه پیاده می‌شود. در این برش، اگر کسی را مسدود کنی تماس هم بسته می‌ماند."
-            }
+          <CallsTab
+            calls={callHistory}
+            filter={callFilter}
+            onFilter={setCallFilter}
+            onCall={(id, kind) => void startCall(id, kind)}
+            onDemoIncoming={async (kind) => {
+              const res = await fetch("/api/calls/incoming", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ kind }),
+              });
+              const data = await res.json();
+              if (!res.ok) {
+                toast.error(data.error ?? "تماس ورودی ساخته نشد.");
+                return;
+              }
+              setCallMin(false);
+              setLiveCall(data.call as LiveCall);
+            }}
+            blockedHint={active && !active.callsAllowed ? "تماس با مخاطب فعلی مسدود است." : undefined}
           />
         )}
         {tab === "shop" && <Panel title="فروشگاه و پرداخت" body="فروشگاه، پرداخت و کیف پول بخشی از نیکسو خواهند بود، جدا از هستهٔ گفتگو و با کمترین دسترسی." />}
@@ -1149,6 +1266,65 @@ export function Messenger({
                   }}
                 />
                 ذخیرهٔ خودکار عکس‌های دریافتی (دانلود به دستگاه)
+              </label>
+            </div>
+            <div className="max-w-xl rounded-2xl border border-white/10 bg-white/5 p-4 text-xs leading-6">
+              <p className="text-sm font-medium">تماس</p>
+              <p className="mt-1 text-emerald-100/65">چه کسانی بتوانند با تو تماس بگیرند:</p>
+              {(
+                [
+                  ["everyone", "همه"],
+                  ["contacts", "مخاطبین"],
+                  ["nobody", "هیچ‌کس"],
+                  ["selected", "افراد انتخاب‌شده"],
+                ] as const
+              ).map(([id, label]) => (
+                <label key={id} className="mt-1 flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="call-privacy"
+                    checked={callPrivacy === id}
+                    onChange={async () => {
+                      setCallPrivacy(id);
+                      await fetch("/api/calls/settings", {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ callPrivacy: id }),
+                      });
+                    }}
+                  />
+                  {label}
+                </label>
+              ))}
+              <label className="mt-3 flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={lowDataCalls}
+                  onChange={async (e) => {
+                    setLowDataCalls(e.target.checked);
+                    await fetch("/api/calls/settings", {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ lowDataCalls: e.target.checked }),
+                    });
+                  }}
+                />
+                حالت کم‌مصرف برای تماس تصویری
+              </label>
+              <label className="mt-2 flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={hideCallLock}
+                  onChange={async (e) => {
+                    setHideCallLock(e.target.checked);
+                    await fetch("/api/calls/settings", {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ hideCallOnLockScreen: e.target.checked }),
+                    });
+                  }}
+                />
+                مخفی کردن نام تماس‌گیرنده در اعلان
               </label>
             </div>
             <div className="max-w-xl rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -1346,6 +1522,73 @@ export function Messenger({
             </div>
           </ViewOnceShield>
         </div>
+      )}
+      {peerSheet && active && (
+        <div className="fixed inset-0 z-40 grid place-items-center bg-black/70 p-4" onClick={() => setPeerSheet(false)}>
+          <div className="w-full max-w-sm rounded-3xl bg-[#102824] p-5" onClick={(e) => e.stopPropagation()}>
+            <span
+              className="mx-auto grid size-16 place-items-center rounded-3xl text-2xl font-semibold text-[#071614]"
+              style={{ background: active.color }}
+            >
+              {active.peerName.slice(0, 1)}
+            </span>
+            <h2 className="mt-3 text-center text-lg font-semibold">{active.peerName}</h2>
+            <p className="text-center text-xs text-emerald-100/60">{active.peerTitle}</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                className="h-11 bg-amber-300 text-[#102824]"
+                disabled={!active.callsAllowed}
+                onClick={() => {
+                  setPeerSheet(false);
+                  void startCall(active.id, "voice");
+                }}
+              >
+                <Phone className="size-4" />
+                تماس صوتی
+              </Button>
+              <Button
+                type="button"
+                className="h-11 bg-amber-300 text-[#102824]"
+                disabled={!active.callsAllowed}
+                onClick={() => {
+                  setPeerSheet(false);
+                  void startCall(active.id, "video");
+                }}
+              >
+                <Video className="size-4" />
+                تماس تصویری
+              </Button>
+            </div>
+            {!active.callsAllowed && (
+              <p className="mt-3 text-center text-xs text-rose-200">مسدودسازی تماس را قطع کرده است.</p>
+            )}
+            <Button type="button" variant="ghost" className="mt-3 w-full text-white" onClick={() => setPeerSheet(false)}>
+              بستن
+            </Button>
+          </div>
+        </div>
+      )}
+      {liveCall && (
+        <CallStage
+          call={liveCall}
+          lowData={lowDataCalls}
+          hideLockInfo={hideCallLock}
+          myName={displayName}
+          minimized={callMin}
+          onMinimized={setCallMin}
+          onClose={() => {
+            setLiveCall(null);
+            setCallMin(false);
+            void refreshCalls();
+          }}
+          onMessageDecline={() => {
+            const id = liveCall.threadId;
+            setLiveCall(null);
+            void sendBusyMessage(id);
+            void refreshCalls();
+          }}
+        />
       )}
     </div>
   );

@@ -44,6 +44,10 @@ export function defaultUserFields(): {
   appearance: Appearance;
   blockedPeerKeys: string[];
   cryptoPublicKey: JsonWebKey | null;
+  callPrivacy: Visibility;
+  callAllowIds: string[];
+  hideCallOnLockScreen: boolean;
+  lowDataCalls: boolean;
 } {
   return {
     usernameHistory: [],
@@ -56,5 +60,9 @@ export function defaultUserFields(): {
     appearance: defaultAppearance(),
     blockedPeerKeys: [],
     cryptoPublicKey: null,
+    callPrivacy: "everyone",
+    callAllowIds: [],
+    hideCallOnLockScreen: false,
+    lowDataCalls: false,
   };
 }

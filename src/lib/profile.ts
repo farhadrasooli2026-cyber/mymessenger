@@ -63,6 +63,9 @@ export function publicProfile(user: UserRecord, viewerId?: string | null) {
     appearance: own ? (user.appearance ?? undefined) : undefined,
     cryptoPublicKey: own ? (user.cryptoPublicKey ?? null) : undefined,
     blockedPeerKeys: own ? user.blockedPeerKeys : undefined,
+    callPrivacy: own ? (user.callPrivacy ?? "everyone") : undefined,
+    hideCallOnLockScreen: own ? Boolean(user.hideCallOnLockScreen) : undefined,
+    lowDataCalls: own ? Boolean(user.lowDataCalls) : undefined,
   };
 }
 

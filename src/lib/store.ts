@@ -23,6 +23,10 @@ function hydrateUser(user: UserRecord): UserRecord {
     appearance: user.appearance ?? defaultUserFields().appearance,
     blockedPeerKeys: Array.isArray(user.blockedPeerKeys) ? user.blockedPeerKeys : [],
     cryptoPublicKey: user.cryptoPublicKey ?? null,
+    callPrivacy: user.callPrivacy ?? "everyone",
+    callAllowIds: Array.isArray(user.callAllowIds) ? user.callAllowIds : [],
+    hideCallOnLockScreen: Boolean(user.hideCallOnLockScreen),
+    lowDataCalls: Boolean(user.lowDataCalls),
   };
 }
 
@@ -116,6 +120,10 @@ export type UserRecord = {
   appearance: import("@/lib/appearance-types").Appearance;
   blockedPeerKeys: string[];
   cryptoPublicKey: JsonWebKey | null;
+  callPrivacy: Visibility;
+  callAllowIds: string[];
+  hideCallOnLockScreen: boolean;
+  lowDataCalls: boolean;
   createdAt: number;
   verifiedAt?: number;
   activatedAt?: number;
@@ -217,6 +225,27 @@ export type StoryView = {
   viewedAt: number;
 };
 
+export type CallKind = "voice" | "video";
+export type CallStatus = "ringing" | "active" | "ended" | "declined" | "missed";
+export type CallDirection = "out" | "in";
+
+export type CallRecord = {
+  id: string;
+  ownerUserId: string;
+  threadId: string;
+  peerKey: string;
+  peerName: string;
+  peerColor: string;
+  kind: CallKind;
+  direction: CallDirection;
+  status: CallStatus;
+  createdAt: number;
+  connectedAt?: number | null;
+  endedAt?: number | null;
+  durationMs?: number;
+  declineWithMessage?: boolean;
+};
+
 export type StoreData = {
   users: UserRecord[];
   challenges: ChallengeRecord[];
@@ -227,6 +256,7 @@ export type StoreData = {
   messages: ChatMessage[];
   reports: SafetyReport[];
   storyViews: StoryView[];
+  calls: CallRecord[];
   catalogCategories: CatalogCategory[];
   catalogItems: CatalogItem[];
   bgCategories: CatalogCategory[];
@@ -243,6 +273,7 @@ const EMPTY: StoreData = {
   messages: [],
   reports: [],
   storyViews: [],
+  calls: [],
   catalogCategories: [],
   catalogItems: [],
   bgCategories: [],
@@ -280,6 +311,7 @@ async function readStore(): Promise<StoreData> {
       messages: (parsed.messages ?? []).map(hydrateMessage),
       reports: parsed.reports ?? [],
       storyViews: parsed.storyViews ?? [],
+      calls: Array.isArray(parsed.calls) ? parsed.calls : [],
       catalogCategories: parsed.catalogCategories ?? [],
       catalogItems: parsed.catalogItems ?? [],
       bgCategories: parsed.bgCategories ?? [],
