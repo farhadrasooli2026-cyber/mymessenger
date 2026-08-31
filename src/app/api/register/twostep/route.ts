@@ -11,7 +11,10 @@ export async function GET() {
     ok: true,
     hasPasskeys: (pending.user.passkeys?.length ?? 0) > 0,
     recoveryLeft: pending.user.recoveryCodeHashes?.length ?? 0,
-    ...challenge,
+    challengeId: challenge.challengeId,
+    challenge: challenge.challenge,
+    rpId: challenge.rpId,
+    allowCredentials: challenge.allowCredentials,
   });
 }
 
