@@ -30,7 +30,7 @@ export const nixoSpaces = [
   { id: "group", title: "گروه", detail: "فعال: اعضا، نقش‌ها، دعوت، درخواست عضویت، نظرسنجی، پین، E2EE", live: true },
   { id: "community", title: "جامعه", detail: "فعال: چند گروه و کانال مرتبط، نقش، دعوت، اطلاعیه، مجوز سمت سرور", live: true },
   { id: "channel", title: "کانال", detail: "فعال: عمومی/خصوصی، دنبال‌کننده، پست، نظرسنجی، پین، دعوت و مجوز سمت سرور", live: true },
-  { id: "story", title: "استوری", detail: "لحظه‌های کوتاه و موقت", live: true },
+  { id: "story", title: "استوری", detail: "فعال: عکس/ویدیو/متن، ۲۴ساعت، حریم، آرشیو، واکنش، وضعیت", live: true },
   { id: "voice", title: "تماس صوتی", detail: "فعال: زنگ، پذیرش، سابقه، WebRTC روی دستگاه", live: true },
   { id: "video", title: "تماس تصویری", detail: "فعال: دوربین، PiP، کم‌مصرف، رمز رسانه روی دستگاه", live: true },
   { id: "files", title: "اشتراک فایل", detail: "فعال: عکس، ویدیو، سند، E2EE تکه‌تکه", live: true },

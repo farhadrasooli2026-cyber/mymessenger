@@ -48,6 +48,14 @@ export function defaultUserFields(): {
   callAllowIds: string[];
   hideCallOnLockScreen: boolean;
   lowDataCalls: boolean;
+  closeFriendIds: string[];
+  mutedStoryUserIds: string[];
+  storyNotifyOffIds: string[];
+  statusPreset: "" | "available" | "busy" | "work" | "away" | "custom";
+  statusText: string;
+  statusPrivacy: Visibility;
+  statusAllowIds: string[];
+  defaultStoryPrivacy: "everyone" | "contacts" | "closeFriends" | "selected";
 } {
   return {
     usernameHistory: [],
@@ -64,5 +72,13 @@ export function defaultUserFields(): {
     callAllowIds: [],
     hideCallOnLockScreen: false,
     lowDataCalls: false,
+    closeFriendIds: [],
+    mutedStoryUserIds: [],
+    storyNotifyOffIds: [],
+    statusPreset: "",
+    statusText: "",
+    statusPrivacy: "everyone",
+    statusAllowIds: [],
+    defaultStoryPrivacy: "everyone",
   };
 }

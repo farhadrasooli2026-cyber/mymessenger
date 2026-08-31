@@ -33,6 +33,14 @@ function hydrateUser(user: UserRecord): UserRecord {
     callAllowIds: Array.isArray(user.callAllowIds) ? user.callAllowIds : [],
     hideCallOnLockScreen: Boolean(user.hideCallOnLockScreen),
     lowDataCalls: Boolean(user.lowDataCalls),
+    closeFriendIds: Array.isArray(user.closeFriendIds) ? user.closeFriendIds : [],
+    mutedStoryUserIds: Array.isArray(user.mutedStoryUserIds) ? user.mutedStoryUserIds : [],
+    storyNotifyOffIds: Array.isArray(user.storyNotifyOffIds) ? user.storyNotifyOffIds : [],
+    statusPreset: user.statusPreset ?? "",
+    statusText: user.statusText ?? "",
+    statusPrivacy: user.statusPrivacy ?? "everyone",
+    statusAllowIds: Array.isArray(user.statusAllowIds) ? user.statusAllowIds : [],
+    defaultStoryPrivacy: user.defaultStoryPrivacy ?? "everyone",
   };
 }
 
@@ -193,6 +201,14 @@ export type UserRecord = {
   callAllowIds: string[];
   hideCallOnLockScreen: boolean;
   lowDataCalls: boolean;
+  closeFriendIds: string[];
+  mutedStoryUserIds: string[];
+  storyNotifyOffIds: string[];
+  statusPreset: "" | "available" | "busy" | "work" | "away" | "custom";
+  statusText: string;
+  statusPrivacy: Visibility;
+  statusAllowIds: string[];
+  defaultStoryPrivacy: "everyone" | "contacts" | "closeFriends" | "selected";
   createdAt: number;
   verifiedAt?: number;
   activatedAt?: number;
@@ -279,7 +295,7 @@ export type ChatMessage = {
 export type SafetyReport = {
   id: string;
   reporterId: string;
-  targetKind: "user" | "chat" | "group" | "community" | "channel";
+  targetKind: "user" | "chat" | "group" | "community" | "channel" | "story";
   targetKey: string;
   threadId?: string;
   messageIds: string[];
@@ -292,6 +308,55 @@ export type StoryView = {
   ownerUserId: string;
   storyId: string;
   viewedAt: number;
+};
+
+export type UserStory = {
+  id: string;
+  ownerUserId: string;
+  kind: "text" | "photo" | "video";
+  body: string;
+  caption: string;
+  bg: string;
+  font: string;
+  align: "right" | "center" | "left";
+  filter: string;
+  rotate: number;
+  zoom: number;
+  overlay: string;
+  media: string;
+  musicId: string | null;
+  linkUrl: string;
+  mentions: string[];
+  allowShare: boolean;
+  visibility: "everyone" | "contacts" | "closeFriends" | "selected";
+  allowIds: string[];
+  hideFromIds: string[];
+  createdAt: number;
+  expiresAt: number;
+  deletedAt: number | null;
+};
+
+export type StoryWatch = {
+  storyId: string;
+  viewerId: string;
+  viewerName: string;
+  viewedAt: number;
+};
+
+export type StoryReaction = {
+  storyId: string;
+  userId: string;
+  emoji: string;
+  at: number;
+};
+
+export type StoryReply = {
+  id: string;
+  storyId: string;
+  fromId: string;
+  fromName: string;
+  body: string;
+  createdAt: number;
 };
 
 export type CallKind = "voice" | "video";
@@ -553,6 +618,10 @@ export type StoreData = {
   messages: ChatMessage[];
   reports: SafetyReport[];
   storyViews: StoryView[];
+  userStories: UserStory[];
+  storyWatches: StoryWatch[];
+  storyReactions: StoryReaction[];
+  storyReplies: StoryReply[];
   calls: CallRecord[];
   groups: GroupRecord[];
   groupMessages: GroupMessage[];
@@ -575,6 +644,10 @@ const EMPTY: StoreData = {
   messages: [],
   reports: [],
   storyViews: [],
+  userStories: [],
+  storyWatches: [],
+  storyReactions: [],
+  storyReplies: [],
   calls: [],
   groups: [],
   groupMessages: [],
@@ -618,6 +691,10 @@ async function readStore(): Promise<StoreData> {
       messages: (parsed.messages ?? []).map(hydrateMessage),
       reports: parsed.reports ?? [],
       storyViews: parsed.storyViews ?? [],
+      userStories: Array.isArray(parsed.userStories) ? parsed.userStories : [],
+      storyWatches: Array.isArray(parsed.storyWatches) ? parsed.storyWatches : [],
+      storyReactions: Array.isArray(parsed.storyReactions) ? parsed.storyReactions : [],
+      storyReplies: Array.isArray(parsed.storyReplies) ? parsed.storyReplies : [],
       calls: Array.isArray(parsed.calls) ? parsed.calls : [],
       groups: Array.isArray(parsed.groups) ? parsed.groups.map(hydrateGroup) : [],
       groupMessages: Array.isArray(parsed.groupMessages) ? parsed.groupMessages : [],

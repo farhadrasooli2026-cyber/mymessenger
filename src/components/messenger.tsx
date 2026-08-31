@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Ban, Flag, Globe, Lock, MessageCircle, Phone, Radio, Search, Send, Sparkles, Store, Timer, UserRound, Users, Video } from "lucide-react";
+import { Ban, Flag, Globe, Lock, MessageCircle, Phone, Plus, Radio, Search, Send, Sparkles, Store, Timer, UserRound, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { nixoSpaces } from "@/lib/brand";
@@ -46,6 +46,18 @@ import { CommunityCreate } from "@/components/community-create";
 import { CommunityPane } from "@/components/community-pane";
 import { ChannelCreate } from "@/components/channel-create";
 import { ChannelPane } from "@/components/channel-pane";
+import { StoryComposer } from "@/components/story-composer";
+import { StoryViewer, type StoryItem } from "@/components/story-viewer";
+
+type StoryRing = {
+  ownerId: string;
+  name: string;
+  username: string | null;
+  muted: boolean;
+  viewedAll: boolean;
+  status: { preset: string; text: string } | null;
+  items: StoryItem[];
+};
 
 type Thread = {
   id: string;
@@ -272,6 +284,9 @@ export function Messenger({
   const [busy, setBusy] = useState(false);
   const [story, setStory] = useState<{ title: string; body: string; viewed: boolean } | null>(null);
   const [storyOpen, setStoryOpen] = useState(false);
+  const [storyRings, setStoryRings] = useState<StoryRing[]>([]);
+  const [storyComposer, setStoryComposer] = useState(false);
+  const [viewingRing, setViewingRing] = useState<StoryRing | null>(null);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<{ id: string; displayName: string; username: string | null }[]>([]);
   const [bgOpen, setBgOpen] = useState(false);
@@ -409,6 +424,12 @@ export function Messenger({
     fetch("/api/story", { signal: ac.signal })
       .then((r) => r.json())
       .then((d) => setStory(d.story ?? null))
+      .catch(() => undefined);
+    fetch("/api/stories", { cache: "no-store", signal: ac.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.rings) setStoryRings(d.rings as StoryRing[]);
+      })
       .catch(() => undefined);
     fetch("/api/groups", { cache: "no-store", signal: ac.signal })
       .then((res) => (res.ok ? res.json() : null))
@@ -666,6 +687,15 @@ export function Messenger({
     setStory((s) => (s ? { ...s, viewed: true } : s));
   }
 
+  function refreshStories() {
+    fetch("/api/stories", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.rings) setStoryRings(d.rings as StoryRing[]);
+      })
+      .catch(() => undefined);
+  }
+
   async function logout() {
     await fetch("/api/me", { method: "DELETE" });
     router.replace("/");
@@ -724,6 +754,41 @@ export function Messenger({
           >
             <Sparkles className="size-4 text-amber-200" />
           </button>
+        </div>
+
+        <div className="flex gap-3 overflow-x-auto px-4 pb-3">
+          <button type="button" className="shrink-0 text-center" onClick={() => setStoryComposer(true)}>
+            <span className="grid size-14 place-items-center rounded-full border-2 border-dashed border-amber-300/70 bg-black/20">
+              <Plus className="size-5 text-amber-200" />
+            </span>
+            <span className="mt-1 block w-14 truncate text-[10px]">افزودن</span>
+          </button>
+          {storyRings.map((ring) => (
+            <button
+              key={ring.ownerId}
+              type="button"
+              className="shrink-0 text-center"
+              onClick={() => setViewingRing(ring)}
+            >
+              <span
+                className={cn(
+                  "grid size-14 place-items-center rounded-full border-2 text-xs",
+                  ring.viewedAll ? "border-white/20" : "border-amber-300",
+                  ring.muted && "opacity-50",
+                )}
+              >
+                {ring.name.slice(0, 1)}
+              </span>
+              <span className="mt-1 block w-14 truncate text-[10px]">
+                {ring.ownerId === userId ? "استوری من" : ring.name}
+              </span>
+              {ring.status?.text || ring.status?.preset ? (
+                <span className="block w-14 truncate text-[9px] text-emerald-100/50">
+                  {ring.status.text || ring.status.preset}
+                </span>
+              ) : null}
+            </button>
+          ))}
         </div>
 
         <div className="space-y-2 px-4 pb-3">
@@ -1550,6 +1615,9 @@ export function Messenger({
             <Link href="/app/settings/chat-appearance" className="block text-sm text-amber-200">
               تنظیمات → ظاهر گفتگو → پس‌زمینه چت
             </Link>
+            <Link href="/app/settings/story" className="block text-sm text-amber-200">
+              تنظیمات → حریم خصوصی → استوری
+            </Link>
             <button
               type="button"
               className="block text-sm text-amber-200"
@@ -1717,6 +1785,37 @@ export function Messenger({
         <NavBtn icon={UserRound} label="من" active={tab === "me"} onClick={() => { setTab("me"); setMobileChat(true); }} />
       </nav>
 
+      {storyComposer && (
+        <StoryComposer
+          onClose={() => setStoryComposer(false)}
+          onPublished={() => {
+            setStoryComposer(false);
+            refreshStories();
+          }}
+        />
+      )}
+      {viewingRing && (
+        <StoryViewer
+          items={viewingRing.items}
+          ownerName={viewingRing.name}
+          isOwner={viewingRing.ownerId === userId}
+          muted={viewingRing.muted}
+          authorId={viewingRing.ownerId}
+          onMute={async (muted) => {
+            await fetch("/api/stories", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "mute", authorId: viewingRing.ownerId, muted }),
+            });
+            refreshStories();
+          }}
+          onClose={() => {
+            setViewingRing(null);
+            refreshStories();
+          }}
+          onDeleted={() => refreshStories()}
+        />
+      )}
       {storyOpen && story && (
         <div className="fixed inset-0 z-40 grid place-items-center bg-black/70 p-4" onClick={() => setStoryOpen(false)}>
           <article

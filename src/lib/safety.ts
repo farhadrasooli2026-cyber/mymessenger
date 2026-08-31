@@ -65,7 +65,7 @@ export async function listBlocked(userId: string) {
 }
 
 export const reportInputSchema = z.object({
-  targetKind: z.enum(["user", "chat", "group", "community", "channel"]),
+  targetKind: z.enum(["user", "chat", "group", "community", "channel", "story"]),
   targetKey: z.string().min(1).max(80),
   threadId: z.string().max(80).optional(),
   messageIds: z.array(z.string().max(80)).max(20).optional(),
@@ -100,6 +100,10 @@ export async function fileReport(
       );
       const inPub = data.pubChannels.some((c) => c.id === input.targetKey && !c.deletedAt);
       if (!inCommunity && !inPub) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
+    }
+    if (input.targetKind === "story") {
+      const story = data.userStories.find((s) => s.id === input.targetKey && !s.deletedAt);
+      if (!story) return { ok: false as const, error: "استوری یافت نشد.", status: 404 };
     }
     const report = {
       id: randomId(),
