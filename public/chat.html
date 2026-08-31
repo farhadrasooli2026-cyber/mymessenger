@@ -3,139 +3,62 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>چت روم | MyMessenger</title>
+  <title>چت | MyMessenger</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     * { box-sizing: border-box; font-family: Tahoma, sans-serif; }
-    
-    html, body {
-      margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden;
-    }
-
+    html, body { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; }
     body {
       display: flex; align-items: center; justify-content: center;
       background-size: cover; background-position: center; background-repeat: no-repeat;
-      transition: background 0.5s ease;
     }
-
-    body.theme-female { background-image: url('girl.jpg'); }
-    body.theme-male { background-image: url('boy.jpg'); }
-
+    body.theme-female { background-image: url('/girl.svg'); }
+    body.theme-male { background-image: url('/boy.svg'); }
     .app-container {
-      display: flex; 
-      width: 95%; 
-      max-width: 1100px; 
-      height: 90vh;
-      background: rgba(0, 0, 0, 0.25);
-      border-radius: 16px;
-      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-      overflow: hidden;
+      display: flex; width: 95%; max-width: 1100px; height: 90vh;
+      background: rgba(0, 0, 0, 0.28); border-radius: 16px; overflow: hidden;
       border: 1px solid rgba(255, 255, 255, 0.18);
     }
-
-    .sidebar {
-      width: 280px; 
-      border-left: 1px solid rgba(255, 255, 255, 0.2);
-      display: flex; flex-direction: column; 
-      background: rgba(0, 0, 0, 0.35);
-    }
-
-    .sidebar-header {
-      padding: 16px; font-weight: bold; color: #fff;
-      background: rgba(0, 0, 0, 0.4); border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-    }
-
-    .user-item {
-      padding: 14px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      cursor: pointer; display: flex; align-items: center; justify-content: space-between;
-      font-weight: bold; color: #f0f0f0; transition: 0.2s;
-    }
-
-    .user-item:hover, .user-item.active { 
-      background: rgba(214, 51, 132, 0.5); 
-      color: #fff;
-    }
-
-    .user-status-dot {
-      width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-left: 5px;
-    }
-    .dot-online { background-color: #2ecc71; }
-    .dot-offline { background-color: #e74c3c; }
-
-    .chat-area { flex: 1; display: flex; flex-direction: column; background: transparent; }
-
-    .chat-header {
-      padding: 16px; background: rgba(0, 0, 0, 0.45); font-weight: bold; color: #fff;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.15); font-size: 15px;
-      display: flex; align-items: center; justify-content: space-between;
-    }
-
+    .sidebar { width: 300px; border-left: 1px solid rgba(255,255,255,0.2); display: flex; flex-direction: column; background: rgba(0,0,0,0.35); }
+    .sidebar-header { padding: 14px 16px; color: #fff; background: rgba(0,0,0,0.4); border-bottom: 1px solid rgba(255,255,255,0.15); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .me-name { font-weight: bold; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .header-actions { display: flex; gap: 6px; }
+    .tiny-btn { background: rgba(255,255,255,0.15); color: #fff; border: none; border-radius: 10px; padding: 6px 10px; cursor: pointer; font-size: 12px; }
+    .search-box { padding: 10px 12px; }
+    .search-box input { width: 100%; border: none; border-radius: 16px; padding: 8px 12px; outline: none; }
+    .user-item { padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.1); cursor: pointer; display: flex; align-items: center; gap: 10px; color: #f0f0f0; }
+    .user-item:hover, .user-item.active { background: rgba(214, 51, 132, 0.5); }
+    .user-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #444; flex-shrink: 0; }
+    .user-meta { flex: 1; min-width: 0; }
+    .user-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .user-status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .dot-online { background: #2ecc71; }
+    .dot-offline { background: #e74c3c; }
+    .unread { background: #d63384; color: #fff; border-radius: 10px; min-width: 18px; height: 18px; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; }
+    .chat-area { flex: 1; display: flex; flex-direction: column; background: transparent; min-width: 0; }
+    .chat-header { padding: 14px 16px; background: rgba(0,0,0,0.45); color: #fff; border-bottom: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: space-between; }
     .chat-header-info { display: flex; flex-direction: column; }
     .chat-header-status { font-size: 11px; color: #ccc; font-weight: normal; margin-top: 2px; }
-
-    .messages-container { 
-      flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; 
-    }
-
-    .message {
-      max-width: 75%; padding: 10px 14px; border-radius: 16px; word-break: break-word;
-      font-size: 14px; line-height: 1.4; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-    }
-
-    .message.sent { 
-      align-self: flex-start; 
-      background: #d63384; 
-      color: #fff; 
-      border-bottom-left-radius: 4px;
-    }
-
-    .message.received { 
-      align-self: flex-end; 
-      background: rgba(255, 255, 255, 0.92); 
-      color: #111; 
-      border-bottom-right-radius: 4px;
-    }
-
+    .messages-container { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+    .message { max-width: 75%; padding: 10px 14px; border-radius: 16px; word-break: break-word; font-size: 14px; line-height: 1.4; }
+    .message.sent { align-self: flex-start; background: #d63384; color: #fff; border-bottom-left-radius: 4px; }
+    .message.received { align-self: flex-end; background: rgba(255,255,255,0.92); color: #111; border-bottom-right-radius: 4px; }
     .message img { max-width: 100%; border-radius: 10px; cursor: pointer; margin-bottom: 5px; display: block; }
-    .message audio { max-width: 100%; outline: none; }
-
-    .input-area {
-      padding: 10px 14px; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; gap: 8px;
-      border-top: 1px solid rgba(255, 255, 255, 0.15);
-    }
-
-    .input-area input[type="text"] {
-      flex: 1; padding: 10px 14px; border: none; border-radius: 20px; outline: none;
-      background: rgba(255, 255, 255, 0.9); font-size: 14px;
-    }
-
-    .action-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #fff; padding: 0; }
-    .action-btn.recording { color: #e74c3c; animation: pulse 1s infinite; }
-
-    @keyframes pulse {
-      0% { opacity: 1; }
-      50% { opacity: 0.4; }
-      100% { opacity: 1; }
-    }
-
-    .send-btn { 
-      background: #d63384; color: white; border: none; padding: 10px 18px; border-radius: 20px; 
-      cursor: pointer; font-weight: bold; transition: 0.2s; white-space: nowrap;
-    }
-
-    .send-btn:hover { background: #c2185b; }
-    
-    .image-modal {
-      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(0, 0, 0, 0.9); z-index: 1000; align-items: center; justify-content: center;
-    }
+    .message audio { width: 220px; max-width: 100%; outline: none; }
+    .msg-time { font-size: 10px; opacity: 0.75; margin-top: 4px; }
+    .input-area { padding: 10px 14px; background: rgba(0,0,0,0.5); display: flex; align-items: center; gap: 8px; border-top: 1px solid rgba(255,255,255,0.15); }
+    .input-area input[type="text"] { flex: 1; padding: 10px 14px; border: none; border-radius: 20px; outline: none; background: rgba(255,255,255,0.9); font-size: 14px; }
+    .action-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #fff; padding: 0; line-height: 1; }
+    .action-btn.recording { color: #e74c3c; }
+    .send-btn { background: #d63384; color: #fff; border: none; padding: 10px 18px; border-radius: 20px; cursor: pointer; font-weight: bold; }
+    .image-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 1000; align-items: center; justify-content: center; }
     .image-modal img { max-width: 95%; max-height: 85vh; border-radius: 8px; }
-
-    .back-btn {
-      display: none; background: rgba(255,255,255,0.2); color: #fff; border: none;
-      padding: 5px 12px; border-radius: 12px; cursor: pointer; font-size: 12px;
-    }
-
+    .back-btn { display: none; background: rgba(255,255,255,0.2); color: #fff; border: none; padding: 5px 12px; border-radius: 12px; cursor: pointer; font-size: 12px; }
+    .preview-bar { display: none; padding: 8px 14px; background: rgba(0,0,0,0.45); color: #fff; font-size: 12px; align-items: center; gap: 10px; }
+    .preview-bar.show { display: flex; }
+    .preview-bar img { height: 48px; border-radius: 8px; }
+    .conn { font-size: 11px; color: #ccc; }
+    .conn.bad { color: #ff8a80; }
     @media (max-width: 768px) {
       .app-container { width: 100%; height: 100vh; border-radius: 0; border: none; }
       .sidebar { width: 100%; height: 100%; border-left: none; }
@@ -150,297 +73,50 @@
 <body>
   <div class="app-container" id="app-container">
     <div class="sidebar">
-      <div class="sidebar-header">مخاطبین</div>
+      <div class="sidebar-header">
+        <span class="me-name" id="me-name">...</span>
+        <div class="header-actions">
+          <button class="tiny-btn" id="profile-btn">پروفایل</button>
+          <button class="tiny-btn" id="logout-btn">خروج</button>
+        </div>
+      </div>
+      <div class="search-box">
+        <input type="text" id="user-search" placeholder="جستجوی مخاطب...">
+      </div>
       <div id="users-list" style="overflow-y: auto; flex: 1;"></div>
     </div>
-
     <div class="chat-area">
       <div class="chat-header">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <button class="back-btn" onclick="closeChat()">❮ بازگشت</button>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <button class="back-btn" id="back-btn">بازگشت</button>
           <div class="chat-header-info">
             <span id="chat-header-title">یک مخاطب را انتخاب کنید</span>
             <span id="chat-header-status" class="chat-header-status"></span>
           </div>
         </div>
-        <div></div>
+        <span class="conn" id="conn-status">آنلاین</span>
       </div>
       <div class="messages-container" id="messages-container"></div>
+      <div class="preview-bar" id="preview-bar">
+        <img id="preview-thumb" alt="">
+        <span>عکس آماده ارسال است. کپشن بنویسید یا ارسال را بزنید.</span>
+        <button class="tiny-btn" id="clear-preview">حذف</button>
+      </div>
       <div class="input-area">
         <label class="action-btn" title="ارسال عکس">📎
-          <input type="file" id="image-input" accept="image/*" style="display: none;">
+          <input type="file" id="image-input" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none">
         </label>
-        <button id="mic-btn" class="action-btn" onclick="toggleRecordVoice()" title="ضبط صدا">🎤</button>
-        <input type="text" id="message-input" placeholder="پیام خود را بنویسید...">
-        <button class="send-btn" onclick="sendMessage()">ارسال</button>
+        <button id="mic-btn" class="action-btn" title="ضبط صدا">🎤</button>
+        <input type="text" id="message-input" placeholder="پیام خود را بنویسید..." maxlength="4000" autocomplete="off">
+        <button class="send-btn" id="send-btn">ارسال</button>
       </div>
     </div>
   </div>
-
-  <div class="image-modal" id="image-modal" onclick="this.style.display='none'">
-    <img id="full-image" src="">
+  <div class="image-modal" id="image-modal">
+    <img id="full-image" alt="">
   </div>
-
-  <script>
-    const socket = io();
-    
-    const userDataStr = localStorage.getItem('user');
-    if (!userDataStr) {
-        window.location.href = '/login.html';
-    }
-    
-    const currentUserObj = JSON.parse(userDataStr);
-    const currentUser = currentUserObj.username;
-    const userGender = currentUserObj.gender === 'مرد' ? 'male' : 'female';
-
-    let activeReceiver = null;
-    let activeReceiverData = null;
-    let selectedImageBase64 = null;
-    let usersListCache = [];
-
-    let mediaRecorder;
-    let audioChunks = [];
-    let isRecording = false;
-
-    if (!currentUser) window.location.href = '/login.html';
-
-    if (userGender === 'male') {
-      document.body.classList.add('theme-male');
-    } else {
-      document.body.classList.add('theme-female');
-    }
-
-    socket.emit('register_user', currentUser);
-
-    async function loadUsers() {
-      try {
-        const res = await fetch('/api/users');
-        usersListCache = await res.json();
-        renderUsersList();
-      } catch (err) {
-        console.error('Error loading users:', err);
-      }
-    }
-
-    function renderUsersList() {
-      const list = document.getElementById('users-list');
-      list.innerHTML = '';
-      usersListCache.forEach(u => {
-        if (u.username !== currentUser) {
-          const div = document.createElement('div');
-          div.className = `user-item ${activeReceiver === u.username ? 'active' : ''}`;
-          
-          const dotClass = u.status === 'online' ? 'dot-online' : 'dot-offline';
-          div.innerHTML = `
-            <span>${u.username} (${u.gender === 'مرد' ? '👨' : '👩'})</span>
-            <span class="user-status-dot ${dotClass}" title="${u.status === 'online' ? 'آنلاین' : 'آفلاین'}"></span>
-          `;
-          div.onclick = () => selectUser(u.username, div);
-          list.appendChild(div);
-        }
-      });
-    }
-
-    function selectUser(username, element) {
-      activeReceiver = username;
-      activeReceiverData = usersListCache.find(u => u.username === username);
-      
-      document.querySelectorAll('.user-item').forEach(el => el.classList.remove('active'));
-      if (element) element.classList.add('active');
-      
-      document.getElementById('chat-header-title').innerText = `گفتگو با ${username}`;
-      updateHeaderStatus();
-      
-      document.getElementById('app-container').classList.add('chat-open');
-      loadMessages();
-    }
-
-    function updateHeaderStatus() {
-      const statusSpan = document.getElementById('chat-header-status');
-      if (!activeReceiverData) {
-        statusSpan.innerText = '';
-        return;
-      }
-      if (activeReceiverData.status === 'online') {
-        statusSpan.innerText = 'آنلاین';
-        statusSpan.style.color = '#2ecc71';
-      } else {
-        if (activeReceiverData.lastSeen) {
-          const date = new Date(activeReceiverData.lastSeen);
-          const timeStr = date.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
-          statusSpan.innerText = `آخرین بازدید: ${timeStr}`;
-        } else {
-          statusSpan.innerText = 'آفلاین';
-        }
-        statusSpan.style.color = '#ccc';
-      }
-    }
-
-    function closeChat() {
-      document.getElementById('app-container').classList.remove('chat-open');
-    }
-
-    async function loadMessages() {
-      if (!activeReceiver) return;
-      try {
-        const res = await fetch(`/api/messages/${currentUser}/${activeReceiver}`);
-        const msgs = await res.json();
-        const container = document.getElementById('messages-container');
-        container.innerHTML = '';
-        msgs.forEach(displayMessage);
-        container.scrollTop = container.scrollHeight;
-      } catch (err) {
-        console.error('Error loading messages:', err);
-      }
-    }
-
-    function displayMessage(data) {
-      const container = document.getElementById('messages-container');
-      const div = document.createElement('div');
-      const isMe = data.sender === currentUser;
-      div.className = `message ${isMe ? 'sent' : 'received'}`;
-
-      let content = '';
-      const msg = data.message || '';
-
-      if (msg.startsWith('data:image') || msg.includes('/uploads/') && (msg.includes('.png') || msg.includes('.jpg') || msg.includes('.jpeg') || msg.includes('.webp'))) {
-        const parts = msg.split('||caption||');
-        const imgSrc = parts[0];
-        const caption = parts[1] || '';
-        content = `<img src="${imgSrc}" onclick="openFullImage('${imgSrc}')">` + (caption ? `<div style="margin-top:5px;">${caption}</div>` : '');
-      } else if (msg.startsWith('data:audio') || msg.includes('/uploads/') && (msg.includes('.webm') || msg.includes('.ogg') || msg.includes('.mp3'))) {
-        content = `<audio controls src="${msg}"></audio>`;
-      } else {
-        content = msg;
-      }
-
-      div.innerHTML = content;
-      container.appendChild(div);
-      container.scrollTop = container.scrollHeight;
-    }
-
-    document.getElementById('image-input').onchange = (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          selectedImageBase64 = event.target.result;
-          document.getElementById('message-input').placeholder = "کپشن عکس را بنویسید (اختیاری)...";
-        };
-        reader.readAsDataURL(file);
-      }
-    };
-
-    async function toggleRecordVoice() {
-      const micBtn = document.getElementById('mic-btn');
-      if (!isRecording) {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          mediaRecorder = new MediaRecorder(stream);
-          audioChunks = [];
-
-          mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-              audioChunks.push(event.data);
-            }
-          };
-
-          mediaRecorder.onstop = () => {
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-            const reader = new FileReader();
-            reader.readAsDataURL(audioBlob);
-            reader.onloadend = () => {
-              const base64Audio = reader.result;
-              if (activeReceiver) {
-                socket.emit('send_private_message', {
-                  sender: currentUser,
-                  receiver: activeReceiver,
-                  message: base64Audio
-                });
-              } else {
-                alert('لطفاً ابتدا یک مخاطب انتخاب کنید');
-              }
-            };
-            stream.getTracks().forEach(track => track.stop());
-          };
-
-          mediaRecorder.start();
-          isRecording = true;
-          micBtn.classList.add('recording');
-          micBtn.title = "در حال ضبط... (برای توقف کلیک کنید)";
-        } catch (err) {
-          alert('دسترسی به میکروفون امکان‌پذیر نیست یا مرورگر شما پشتیبانی نمی‌کند.');
-          console.error(err);
-        }
-      } else {
-        mediaRecorder.stop();
-        isRecording = false;
-        micBtn.classList.remove('recording');
-        micBtn.title = "ضبط صدا";
-      }
-    }
-
-    function sendMessage() {
-      const input = document.getElementById('message-input');
-      const text = input.value.trim();
-      if (!activeReceiver) return alert('لطفا ابتدا یک مخاطب انتخاب کنید');
-
-      let finalPayload = '';
-      if (selectedImageBase64) {
-        finalPayload = selectedImageBase64 + '||caption||' + text;
-        selectedImageBase64 = null;
-        document.getElementById('image-input').value = '';
-        input.placeholder = "پیام خود را بنویسید...";
-      } else if (text) {
-        finalPayload = text;
-      } else {
-        return;
-      }
-
-      socket.emit('send_private_message', {
-        sender: currentUser,
-        receiver: activeReceiver,
-        message: finalPayload
-      });
-
-      input.value = '';
-    }
-
-    socket.on('user_status_changed', (data) => {
-      const userObj = usersListCache.find(u => u.username === data.username);
-      if (userObj) {
-        userObj.status = data.status;
-        if (data.lastSeen) {
-          userObj.lastSeen = data.lastSeen;
-        }
-      }
-      renderUsersList();
-      if (activeReceiver === data.username) {
-        activeReceiverData = userObj;
-        updateHeaderStatus();
-      }
-    });
-
-    socket.on('receive_private_message', (data) => {
-      if ((data.sender === activeReceiver && data.receiver === currentUser) ||
-          (data.sender === currentUser && data.receiver === activeReceiver)) {
-        displayMessage(data);
-      }
-    });
-
-    socket.on('message_sent', (data) => {
-      if (data.sender === currentUser) {
-        displayMessage(data);
-      }
-    });
-
-    function openFullImage(src) {
-      const modal = document.getElementById('image-modal');
-      document.getElementById('full-image').src = src;
-      modal.style.display = 'flex';
-    }
-
-    loadUsers();
-  </script>
+  <script src="/js/api.js"></script>
+  <script src="/js/wav.js"></script>
+  <script src="/js/chat.js"></script>
 </body>
 </html>

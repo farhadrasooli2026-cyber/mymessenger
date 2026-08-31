@@ -1,2 +1,6 @@
 node_modules/
 database.db
+sessions.db
+.session-secret
+public/uploads/
+*.log
