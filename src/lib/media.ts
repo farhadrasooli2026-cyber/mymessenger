@@ -43,6 +43,30 @@ export function extOf(name: string): string {
   return i >= 0 ? name.slice(i + 1).toLowerCase() : "";
 }
 
+/** Inspect leading bytes; never trust the filename alone. */
+export function sniffMagic(bytes: Uint8Array): { ok: boolean; mime: string; warning?: string } {
+  if (bytes.length < 4) return { ok: false, mime: "application/octet-stream", warning: "فایل ناقص است." };
+  const b = bytes;
+  const ascii = String.fromCharCode(...Array.from(b.slice(0, Math.min(32, b.length))));
+  if (/^\s*</.test(ascii) || /<script/i.test(ascii) || ascii.startsWith("%PDF") === false && /javascript/i.test(ascii)) {
+    if (/^\s*</.test(ascii) || /<script/i.test(ascii)) {
+      return { ok: false, mime: "text/html", warning: "محتوای HTML/اسکریپت پذیرفته نمی‌شود." };
+    }
+  }
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { ok: true, mime: "image/jpeg" };
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return { ok: true, mime: "image/png" };
+  if (ascii.startsWith("GIF8")) return { ok: true, mime: "image/gif" };
+  if (ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WEBP") return { ok: true, mime: "image/webp" };
+  if (ascii.startsWith("%PDF")) return { ok: true, mime: "application/pdf" };
+  if (b[0] === 0x50 && b[1] === 0x4b) return { ok: true, mime: "application/zip" };
+  if (ascii.includes("ftyp")) return { ok: true, mime: "video/mp4" };
+  if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf) return { ok: true, mime: "video/webm" };
+  if (ascii.startsWith("ID3") || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0)) return { ok: true, mime: "audio/mpeg" };
+  if (ascii.startsWith("OggS")) return { ok: true, mime: "audio/ogg" };
+  if (ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WAVE") return { ok: true, mime: "audio/wav" };
+  return { ok: true, mime: "application/octet-stream", warning: "امضای فایل ناشناخته است؛ فقط پس از بررسی مجاز ذخیره می‌شود." };
+}
+
 export function scanAttachment(name: string, mime: string, size: number): {
   ok: boolean;
   warning?: string;

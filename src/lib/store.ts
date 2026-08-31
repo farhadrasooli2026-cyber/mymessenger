@@ -1029,6 +1029,34 @@ export type PubChannelRecord = {
   deletedAt: number | null;
 };
 
+export type GalleryItem = {
+  id: string;
+  ownerUserId: string;
+  kind: import("@/lib/gallery-types").GalleryKind;
+  name: string;
+  mime: string;
+  size: number;
+  caption: string;
+  privacy: import("@/lib/gallery-types").GalleryPrivacy;
+  sourceChat: string;
+  albumIds: string[];
+  cache: boolean;
+  hash: string;
+  thumb: string;
+  duplicateOf: string | null;
+  createdAt: number;
+  deletedAt: number | null;
+};
+
+export type GalleryAlbum = {
+  id: string;
+  ownerUserId: string;
+  name: string;
+  itemIds: string[];
+  createdAt: number;
+  deletedAt: number | null;
+};
+
 export type SavedItem = {
   id: string;
   ownerUserId: string;
@@ -1111,6 +1139,9 @@ export type StoreData = {
   pubChannels: PubChannelRecord[];
   channelPosts: ChannelPost[];
   savedItems: SavedItem[];
+  galleryItems: GalleryItem[];
+  galleryAlbums: GalleryAlbum[];
+  galleryPrefs: import("@/lib/gallery-types").GalleryPrefs[];
   catalogCategories: CatalogCategory[];
   catalogItems: CatalogItem[];
   bgCategories: CatalogCategory[];
@@ -1180,6 +1211,9 @@ const EMPTY: StoreData = {
   pubChannels: [],
   channelPosts: [],
   savedItems: [],
+  galleryItems: [],
+  galleryAlbums: [],
+  galleryPrefs: [],
   catalogCategories: [],
   catalogItems: [],
   bgCategories: [],
@@ -1279,6 +1313,19 @@ async function readStore(): Promise<StoreData> {
           }))
         : [],
       savedItems: Array.isArray(parsed.savedItems) ? parsed.savedItems : [],
+      galleryItems: Array.isArray(parsed.galleryItems)
+        ? parsed.galleryItems.map((i) => ({
+            ...i,
+            albumIds: Array.isArray(i.albumIds) ? i.albumIds : [],
+            cache: Boolean(i.cache),
+            hash: i.hash ?? "",
+            thumb: i.thumb ?? "",
+            duplicateOf: i.duplicateOf ?? null,
+            deletedAt: i.deletedAt ?? null,
+          }))
+        : [],
+      galleryAlbums: Array.isArray(parsed.galleryAlbums) ? parsed.galleryAlbums : [],
+      galleryPrefs: Array.isArray(parsed.galleryPrefs) ? parsed.galleryPrefs : [],
       catalogCategories: parsed.catalogCategories ?? [],
       catalogItems: parsed.catalogItems ?? [],
       bgCategories: parsed.bgCategories ?? [],
@@ -1389,6 +1436,8 @@ function prune(data: StoreData, now: number): void {
     }))
     .filter((b) => b.hits.length > 0 || (b.blockedUntil !== null && b.blockedUntil > now));
   data.failedCycles = data.failedCycles.filter((f) => now - f.lastAt < 24 * 60 * 60 * 1000);
+  const gallerySoftMs = 30 * 24 * 60 * 60 * 1000;
+  data.galleryItems = (data.galleryItems ?? []).filter((i) => !i.deletedAt || now - i.deletedAt < gallerySoftMs);
   // Accounts are never removed for inactivity. Only a confirmed pending deletion past its grace period is purged.
   finalizeDueAccounts(data, now);
 }
@@ -1414,6 +1463,9 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.threads = data.threads.filter((t) => t.ownerUserId !== uid);
   data.messages = data.messages.filter((m) => m.ownerUserId !== uid);
   data.savedItems = (data.savedItems ?? []).filter((s) => s.ownerUserId !== uid);
+  data.galleryItems = (data.galleryItems ?? []).filter((s) => s.ownerUserId !== uid);
+  data.galleryAlbums = (data.galleryAlbums ?? []).filter((s) => s.ownerUserId !== uid);
+  data.galleryPrefs = (data.galleryPrefs ?? []).filter((s) => s.userId !== uid);
   data.backups = (data.backups ?? []).filter((b) => b.userId !== uid);
   data.calls = (data.calls ?? []).filter((c) => c.ownerUserId !== uid && c.peerKey !== uid);
   data.userStories = (data.userStories ?? []).filter((s) => s.ownerUserId !== uid);

@@ -15,6 +15,7 @@ export function CameraCapture({ onCapture, onCancel }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [facing, setFacing] = useState<"user" | "environment">("user");
   const [recording, setRecording] = useState(false);
+  const [flash, setFlash] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -26,6 +27,13 @@ export function CameraCapture({ onCapture, onCancel }: Props) {
           return;
         }
         streamRef.current = stream;
+        const track = stream.getVideoTracks()[0];
+        if (track && flash) {
+          const caps = track.getCapabilities?.() as { torch?: boolean } | undefined;
+          if (caps?.torch) {
+            void track.applyConstraints({ advanced: [{ torch: true }] } as unknown as MediaTrackConstraints);
+          }
+        }
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           void videoRef.current.play();
@@ -36,7 +44,7 @@ export function CameraCapture({ onCapture, onCancel }: Props) {
       cancelled = true;
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
-  }, [facing]);
+  }, [facing, flash]);
 
   function take() {
     const video = videoRef.current;
@@ -101,9 +109,14 @@ export function CameraCapture({ onCapture, onCancel }: Props) {
           انصراف
         </Button>
         {!shot && (
-          <Button type="button" variant="secondary" className="flex-1" onClick={() => setFacing((f) => (f === "user" ? "environment" : "user"))}>
-            {facing === "user" ? "دوربین عقب" : "دوربین جلو"}
-          </Button>
+          <>
+            <Button type="button" variant="secondary" className="flex-1" onClick={() => setFacing((f) => (f === "user" ? "environment" : "user"))}>
+              {facing === "user" ? "دوربین عقب" : "دوربین جلو"}
+            </Button>
+            <Button type="button" variant="secondary" className="flex-1" onClick={() => setFlash((f) => !f)}>
+              Flash {flash ? "روشن" : "خاموش"}
+            </Button>
+          </>
         )}
         {shot ? (
           <>

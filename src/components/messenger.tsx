@@ -1949,6 +1949,12 @@ export function Messenger({
             <Link href="/app/wallet" className="block text-sm text-amber-200">
               NIXO Wallet
             </Link>
+            <Link href="/app/gallery" className="block text-sm text-amber-200">
+              گالری نیکسو
+            </Link>
+            <Link href="/app/settings/media" className="block text-sm text-amber-200">
+              تنظیمات → Data & Storage → Media
+            </Link>
             <Link href="/app/settings/story" className="block text-sm text-amber-200">
               تنظیمات → حریم خصوصی → استوری
             </Link>

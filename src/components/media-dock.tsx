@@ -64,6 +64,8 @@ export function MediaDock({
   const [paused, setPaused] = useState(false);
   const pauseRef = useRef(false);
   const abortRef = useRef(false);
+  const [nixoOpen, setNixoOpen] = useState(false);
+  const [nixoItems, setNixoItems] = useState<{ id: string; name: string; mediaUrl: string }[]>([]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   function addFiles(list: FileList | File[]) {
@@ -234,6 +236,14 @@ export function MediaDock({
         <Button type="button" size="sm" variant="ghost" className="text-xs text-amber-200" disabled={disabled} onClick={() => camVideoRef.current?.click()}>
           ویدیو
         </Button>
+        <Button type="button" size="sm" variant="ghost" className="text-xs text-amber-200" disabled={disabled} onClick={async () => {
+          const res = await fetch("/api/gallery?kind=all", { cache: "no-store" });
+          const data = await res.json();
+          setNixoItems(data.items ?? []);
+          setNixoOpen(true);
+        }}>
+          نیکسو
+        </Button>
         <Button type="button" size="sm" variant="ghost" className="text-amber-200" disabled={disabled} onClick={() => fileRef.current?.click()} aria-label="فایل">
           <Paperclip className="size-4" />
         </Button>
@@ -242,6 +252,35 @@ export function MediaDock({
         <input ref={camPhotoRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => e.target.files && addFiles(e.target.files)} />
         <input ref={camVideoRef} type="file" accept="video/*" capture="environment" className="hidden" onChange={(e) => e.target.files && addFiles(e.target.files)} />
       </div>
+      {nixoOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4">
+          <div className="max-h-[80dvh] w-full max-w-sm overflow-auto rounded-3xl bg-[#102824] p-4">
+            <p className="font-medium">گالری نیکسو</p>
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              {nixoItems.map((it) => (
+                <button
+                  key={it.id}
+                  type="button"
+                  className="rounded-xl bg-white/10 p-1 text-[10px]"
+                  onClick={async () => {
+                    const res = await fetch(it.mediaUrl);
+                    if (!res.ok) {
+                      toast.error("دسترسی گالری رد شد.");
+                      return;
+                    }
+                    const blob = await res.blob();
+                    addFiles([new File([blob], it.name, { type: blob.type || "application/octet-stream" })]);
+                    setNixoOpen(false);
+                  }}
+                >
+                  {it.name}
+                </button>
+              ))}
+            </div>
+            <Button type="button" variant="ghost" className="mt-3 w-full text-white" onClick={() => setNixoOpen(false)}>بستن</Button>
+          </div>
+        </div>
+      )}
       {open && current && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/75 p-3">
           <div className="max-h-[94dvh] w-full max-w-lg overflow-auto rounded-3xl bg-[#102824] p-4">
