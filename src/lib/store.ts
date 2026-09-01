@@ -196,7 +196,16 @@ function hydrateUser(user: UserRecord): UserRecord {
 }
 
 function hydrateKind(kind?: string): ChatMessage["kind"] {
-  if (kind === "voice" || kind === "photo" || kind === "video" || kind === "file" || kind === "system" || kind === "sticker") {
+  if (
+    kind === "voice" ||
+    kind === "photo" ||
+    kind === "video" ||
+    kind === "file" ||
+    kind === "system" ||
+    kind === "sticker" ||
+    kind === "location" ||
+    kind === "contact"
+  ) {
     return kind;
   }
   return "text";
@@ -240,6 +249,13 @@ function hydrateMessage(message: ChatMessage & { text?: string }): ChatMessage {
     captureCount: message.captureCount ?? 0,
     stickerId: typeof message.stickerId === "string" ? message.stickerId : undefined,
     reactions: Array.isArray(message.reactions) ? message.reactions : [],
+    clientNonce: typeof message.clientNonce === "string" ? message.clientNonce : undefined,
+    replyToId: typeof message.replyToId === "string" ? message.replyToId : undefined,
+    syncId: typeof message.syncId === "string" ? message.syncId : undefined,
+    editedAt: message.editedAt ?? null,
+    editCount: message.editCount ?? 0,
+    deliveredAt: message.deliveredAt ?? null,
+    readAt: message.readAt ?? null,
   };
   if (message.kind === "sticker") {
     return {
@@ -840,7 +856,7 @@ export type ChatMessage = {
   ciphertext: string;
   nonce: string;
   createdAt: number;
-  kind: "text" | "voice" | "photo" | "video" | "file" | "system" | "sticker";
+  kind: "text" | "voice" | "photo" | "video" | "file" | "system" | "sticker" | "location" | "contact";
   durationMs?: number;
   viewOnce?: boolean;
   disappearAfterMs?: number | null;
@@ -862,6 +878,13 @@ export type ChatMessage = {
   captureCount?: number;
   stickerId?: string;
   reactions?: { emoji: string; keys: string[] }[];
+  clientNonce?: string;
+  replyToId?: string | null;
+  syncId?: string;
+  editedAt?: number | null;
+  editCount?: number;
+  deliveredAt?: number | null;
+  readAt?: number | null;
 };
 
 export type SafetyReport = {

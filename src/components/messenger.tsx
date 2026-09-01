@@ -128,6 +128,10 @@ type Message = {
   stickerId?: string | null;
   stickerUrl?: string;
   reactions?: PublicReaction[];
+  replyToId?: string | null;
+  state?: "sent" | "delivered" | "read" | "deleted" | "failed";
+  editedAt?: number | null;
+  clientNonce?: string | null;
 };
 
 type Tab = "chats" | "calls" | "spaces" | "shop" | "me";
@@ -159,11 +163,22 @@ type WireMsg = {
   stickerId?: string | null;
   stickerUrl?: string | null;
   reactions?: PublicReaction[];
+  replyToId?: string | null;
+  state?: "sent" | "delivered" | "read" | "deleted";
+  editedAt?: number | null;
+  editCount?: number | null;
+  clientNonce?: string | null;
 };
 
 async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> {
   const key = await loadOrCreateThreadKey(threadId);
   const remote: Message[] = [];
+  const meta = (raw: WireMsg) => ({
+    replyToId: raw.replyToId ?? null,
+    state: raw.state,
+    editedAt: raw.editedAt ?? null,
+    clientNonce: raw.clientNonce ?? null,
+  });
   for (const raw of raws) {
     if (raw.kind === "system") {
       remote.push({
@@ -180,6 +195,7 @@ async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> 
                 : "رویداد سیستم",
         kind: "system",
         systemEvent: raw.systemEvent,
+        ...meta(raw),
       });
       continue;
     }
@@ -194,6 +210,7 @@ async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> 
         stickerUrl: raw.stickerUrl ?? undefined,
         reactions: raw.reactions,
         forwarded: raw.forwarded,
+        ...meta(raw),
       });
       continue;
     }
@@ -218,6 +235,7 @@ async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> 
         expiresAt: raw.expiresAt,
         viewedAt: raw.viewedAt,
         reactions: raw.reactions,
+        ...meta(raw),
       });
       continue;
     }
@@ -240,6 +258,7 @@ async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> 
         expiresAt: raw.expiresAt,
         viewedAt: raw.viewedAt,
         reactions: raw.reactions,
+        ...meta(raw),
       });
       continue;
     }
@@ -250,6 +269,7 @@ async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> 
         createdAt: raw.createdAt,
         text: "•••• این پیام روی این دستگاه قابل خواندن نیست.",
         locked: true,
+        ...meta(raw),
       });
       continue;
     }
@@ -267,6 +287,7 @@ async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> 
         viewedAt: raw.viewedAt,
         expired: raw.expired,
         reactions: raw.reactions,
+        ...meta(raw),
       });
     } catch {
       remote.push({
@@ -275,6 +296,7 @@ async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> 
         createdAt: raw.createdAt,
         text: "•••• کلید این دستگاه برای این پیام موجود نیست.",
         locked: true,
+        ...meta(raw),
       });
     }
   }
@@ -337,6 +359,10 @@ export function Messenger({
   const [emojiRecent, setEmojiRecent] = useState<string[]>([]);
   const [emojiFavorites, setEmojiFavorites] = useState<string[]>([]);
   const [failedReact, setFailedReact] = useState<Record<string, string>>({});
+  const [chatCursor, setChatCursor] = useState<string | null>(null);
+  const [peerTyping, setPeerTyping] = useState(false);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [story, setStory] = useState<{ title: string; body: string; viewed: boolean } | null>(null);
   const [storyOpen, setStoryOpen] = useState(false);
@@ -653,6 +679,13 @@ export function Messenger({
         } as Thread);
         const merged = [...local.map((m) => ({ ...m, local: true as const })), ...remote].sort((a, b) => a.createdAt - b.createdAt);
         setMessages(merged);
+        setChatCursor(typeof data.nextCursor === "string" ? data.nextCursor : null);
+        setPeerTyping(Boolean(data.typing));
+        void fetch(`/api/chats/${threadId}/read`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
         setThreads((list) =>
           list.map((t) =>
             t.id === threadId
@@ -710,18 +743,49 @@ export function Messenger({
 
   useEffect(() => {
     if (!activeId) return;
+    const es = new EventSource(`/api/chats/${activeId}/live`);
+    es.onmessage = () => {
+      void fetch(`/api/chats/${activeId}?since=${Date.now() - 120_000}`, { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then(async (data) => {
+          if (!data) return;
+          setPeerTyping(Boolean(data.typing));
+          const remote = await mapRemote(activeId, data.messages as WireMsg[]);
+          const key = await loadOrCreateThreadKey(activeId);
+          const local = await loadLocalMessages(activeId, key);
+          setMessages((cur) => {
+            const ids = new Set(cur.map((m) => m.id));
+            const extra = remote.filter((m) => !ids.has(m.id));
+            if (extra.length === 0) {
+              return cur.map((m) => {
+                const hit = remote.find((r) => r.id === m.id);
+                return hit ? { ...m, ...hit } : m;
+              });
+            }
+            return [...local.map((m) => ({ ...m, local: true as const })), ...remote].sort((a, b) => a.createdAt - b.createdAt);
+          });
+        })
+        .catch(() => undefined);
+    };
+    return () => es.close();
+  }, [activeId]);
+
+  useEffect(() => {
+    if (!activeId) return;
     const tick = window.setInterval(() => {
       void fetch(`/api/chats/${activeId}`, { cache: "no-store" })
         .then((res) => (res.ok ? res.json() : null))
         .then(async (data) => {
           if (!data) return;
+          setPeerTyping(Boolean(data.typing));
+          setChatCursor(typeof data.nextCursor === "string" ? data.nextCursor : null);
           const remote = await mapRemote(activeId, data.messages as WireMsg[]);
           const key = await loadOrCreateThreadKey(activeId);
           const local = await loadLocalMessages(activeId, key);
           setMessages([...local.map((m) => ({ ...m, local: true as const })), ...remote].sort((a, b) => a.createdAt - b.createdAt));
         })
         .catch(() => undefined);
-    }, 2500);
+    }, 8000);
     return () => window.clearInterval(tick);
   }, [activeId]);
 
@@ -747,8 +811,32 @@ export function Messenger({
       const key = await loadOrCreateThreadKey(activeId);
       const envelope = await encryptText(key, draft.trim());
       const disappearAfterMs = msFromChoice(textTimer, customMs);
-      const body: Record<string, unknown> = { ...envelope };
+      const clientNonce =
+        typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `n-${Date.now()}`;
+      const body: Record<string, unknown> = { ...envelope, clientNonce };
       if (disappearAfterMs !== undefined) body.disappearAfterMs = disappearAfterMs;
+      if (replyTo && !editingId) body.replyToId = replyTo.id;
+      if (editingId) {
+        const res = await fetch(`/api/chats/${activeId}/messages/${editingId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(envelope),
+        });
+        if (!res.ok) {
+          toast.error("ویرایش انجام نشد.");
+          return;
+        }
+        setEditingId(null);
+        setDraft("");
+        const listed = await fetch(`/api/chats/${activeId}`, { cache: "no-store" });
+        if (listed.ok) {
+          const data = (await listed.json()) as { messages: WireMsg[] };
+          const remote = await mapRemote(activeId, data.messages);
+          const local = await loadLocalMessages(activeId, key);
+          setMessages([...local.map((m) => ({ ...m, local: true as const })), ...remote].sort((a, b) => a.createdAt - b.createdAt));
+        }
+        return;
+      }
       const res = await fetch(`/api/chats/${activeId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -779,6 +867,7 @@ export function Messenger({
       }
       setMessages([...local.map((m) => ({ ...m, local: true as const })), ...remote].sort((a, b) => a.createdAt - b.createdAt));
       setDraft("");
+      setReplyTo(null);
       await loadThreads();
     } finally {
       setBusy(false);
@@ -1604,6 +1693,28 @@ export function Messenger({
               </div>
               <ScrollArea className="h-full">
                 <div className="relative space-y-3 px-4 py-5">
+                  {chatCursor && (
+                    <button
+                      type="button"
+                      className="mx-auto block text-[11px] text-amber-200/80"
+                      onClick={async () => {
+                        const res = await fetch(`/api/chats/${active.id}?cursor=${encodeURIComponent(chatCursor)}`, { cache: "no-store" });
+                        if (!res.ok) return;
+                        const data = (await res.json()) as { messages: WireMsg[]; nextCursor: string | null };
+                        const older = await mapRemote(active.id, data.messages);
+                        setChatCursor(data.nextCursor);
+                        setMessages((cur) => {
+                          const ids = new Set(cur.map((m) => m.id));
+                          return [...older.filter((m) => !ids.has(m.id)), ...cur].sort((a, b) => a.createdAt - b.createdAt);
+                        });
+                      }}
+                    >
+                      پیام‌های قدیمی‌تر
+                    </button>
+                  )}
+                  {peerTyping && (
+                    <p className="text-center text-[11px] text-emerald-100/50">در حال نوشتن…</p>
+                  )}
                   {messages.map((msg) => (
                     msg.kind === "system" ? (
                       <p key={msg.id} className="px-6 text-center text-[11px] leading-6 text-emerald-100/55">
@@ -1720,7 +1831,16 @@ export function Messenger({
                           />
                         ) : (
                           <div className="px-3">
+                            {msg.replyToId && (
+                              <p className="mb-1 truncate text-[10px] opacity-60">پاسخ به پیام</p>
+                            )}
                             <p>{msg.expired ? "این پیام منقضی شد." : msg.text}</p>
+                            {msg.editedAt ? <p className="text-[10px] opacity-50">ویرایش‌شده</p> : null}
+                            {msg.sender === "me" && msg.state ? (
+                              <p className="text-[10px] opacity-50">
+                                {msg.state === "read" ? "خوانده شد" : msg.state === "delivered" ? "تحویل شد" : msg.state === "deleted" ? "حذف شد" : "ارسال شد"}
+                              </p>
+                            ) : null}
                             <ExpiryBadge
                               createdAt={msg.createdAt}
                               expireFrom={msg.expireFrom}
@@ -1766,6 +1886,48 @@ export function Messenger({
                         >
                           Bookmark
                         </button>
+                        {msg.text && !msg.expired && (
+                          <div className="flex flex-wrap gap-2 px-3 pb-2 text-[10px] opacity-80">
+                            <button type="button" onClick={() => setReplyTo(msg)}>
+                              پاسخ
+                            </button>
+                            {msg.sender === "me" && !msg.local && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingId(msg.id);
+                                  setDraft(msg.text);
+                                }}
+                              >
+                                ویرایش
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void navigator.clipboard?.writeText(msg.text);
+                                toast.success("متن کپی شد.");
+                              }}
+                            >
+                              کپی
+                            </button>
+                            {msg.sender === "me" && (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await fetch(`/api/chats/${active.id}/messages/${msg.id}`, {
+                                    method: "DELETE",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ scope: "me" }),
+                                  });
+                                  setMessages((cur) => cur.filter((m) => m.id !== msg.id));
+                                }}
+                              >
+                                حذف برای من
+                              </button>
+                            )}
+                          </div>
+                        )}
                         {msg.text && !msg.expired && (
                           <div className="flex flex-wrap gap-1 px-3 pb-2">
                             <span className="text-[10px] opacity-50">Translate</span>
@@ -1833,6 +1995,28 @@ export function Messenger({
               }}
             >
               <form onSubmit={onSend} className="flex flex-col gap-2">
+                {replyTo && (
+                  <div className="flex items-center justify-between rounded-lg bg-black/25 px-3 py-1 text-[11px] text-emerald-100/70">
+                    <span className="truncate">پاسخ: {replyTo.text.slice(0, 80)}</span>
+                    <button type="button" onClick={() => setReplyTo(null)}>
+                      بستن
+                    </button>
+                  </div>
+                )}
+                {editingId && (
+                  <div className="flex items-center justify-between rounded-lg bg-black/25 px-3 py-1 text-[11px] text-amber-100/80">
+                    <span>ویرایش پیام</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingId(null);
+                        setDraft("");
+                      }}
+                    >
+                      لغو
+                    </button>
+                  </div>
+                )}
                 <DisappearPicker
                   value={textTimer}
                   onChange={setTextTimer}
@@ -1855,7 +2039,13 @@ export function Messenger({
                 <Input
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  placeholder={active.messagesAllowed ? "پیام رمزنگاری‌شده بنویس..." : "ارسال پیام محدود شده است"}
+                  placeholder={
+                    editingId
+                      ? "متن ویرایش‌شده…"
+                      : active.messagesAllowed
+                        ? "پیام رمزنگاری‌شده بنویس..."
+                        : "ارسال پیام محدود شده است"
+                  }
                   className="h-11 flex-1 border-white/10 bg-black/20"
                   maxLength={2000}
                   disabled={!active.messagesAllowed}
@@ -1867,7 +2057,7 @@ export function Messenger({
                   disabled={busy || !draft.trim() || !active.messagesAllowed}
                 >
                   <Send className="size-4" />
-                  ارسال
+                  {editingId ? "ذخیره" : "ارسال"}
                 </Button>
                 </div>
                 {emojiOpen && (

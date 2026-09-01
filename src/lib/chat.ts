@@ -11,6 +11,8 @@ import { MEDIA_MAX_CHUNKS, MEDIA_MAX_BYTES } from "@/lib/media";
 import { deleteMediaBlob } from "@/lib/media-files";
 import { emitNotification } from "@/lib/notify";
 import { publicReactionView, signStickerFile } from "@/lib/stickers";
+import { publishChatLive } from "@/lib/chat-live";
+import { clampLimit, decodeCursor, encodeCursor } from "@/lib/db/query";
 import {
   DISAPPEAR_MAX_MS,
   expireFromForKind,
@@ -21,7 +23,7 @@ export type CipherPayload = {
   enc: "e2ee-v1";
   ciphertext: string;
   nonce: string;
-  kind?: "text" | "voice" | "photo" | "video" | "file";
+  kind?: "text" | "voice" | "photo" | "video" | "file" | "location" | "contact";
   durationMs?: number;
   viewOnce?: boolean;
   clientNonce?: string;
@@ -32,7 +34,14 @@ export type CipherPayload = {
   chunkCount?: number;
   byteLength?: number;
   mimeClass?: "image" | "video" | "file" | "audio";
+  replyToId?: string;
 };
+
+export const TEXT_SEND_PER_MIN = 36;
+export const TEXT_FLOOD_MAX = 10;
+export const TEXT_FLOOD_MS = 8_000;
+export const EDIT_LIMIT_MS = 15 * 60 * 1000;
+export const MSG_PAGE_MAX = 80;
 
 const B64 = /^[A-Za-z0-9+/]+=*$/;
 
@@ -46,7 +55,14 @@ export function parseCipherPayload(body: unknown): CipherPayload | null {
   const nonce = rec.nonce.trim();
   const kindRaw = rec.kind;
   const kind =
-    kindRaw === "voice" || kindRaw === "photo" || kindRaw === "video" || kindRaw === "file" ? kindRaw : "text";
+    kindRaw === "voice" ||
+    kindRaw === "photo" ||
+    kindRaw === "video" ||
+    kindRaw === "file" ||
+    kindRaw === "location" ||
+    kindRaw === "contact"
+      ? kindRaw
+      : "text";
   const media = kind === "photo" || kind === "video" || kind === "file";
   const max = kind === "voice" ? VOICE_CIPHER_MAX : media ? 80_000 : 24_000;
   if (ciphertext.length < 8 || ciphertext.length > max) return null;
@@ -107,6 +123,7 @@ export function parseCipherPayload(body: unknown): CipherPayload | null {
     byteLength,
     mimeClass,
     clientNonce,
+    replyToId: typeof rec.replyToId === "string" && /^[a-zA-Z0-9_-]{8,80}$/.test(rec.replyToId) ? rec.replyToId : undefined,
   };
 }
 
@@ -160,6 +177,20 @@ export function publicMessage(message: ChatMessage, userId: string, now = Date.n
     stickerUrl:
       live.kind === "sticker" && live.stickerId ? `/api/stickers/file/${live.stickerId}?t=${signStickerFile(live.stickerId, userId)}` : null,
     reactions: publicReactionView((data ?? ({} as unknown as StoreData)), live.reactions, userId),
+    clientNonce: live.clientNonce ?? null,
+    replyToId: live.replyToId ?? null,
+    syncId: live.syncId ?? null,
+    editedAt: live.editedAt ?? null,
+    editCount: live.editCount ?? 0,
+    deliveredAt: live.deliveredAt ?? null,
+    readAt: live.readAt ?? null,
+    state: live.deletedEverywhere
+      ? ("deleted" as const)
+      : live.readAt
+        ? ("read" as const)
+        : live.deliveredAt
+          ? ("delivered" as const)
+          : ("sent" as const),
   };
 }
 
@@ -209,18 +240,100 @@ export async function listThreads(userId: string) {
   return threads;
 }
 
-export async function listMessages(userId: string, threadId: string) {
+const PEER_COLORS = ["#34d399", "#7dd3fc", "#fbbf24", "#c4b5fd", "#fda4af", "#67e8f9"];
+
+function ensurePeerThread(data: StoreData, fromId: string, toUser: { id: string; displayName?: string; username?: string | null }, now: number) {
+  let thread = data.threads.find((t) => t.ownerUserId === toUser.id && t.peerKey === fromId);
+  if (thread) return thread;
+  const from = data.users.find((u) => u.id === fromId);
+  thread = {
+    id: randomId(),
+    ownerUserId: toUser.id,
+    peerKey: fromId,
+    peerName: from?.displayName || from?.username || "کاربر نیکسو",
+    peerTitle: from?.username ? `@${from.username}` : "گفتگوی خصوصی",
+    color: PEER_COLORS[fromId.charCodeAt(0) % PEER_COLORS.length]!,
+    updatedAt: now,
+  };
+  data.threads.push(thread);
+  return thread;
+}
+
+function twinsOf(data: StoreData, message: ChatMessage): ChatMessage[] {
+  if (message.syncId) return data.messages.filter((m) => m.syncId === message.syncId);
+  return data.messages.filter(
+    (m) => m.nonce === message.nonce && m.ciphertext === message.ciphertext && m.createdAt === message.createdAt,
+  );
+}
+
+export type ChatLiveHit = { userId: string; threadId: string; type: "message" | "edit" | "delete" | "read" | "typing" | "ack" };
+
+function threadPublic(data: StoreData, userId: string, threadId: string, now: number, blobs: string[]) {
+  return data.messages
+    .filter((m) => m.threadId === threadId && m.ownerUserId === userId)
+    .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+    .map((m) => publicMessage(m, userId, now, blobs, data))
+    .filter((m): m is NonNullable<typeof m> => Boolean(m));
+}
+
+function peerTypingInThisChat(data: StoreData, userId: string, peerId: string, now: number) {
+  const peer = data.users.find((u) => u.id === peerId);
+  if (!peer?.showTyping || peer.typingUntil <= now || !peer.typingThreadId) return false;
+  const theirThread = data.threads.find((t) => t.id === peer.typingThreadId && t.ownerUserId === peer.id);
+  return Boolean(theirThread && theirThread.peerKey === userId);
+}
+
+export async function listMessages(
+  userId: string,
+  threadId: string,
+  opts?: { cursor?: string | null; limit?: number; since?: number },
+) {
   const blobs: string[] = [];
   const result = await mutateStore((data) => {
     const thread = data.threads.find((t) => t.id === threadId && t.ownerUserId === userId);
     if (!thread) return null;
     const now = Date.now();
-    const messages = data.messages
+    let rows = data.messages
       .filter((m) => m.threadId === threadId && m.ownerUserId === userId)
-      .sort((a, b) => a.createdAt - b.createdAt)
+      .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+    if (opts?.since && Number.isFinite(opts.since)) {
+      rows = rows.filter((m) => m.createdAt > opts.since!);
+    }
+    const mapped = rows
       .map((m) => publicMessage(m, userId, now, blobs, data))
       .filter((m): m is NonNullable<typeof m> => Boolean(m));
-    return { thread, messages, ...blockState(data, userId, thread.peerKey) };
+    const limit = Math.min(MSG_PAGE_MAX, clampLimit(opts?.limit ?? 80));
+    const unread = rows.filter((m) => m.sender === "peer" && !m.readAt && !m.deletedEverywhere && m.enc === "e2ee-v1").length;
+    const typing = peerTypingInThisChat(data, userId, thread.peerKey, now);
+    const safety = blockState(data, userId, thread.peerKey);
+    if (opts?.since && Number.isFinite(opts.since) && !opts.cursor) {
+      const page = mapped.slice(0, limit);
+      const last = page[page.length - 1];
+      return {
+        thread,
+        messages: page,
+        nextCursor: mapped.length > page.length && last ? encodeCursor(last.createdAt, last.id) : null,
+        unreadCount: unread,
+        typing,
+        ...safety,
+      };
+    }
+    const desc = [...mapped].reverse();
+    const cur = decodeCursor(opts?.cursor);
+    const after = cur
+      ? desc.filter((m) => m.createdAt < cur.createdAt || (m.createdAt === cur.createdAt && m.id < cur.id))
+      : desc;
+    const pageDesc = after.slice(0, limit);
+    const last = pageDesc[pageDesc.length - 1];
+    const messages = [...pageDesc].reverse();
+    return {
+      thread,
+      messages,
+      nextCursor: after.length > pageDesc.length && last ? encodeCursor(last.createdAt, last.id) : null,
+      unreadCount: unread,
+      typing,
+      ...safety,
+    };
   });
   await Promise.all(blobs.map((id) => deleteMediaBlob(userId, id)));
   return result;
@@ -247,6 +360,22 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
       return { ok: false as const, error: "View Once فقط برای صوت، عکس و ویدیو است.", status: 400 };
     }
     const now = Date.now();
+    if (payload.clientNonce) {
+      const existing = data.messages.find(
+        (m) => m.ownerUserId === userId && m.threadId === threadId && m.clientNonce === payload.clientNonce && !m.deletedEverywhere,
+      );
+      if (existing) {
+        return {
+          ok: true as const,
+          thread,
+          messages: threadPublic(data, userId, threadId, now, blobs),
+          ...safety,
+          duplicate: true,
+          ack: { serverId: existing.id, clientNonce: payload.clientNonce, createdAt: existing.createdAt },
+          live: [] as ChatLiveHit[],
+        };
+      }
+    }
     const inherit =
       typeof thread.disappearAfterMs === "number" && thread.disappearAfterMs > 0 ? thread.disappearAfterMs : null;
     const disappearAfterMs =
@@ -256,6 +385,12 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
           ? payload.disappearAfterMs
           : null;
     const kind = payload.kind ?? "text";
+    if (kind === "text" || kind === "location" || kind === "contact") {
+      const flood = hitRateLimit(data, `text:up:${userId}`, 60_000, TEXT_SEND_PER_MIN, now);
+      if (!flood.allowed) return { ok: false as const, error: "ارسال پیام پیاپی محدود شد.", status: 429 };
+      const burst = hitRateLimit(data, `text:flood:${userId}`, TEXT_FLOOD_MS, TEXT_FLOOD_MAX, now);
+      if (!burst.allowed) return { ok: false as const, error: "ارسال سریع شناسایی شد.", status: 429 };
+    }
     if (kind === "photo" || kind === "video" || kind === "file") {
       const flood = hitRateLimit(data, `file:up:${userId}`, 60_000, 24, now);
       if (!flood.allowed) return { ok: false as const, error: "ارسال فایل پیاپی محدود شد.", status: 429 };
@@ -268,12 +403,15 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
           now - m.createdAt < 180_000,
       );
       if (dup) {
-        const messages = data.messages
-          .filter((m) => m.threadId === threadId && m.ownerUserId === userId)
-          .sort((a, b) => a.createdAt - b.createdAt)
-          .map((m) => publicMessage(m, userId, now, blobs, data))
-          .filter((m): m is NonNullable<typeof m> => Boolean(m));
-        return { ok: true as const, thread, messages, ...safety, duplicate: true };
+        return {
+          ok: true as const,
+          thread,
+          messages: threadPublic(data, userId, threadId, now, blobs),
+          ...safety,
+          duplicate: true,
+          ack: { serverId: dup.id, clientNonce: dup.clientNonce ?? null, createdAt: dup.createdAt },
+          live: [] as ChatLiveHit[],
+        };
       }
     }
     if (kind === "voice") {
@@ -292,18 +430,31 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
           now - m.createdAt < 120_000,
       );
       if (dup) {
-        const messages = data.messages
-          .filter((m) => m.threadId === threadId && m.ownerUserId === userId)
-          .sort((a, b) => a.createdAt - b.createdAt)
-          .map((m) => publicMessage(m, userId, now, blobs, data))
-          .filter((m): m is NonNullable<typeof m> => Boolean(m));
-        return { ok: true as const, thread, messages, ...safety, duplicate: true };
+        return {
+          ok: true as const,
+          thread,
+          messages: threadPublic(data, userId, threadId, now, blobs),
+          ...safety,
+          duplicate: true,
+          ack: { serverId: dup.id, clientNonce: dup.clientNonce ?? null, createdAt: dup.createdAt },
+          live: [] as ChatLiveHit[],
+        };
       }
     }
+    let replyToId: string | undefined;
+    if (payload.replyToId) {
+      const orig = data.messages.find(
+        (m) => m.id === payload.replyToId && m.threadId === threadId && m.ownerUserId === userId && !m.deletedEverywhere,
+      );
+      if (!orig || orig.hiddenFor?.includes(userId)) {
+        return { ok: false as const, error: "پیام اصلی در این گفتگو نیست.", status: 400 };
+      }
+      replyToId = orig.id;
+    }
     const viewOnce = Boolean(payload.viewOnce);
-    const expireFrom = expireFromForKind(kind, viewOnce, disappearAfterMs);
+    const expireFrom = expireFromForKind(kind === "location" || kind === "contact" ? "text" : kind, viewOnce, disappearAfterMs);
     const expiresAt = expireFrom === "send" && disappearAfterMs ? now + disappearAfterMs : null;
-
+    const syncId = randomId();
     const mine: ChatMessage = {
       id: randomId(),
       threadId,
@@ -328,21 +479,48 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
       chunkCount: payload.chunkCount,
       byteLength: payload.byteLength,
       mimeClass: payload.mimeClass,
+      clientNonce: payload.clientNonce,
+      replyToId: replyToId ?? null,
+      syncId,
+      deliveredAt: null,
+      readAt: null,
+      editCount: 0,
+      editedAt: null,
     };
     data.messages.push(mine);
     thread.updatedAt = now;
+    const live: ChatLiveHit[] = [{ userId, threadId, type: "message" }];
     const peer = data.users.find((u) => u.id === thread.peerKey && u.status === "active");
     const meUser = data.users.find((u) => u.id === userId);
     data.inboxMetas ??= [];
     const myMeta = data.inboxMetas.find((m) => m.ownerUserId === userId && m.id === `dm:${threadId}`);
     if (myMeta?.archivedAt && meUser?.archiveUnarchiveOnNew !== false) myMeta.archivedAt = null;
     if (peer) {
-      const peerThread = data.threads.find((t) => t.ownerUserId === peer.id && t.peerKey === userId);
-      if (peerThread) {
-        const key = `dm:${peerThread.id}`;
-        const meta = data.inboxMetas.find((m) => m.ownerUserId === peer.id && m.id === key);
-        if (meta?.archivedAt && peer.archiveUnarchiveOnNew !== false) meta.archivedAt = null;
+      const peerThread = ensurePeerThread(data, userId, peer, now);
+      let peerReply: string | undefined;
+      if (replyToId) {
+        const orig = data.messages.find((m) => m.id === replyToId);
+        if (orig?.syncId) {
+          const twin = data.messages.find((m) => m.ownerUserId === peer.id && m.syncId === orig.syncId);
+          peerReply = twin?.id;
+        }
       }
+      data.messages.push({
+        ...mine,
+        id: randomId(),
+        threadId: peerThread.id,
+        ownerUserId: peer.id,
+        sender: "peer",
+        clientNonce: undefined,
+        replyToId: peerReply ?? null,
+        deliveredAt: now,
+      });
+      mine.deliveredAt = now;
+      peerThread.updatedAt = now;
+      live.push({ userId: peer.id, threadId: peerThread.id, type: "message" });
+      const key = `dm:${peerThread.id}`;
+      const meta = data.inboxMetas.find((m) => m.ownerUserId === peer.id && m.id === key);
+      if (meta?.archivedAt && peer.archiveUnarchiveOnNew !== false) meta.archivedAt = null;
       const sender = data.users.find((u) => u.id === userId);
       const label = sender?.displayName || sender?.username || "مخاطب";
       emitNotification(data, {
@@ -351,22 +529,33 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
         kind: kind === "voice" ? "voice" : "message",
         title: label,
         senderName: label,
-        body: kind === "voice" ? "پیام صوتی جدید" : kind === "file" || kind === "photo" || kind === "video" ? "فایل جدید" : "پیام رمزنگاری‌شده جدید",
+        body:
+          kind === "voice"
+            ? "پیام صوتی جدید"
+            : kind === "file" || kind === "photo" || kind === "video"
+              ? "فایل جدید"
+              : "پیام رمزنگاری‌شده جدید",
         e2ee: true,
         sourceId: `chat:${userId}`,
         muteType: "chat",
-        muteId: peerThread?.id ?? thread.id,
-        target: { type: "chat", id: peerThread?.id ?? thread.id },
+        muteId: peerThread.id,
+        target: { type: "chat", id: peerThread.id },
       });
     }
-    const messages = data.messages
-      .filter((m) => m.threadId === threadId && m.ownerUserId === userId)
-      .sort((a, b) => a.createdAt - b.createdAt)
-      .map((m) => publicMessage(m, userId, now, blobs, data))
-      .filter((m): m is NonNullable<typeof m> => Boolean(m));
-    return { ok: true as const, thread, messages, ...safety };
+    return {
+      ok: true as const,
+      thread,
+      messages: threadPublic(data, userId, threadId, now, blobs),
+      ...safety,
+      ack: { serverId: mine.id, clientNonce: payload.clientNonce ?? null, createdAt: now, state: mine.deliveredAt ? "delivered" : "sent" },
+      live,
+      duplicate: false,
+    };
   });
   await Promise.all(blobs.map((id) => deleteMediaBlob(userId, id)));
+  if (result.ok) {
+    for (const hit of result.live) publishChatLive(hit.userId, hit.threadId, hit.type);
+  }
   return result;
 }
 
@@ -376,12 +565,13 @@ export async function deleteMessage(
   messageId: string,
   scope: "me" | "everyone",
 ) {
-  return mutateStore(async (data) => {
+  const result = await mutateStore(async (data) => {
     const thread = data.threads.find((t) => t.id === threadId && t.ownerUserId === userId);
     if (!thread) return { ok: false as const, error: "گفتگو یافت نشد.", status: 404 };
     const message = data.messages.find((m) => m.id === messageId && m.threadId === threadId && m.ownerUserId === userId);
     if (!message) return { ok: false as const, error: "پیام یافت نشد.", status: 404 };
     const now = Date.now();
+    const live: ChatLiveHit[] = [{ userId, threadId, type: "delete" }];
     if (scope === "everyone") {
       if (message.sender !== "me") {
         return { ok: false as const, error: "فقط فرستنده می‌تواند برای همه حذف کند.", status: 403 };
@@ -390,8 +580,11 @@ export async function deleteMessage(
         return { ok: false as const, error: "مهلت حذف برای همه گذشته است.", status: 403 };
       }
       const blobId = message.blobId;
-      purgeContent(message, now);
-      message.deletedEverywhere = true;
+      for (const copy of twinsOf(data, message)) {
+        purgeContent(copy, now);
+        copy.deletedEverywhere = true;
+        live.push({ userId: copy.ownerUserId, threadId: copy.threadId, type: "delete" });
+      }
       if (blobId) {
         for (const copy of data.messages) {
           if (copy.blobId === blobId) {
@@ -405,8 +598,110 @@ export async function deleteMessage(
       if (!message.hiddenFor) message.hiddenFor = [];
       if (!message.hiddenFor.includes(userId)) message.hiddenFor.push(userId);
     }
-    return { ok: true as const };
+    return { ok: true as const, live };
   });
+  if (result.ok) {
+    for (const hit of result.live) publishChatLive(hit.userId, hit.threadId, hit.type);
+  }
+  return result;
+}
+
+export async function editMessage(userId: string, threadId: string, messageId: string, payload: CipherPayload) {
+  const result = await mutateStore((data) => {
+    const now = Date.now();
+    const limit = hitRateLimit(data, `edit:${userId}`, 60_000, 24, now);
+    if (!limit.allowed) return { ok: false as const, error: "ویرایش محدود شد.", status: 429 };
+    const thread = data.threads.find((t) => t.id === threadId && t.ownerUserId === userId);
+    if (!thread) return { ok: false as const, error: "گفتگو یافت نشد.", status: 404 };
+    const message = data.messages.find((m) => m.id === messageId && m.threadId === threadId && m.ownerUserId === userId);
+    if (!message) return { ok: false as const, error: "پیام یافت نشد.", status: 404 };
+    if (message.sender !== "me") return { ok: false as const, error: "فقط صاحب پیام می‌تواند ویرایش کند.", status: 403 };
+    if (message.deletedEverywhere || message.enc !== "e2ee-v1") {
+      return { ok: false as const, error: "این پیام قابل ویرایش نیست.", status: 409 };
+    }
+    const kind = message.kind ?? "text";
+    if (kind !== "text" && kind !== "location" && kind !== "contact") {
+      return { ok: false as const, error: "فقط متن قابل ویرایش است.", status: 400 };
+    }
+    if (now - message.createdAt > EDIT_LIMIT_MS) {
+      return { ok: false as const, error: "مهلت ویرایش گذشته است.", status: 403 };
+    }
+    const live: ChatLiveHit[] = [];
+    for (const copy of twinsOf(data, message)) {
+      copy.ciphertext = payload.ciphertext;
+      copy.nonce = payload.nonce;
+      copy.editedAt = now;
+      copy.editCount = (copy.editCount ?? 0) + 1;
+      live.push({ userId: copy.ownerUserId, threadId: copy.threadId, type: "edit" });
+    }
+    return {
+      ok: true as const,
+      message: publicMessage(message, userId, now, [], data),
+      live,
+    };
+  });
+  if (result.ok) {
+    for (const hit of result.live) publishChatLive(hit.userId, hit.threadId, hit.type);
+  }
+  return result;
+}
+
+export async function markThreadRead(userId: string, threadId: string, upTo?: number) {
+  const result = await mutateStore((data) => {
+    const now = Date.now();
+    const flood = hitRateLimit(data, `read:${userId}`, 60_000, 90, now);
+    if (!flood.allowed) return { ok: false as const, error: "علامت خوانده‌شده محدود شد.", status: 429 };
+    const thread = data.threads.find((t) => t.id === threadId && t.ownerUserId === userId);
+    if (!thread) return { ok: false as const, error: "گفتگو یافت نشد.", status: 404 };
+    const cap = typeof upTo === "number" && Number.isFinite(upTo) && upTo > 0 ? Math.min(Math.floor(upTo), now) : now;
+    const reader = data.users.find((u) => u.id === userId);
+    const shareReceipts = reader?.readReceipts !== false;
+    const live: ChatLiveHit[] = [{ userId, threadId, type: "read" }];
+    const touched: ChatMessage[] = [];
+    for (const m of data.messages) {
+      if (m.threadId !== threadId || m.ownerUserId !== userId) continue;
+      if (m.sender !== "peer") continue;
+      if (m.createdAt > cap) continue;
+      if (m.deletedEverywhere) continue;
+      m.deliveredAt = m.deliveredAt ?? now;
+      if (!m.readAt) {
+        m.readAt = now;
+        touched.push(m);
+      }
+    }
+    data.inboxMetas ??= [];
+    const meta = data.inboxMetas.find((row) => row.ownerUserId === userId && row.id === `dm:${threadId}`);
+    if (meta) {
+      meta.lastReadAt = Math.max(meta.lastReadAt, cap);
+      meta.markedUnread = false;
+    }
+    if (shareReceipts) {
+      for (const m of touched) {
+        for (const twin of twinsOf(data, m)) {
+          if (twin.ownerUserId === userId) continue;
+          twin.deliveredAt = twin.deliveredAt ?? now;
+          twin.readAt = twin.readAt ?? now;
+          live.push({ userId: twin.ownerUserId, threadId: twin.threadId, type: "read" });
+        }
+      }
+    }
+    return { ok: true as const, marked: touched.length, live };
+  });
+  if (result.ok) {
+    for (const hit of result.live) publishChatLive(hit.userId, hit.threadId, hit.type);
+  }
+  return result;
+}
+
+export async function markAllDirectRead(userId: string) {
+  const data = await readStoreSnapshot();
+  const mine = data.threads.filter((t) => t.ownerUserId === userId);
+  let marked = 0;
+  for (const thread of mine) {
+    const r = await markThreadRead(userId, thread.id);
+    if (r.ok) marked += r.marked;
+  }
+  return { ok: true as const, marked };
 }
 
 export async function markVoicePlayed(userId: string, threadId: string, messageId: string) {
@@ -495,18 +790,27 @@ export async function setChatDisappear(userId: string, threadId: string, ms: num
 }
 
 export async function listSharedMedia(userId: string, threadId: string) {
-  const listed = await listMessages(userId, threadId);
-  if (!listed) return null;
-  const items = listed.messages.filter(
-    (m) =>
-      (m.kind === "photo" || m.kind === "video" || m.kind === "file" || m.kind === "voice") &&
-      !m.expired &&
-      !m.viewOnce,
-  );
-  return { thread: listed.thread, items };
+  const blobs: string[] = [];
+  const listed = await mutateStore((data) => {
+    const thread = data.threads.find((t) => t.id === threadId && t.ownerUserId === userId);
+    if (!thread) return null;
+    const now = Date.now();
+    const items = data.messages
+      .filter((m) => m.threadId === threadId && m.ownerUserId === userId)
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((m) => publicMessage(m, userId, now, blobs, data))
+      .filter((m): m is NonNullable<typeof m> => Boolean(m))
+      .filter(
+        (m) =>
+          (m.kind === "photo" || m.kind === "video" || m.kind === "file" || m.kind === "voice") &&
+          !m.expired &&
+          !m.viewOnce,
+      );
+    return { thread, items, ...blockState(data, userId, thread.peerKey) };
+  });
+  await Promise.all(blobs.map((id) => deleteMediaBlob(userId, id)));
+  return listed;
 }
-
-const PEER_COLORS = ["#34d399", "#7dd3fc", "#fbbf24", "#c4b5fd", "#fda4af", "#67e8f9"];
 
 export async function openDm(userId: string, peerId: string) {
   return mutateStore((data) => {

@@ -54,6 +54,8 @@
 
 36. پایگاه داده و معماری داده: Store اصلی فایل JSON اتمی (tmp+rename) با صف تک‌نویسنده، نسخهٔ Schema و Migration افزایشی. پروفایل از OTP/نشست جداست؛ رسانه روی دیسک و در DB فقط Metadata. ID تصادفی غیرقابل حدس. Unique روی Username. Integrity و پاک‌سازی ردیف بی‌صاحب. Query با Scope کاربر، Allow-list برای Sort/Filter، Limit و Cursor؛ الحاق رشته به Query رد می‌شود. رمز در Rest با NIXO_DATA_KEY؛ Secret فقط در env. پشتیبان سیستم AES-GCM در پوشهٔ جدا، Verify و Restore ایزوله (Test جدا از Production). Health در `/api/health` بدون PII. عملیات سیستم فقط `nixo` / `nixo_ops`. Settings → Data. تغییر User ID یا Record ID به دادهٔ دیگری دسترسی نمی‌دهد.
 
+37. هستهٔ پیام‌رسانی: گفتگوی یک‌به‌یک و گروه با عضویت سمت سرور. ارسال فقط پاکت E2EE، شناسهٔ نهایی و زمان توسط سرور، Idempotency با `clientNonce`، صف fan-out برای کاربر آفلاین، Retry بدون پیام تکراری. صفحه با Cursor، سقف درخواست، همگام `since` بعد از reconnect. ویرایش فقط صاحب تا ۱۵دقیقه، حذف برای من / برای همه در مهلت، پاسخ فقط به پیام همان چت، هدایت با پرچم بدون دور زدن مجوز. واکنش، منشن عضو گروه، لینک روی دستگاه با هشدار پروتکل خطرناک. وضعیت Sent / Delivered / Read / Failed / Deleted، خوانده‌نشده، Typing با timeout ۸ث، Presence طبق حریم. Real-time با SSE احرازشده روی نخ همان کاربر (`/api/chats/:id/live`)؛ تغییر Chat ID اتاق دیگری را باز نمی‌کند. Rate limit و ضد سیلاب روی ارسال/ویرایش/حذف/واکنش. فایل و صوت و موقعیت/مخاطب به‌صورت پاکت رمزشده. جستجوی متن چت خصوصی روی سرور ایندکس نمی‌شود. تغییر Message ID یا Socket Room برای دیدن یا ویرایش پیام دیگری کافی نیست.
+
 همگام‌سازی کلید چنددستگاهی در بخش جداگانه کامل می‌شود.
 
 مدیر پس‌زمینه‌ها: `/admin/backgrounds`

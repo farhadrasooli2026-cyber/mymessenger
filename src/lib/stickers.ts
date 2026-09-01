@@ -612,9 +612,12 @@ export async function reactOnDm(userId: string, threadId: string, messageId: str
     const peer = data.users.find((u) => u.id === thread.peerKey);
     if (peer) {
       const peerThread = data.threads.find((t) => t.ownerUserId === peer.id && t.peerKey === userId);
-      if (peerThread && message.nonce) {
+      if (peerThread) {
         const twin = data.messages.find(
-          (m) => m.threadId === peerThread.id && m.ownerUserId === peer.id && m.nonce === message.nonce && m.ciphertext === message.ciphertext,
+          (m) =>
+            m.threadId === peerThread.id &&
+            m.ownerUserId === peer.id &&
+            (message.syncId ? m.syncId === message.syncId : m.nonce === message.nonce && m.ciphertext === message.ciphertext),
         );
         if (twin) {
           const twinApplied = applyUserReaction(twin.reactions, userId, emoji, [...DEFAULT_REACTIONS]);
@@ -641,6 +644,7 @@ export async function sendDmSticker(userId: string, threadId: string, stickerId:
     if (!use.ok) return use;
     const now = Date.now();
     const nonce = randomId();
+    const syncId = randomId();
     const mine: ChatMessage = {
       id: randomId(),
       threadId,
@@ -655,6 +659,7 @@ export async function sendDmSticker(userId: string, threadId: string, stickerId:
       reactions: [],
       hiddenFor: [],
       deletedEverywhere: false,
+      syncId,
     };
     data.messages.push(mine);
     thread.updatedAt = now;

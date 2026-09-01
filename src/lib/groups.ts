@@ -754,6 +754,13 @@ export async function sendGroupMessage(
       me.mutedUntil = now + 5 * 60_000;
       return { ok: false as const, error: "ارسال پیاپی شناسایی شد و موقتاً محدود شدی.", status: 429 };
     }
+    if (payload.replyToId) {
+      const orig = data.groupMessages.find((m) => m.id === payload.replyToId && m.groupId === groupId && !m.deleted);
+      if (!orig) return { ok: false as const, error: "پیام اصلی در این گروه نیست.", status: 400 };
+    }
+    if (Array.isArray(payload.mentions)) {
+      payload.mentions = payload.mentions.filter((id) => Boolean(findMember(group, String(id)))).slice(0, 12);
+    }
     if (kind === "poll") {
       const question = payload.poll?.question?.trim() ?? "";
       const options = (payload.poll?.options ?? []).map((o) => o.trim()).filter(Boolean).slice(0, 8);

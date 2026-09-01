@@ -3,6 +3,7 @@ import { hmacIdentifier } from "@/lib/crypto-utils";
 import { normalizeEmail, normalizePhone } from "@/lib/identifiers";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
+import { publishChatLive } from "@/lib/chat-live";
 import type { StoreData, UserRecord } from "@/lib/store";
 import type { Visibility, Visibility3 } from "@/lib/profile-types";
 import { SEED_PEERS } from "@/lib/chat-copy";
@@ -292,22 +293,32 @@ export async function setPresence(
   userId: string,
   patch: { typingThreadId?: string; typing?: boolean; recording?: boolean },
 ) {
-  return mutateStore((data) => {
+  const result = await mutateStore((data) => {
     const me = data.users.find((u) => u.id === userId);
     if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
     const now = Date.now();
     me.lastSeenAt = now;
+    let live: { userId: string; threadId: string } | null = null;
     if (patch.typing === false) {
       me.typingUntil = 0;
       me.typingThreadId = "";
     } else if (patch.typing && me.showTyping) {
       me.typingUntil = now + 8_000;
       me.typingThreadId = String(patch.typingThreadId ?? "");
+      const thread = data.threads.find((t) => t.id === me.typingThreadId && t.ownerUserId === userId);
+      if (thread) {
+        const peerThread = data.threads.find((t) => t.ownerUserId === thread.peerKey && t.peerKey === userId);
+        if (peerThread) live = { userId: thread.peerKey, threadId: peerThread.id };
+      }
     }
     if (patch.recording === false) me.recordingUntil = 0;
     else if (patch.recording && me.showVoiceRecording) me.recordingUntil = now + 20_000;
-    return { ok: true as const };
+    return { ok: true as const, live };
   });
+  if (result.ok && result.live) {
+    publishChatLive(result.live.userId, result.live.threadId, "typing");
+  }
+  return result;
 }
 
 export async function findByIdentifier(viewerId: string, raw: string) {
