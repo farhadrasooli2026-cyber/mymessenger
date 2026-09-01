@@ -76,6 +76,26 @@ export function decryptText(payload: string): string {
   ]).toString("utf8");
 }
 
+export function encryptBytes(plain: Buffer): Buffer {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", dataKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(plain), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([Buffer.from("N1"), iv, tag, encrypted]);
+}
+
+export function decryptBytes(payload: Buffer): Buffer {
+  if (payload.length < 2 + 12 + 16 || payload.subarray(0, 2).toString() !== "N1") {
+    throw new Error("invalid cipher payload");
+  }
+  const iv = payload.subarray(2, 14);
+  const tag = payload.subarray(14, 30);
+  const data = payload.subarray(30);
+  const decipher = createDecipheriv("aes-256-gcm", dataKey(), iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(data), decipher.final()]);
+}
+
 export type SignedPayload = Record<string, unknown>;
 
 export function signPayload(payload: SignedPayload): string {

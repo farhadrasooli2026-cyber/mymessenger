@@ -59,6 +59,8 @@ import type {
   WalletRecord,
 } from "@/lib/shop-types";
 import type { NotifyPrefs, NotifyRecord } from "@/lib/notify-types";
+import { applyMigrations, hydrateSchemaMeta } from "@/lib/db/migrate";
+import { repairOrphans } from "@/lib/db/integrity";
 
 export type { CatalogCategory, CatalogItem };
 
@@ -1605,6 +1607,17 @@ export type MediaJob = {
   updatedAt: number;
 };
 
+export type DbJob = {
+  id: string;
+  kind: "backup" | "integrity" | "cleanup" | "verify";
+  status: "queued" | "running" | "done" | "failed";
+  actorUserId: string;
+  detail: string;
+  createdAt: number;
+};
+
+export type DbAudit = { id: string; actorUserId: string; action: string; at: number };
+
 export type StoreData = {
   users: UserRecord[];
   challenges: ChallengeRecord[];
@@ -1710,6 +1723,9 @@ export type StoreData = {
   liveRecordings: LiveRecordingMeta[];
   livePrefs: LivePrefs[];
   searchIndex: { gen: number; rebuiltAt: number | null };
+  schemaMeta: import("@/lib/db/migrate").SchemaMeta;
+  dbJobs: DbJob[];
+  dbAudit: DbAudit[];
 };
 
 const EMPTY: StoreData = {
@@ -1817,6 +1833,9 @@ const EMPTY: StoreData = {
   liveRecordings: [],
   livePrefs: [],
   searchIndex: { gen: 0, rebuiltAt: null },
+  schemaMeta: { version: 0, migratedAt: 0, env: process.env.VITEST ? "test" : "development" },
+  dbJobs: [],
+  dbAudit: [],
 };
 
 const STORE_PATH = path.join(
@@ -1988,6 +2007,9 @@ async function readStore(): Promise<StoreData> {
         gen: typeof parsed.searchIndex?.gen === "number" ? parsed.searchIndex.gen : 0,
         rebuiltAt: typeof parsed.searchIndex?.rebuiltAt === "number" ? parsed.searchIndex.rebuiltAt : null,
       },
+      schemaMeta: hydrateSchemaMeta(parsed.schemaMeta),
+      dbJobs: Array.isArray(parsed.dbJobs) ? parsed.dbJobs : [],
+      dbAudit: Array.isArray(parsed.dbAudit) ? parsed.dbAudit : [],
     };
   } catch {
     return structuredClone(EMPTY);
@@ -2000,6 +2022,19 @@ async function writeStore(data: StoreData): Promise<void> {
   await writeFile(tmp, JSON.stringify(data), "utf8");
   const { rename } = await import("node:fs/promises");
   await rename(tmp, STORE_PATH);
+}
+
+export function getStorePath(): string {
+  return STORE_PATH;
+}
+
+export function writeStoreForTests(data: StoreData): Promise<void> {
+  if (!process.env.VITEST) {
+    return Promise.reject(new Error("forbidden"));
+  }
+  return enqueue(async () => {
+    await writeStore(data);
+  });
 }
 
 export function resetStoreForTests(): Promise<void> {
@@ -2039,6 +2074,7 @@ function ensureCatalog(data: StoreData): void {
     data.bgCategories = BG_CATEGORIES.map((c) => ({ ...c }));
     data.bgItems = seedBackgroundItems();
   }
+  applyMigrations(data);
 }
 
 function prune(data: StoreData, now: number): void {
@@ -2055,6 +2091,9 @@ function prune(data: StoreData, now: number): void {
   const gallerySoftMs = 30 * 24 * 60 * 60 * 1000;
   data.galleryItems = (data.galleryItems ?? []).filter((i) => !i.deletedAt || now - i.deletedAt < gallerySoftMs);
   data.mediaJobs = (data.mediaJobs ?? []).filter((j) => now - j.createdAt < 7 * 24 * 60 * 60 * 1000);
+  data.dbJobs = (data.dbJobs ?? []).filter((j) => now - j.createdAt < 30 * 24 * 60 * 60 * 1000);
+  data.dbAudit = (data.dbAudit ?? []).filter((j) => now - j.at < 30 * 24 * 60 * 60 * 1000);
+  repairOrphans(data);
   // Accounts are never removed for inactivity. Only a confirmed pending deletion past its grace period is purged.
   finalizeDueAccounts(data, now);
 }
@@ -2157,6 +2196,8 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.stickerReports = (data.stickerReports ?? []).filter((r) => r.reporterUserId !== uid);
   data.fileAccessLogs = (data.fileAccessLogs ?? []).filter((s) => s.userId !== uid);
   data.mediaJobs = (data.mediaJobs ?? []).filter((j) => j.ownerUserId !== uid);
+  data.dbJobs = (data.dbJobs ?? []).filter((j) => j.actorUserId !== uid);
+  data.dbAudit = (data.dbAudit ?? []).filter((j) => j.actorUserId !== uid);
   data.lives = (data.lives ?? []).map((l) => {
     if (l.hostUserId === uid && l.status !== "ended") {
       return {

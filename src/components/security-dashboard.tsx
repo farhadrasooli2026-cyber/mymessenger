@@ -155,6 +155,10 @@ export function SecurityDashboard() {
           <Link href="/app/settings/devices" className="text-amber-200">
             دستگاه‌ها
           </Link>
+          {" · "}
+          <Link href="/app/settings/data" className="text-amber-200">
+            داده و پایگاه
+          </Link>
         </p>
         {recovered && (
           <section className="rounded-2xl border border-amber-300/40 bg-amber-300/10 p-4 text-xs leading-6">

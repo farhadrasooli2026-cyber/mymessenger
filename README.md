@@ -52,6 +52,8 @@
 
 34. Live Streaming: ساخت Live با عنوان، توضیح، تصویر، Public/Private/Members/Invite، زمان‌بندی، Reminder، سقف بیننده، Audio Only، کیفیت Auto/Low/Medium/High، چت با Slow Mode، واکنش، Host/Co-Host/Guest، Kick/Mute/Ban، Recording/Replay با همان حریم، Discovery و Trending فقط برای Live عمومی، آمار بدون شناسهٔ بیننده. رسانه روی دستگاه میزبان حلقه می‌شود؛ سرور سیگنال، حضور و مجوز را نگه می‌دارد نه پیکسل CDN. لینک دعوت بدون نشست معتبر کار نمی‌کند. Settings → Live. تغییر Live ID یا URL برای دیدن پخش خصوصی دیگری کافی نیست.
 
+36. پایگاه داده و معماری داده: Store اصلی فایل JSON اتمی (tmp+rename) با صف تک‌نویسنده، نسخهٔ Schema و Migration افزایشی. پروفایل از OTP/نشست جداست؛ رسانه روی دیسک و در DB فقط Metadata. ID تصادفی غیرقابل حدس. Unique روی Username. Integrity و پاک‌سازی ردیف بی‌صاحب. Query با Scope کاربر، Allow-list برای Sort/Filter، Limit و Cursor؛ الحاق رشته به Query رد می‌شود. رمز در Rest با NIXO_DATA_KEY؛ Secret فقط در env. پشتیبان سیستم AES-GCM در پوشهٔ جدا، Verify و Restore ایزوله (Test جدا از Production). Health در `/api/health` بدون PII. عملیات سیستم فقط `nixo` / `nixo_ops`. Settings → Data. تغییر User ID یا Record ID به دادهٔ دیگری دسترسی نمی‌دهد.
+
 همگام‌سازی کلید چنددستگاهی در بخش جداگانه کامل می‌شود.
 
 مدیر پس‌زمینه‌ها: `/admin/backgrounds`

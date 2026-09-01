@@ -252,6 +252,10 @@ export function AccountSettings() {
           <Link href="/app/settings/privacy" className="text-amber-200">
             حریم خصوصی
           </Link>
+          {" · "}
+          <Link href="/app/settings/data" className="text-amber-200">
+            داده و پایگاه
+          </Link>
         </p>
 
         {pending && (
