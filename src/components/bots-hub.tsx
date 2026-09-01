@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { NixoMark } from "@/components/nixo-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MINI_CATEGORIES } from "@/lib/bot-types";
 
 type Bot = { id: string; name: string; username: string; description: string; verified: boolean; status?: string };
 type Mini = { id: string; title: string; category: string; description: string; paymentHint: boolean; bot: Bot };
@@ -75,6 +74,8 @@ export function BotsHub() {
           <Button type="button" onClick={() => load()}>جستجو</Button>
         </div>
         <p className="text-xs">
+          <Link href="/app/apps" className="text-amber-200">Mini App Directory</Link>
+          {" · "}
           <Link href="/app/settings/bots" className="text-amber-200">Developer Dashboard — ساخت ربات</Link>
           {" · "}
           <Link href="/app" className="text-amber-200">بازگشت</Link>
@@ -114,20 +115,15 @@ export function BotsHub() {
 
         <section className="rounded-2xl bg-white/5 p-4 text-sm">
           <h2 className="font-medium">Mini App Directory</h2>
-          <div className="mt-2 flex flex-wrap gap-1">
-            <Button type="button" size="xs" variant={category === "" ? "default" : "secondary"} onClick={() => setCategory("")}>همه</Button>
-            {MINI_CATEGORIES.map((c) => (
-              <Button key={c.id} type="button" size="xs" variant={category === c.id ? "default" : "secondary"} onClick={() => setCategory(c.id)}>
-                {c.emoji} {c.label}
-              </Button>
-            ))}
-          </div>
+          <p className="mt-1 text-[11px] opacity-70">فهرست کامل با دسته، جستجو، امتیاز و سندباکس در مسیر جدا است.</p>
+          <Link href="/app/apps" className="mt-2 inline-flex h-8 items-center rounded-lg bg-amber-300 px-3 text-sm font-medium text-[#102824]">
+            باز کردن App Directory
+          </Link>
           <ul className="mt-3 space-y-2 text-xs">
-            {mini.map((m) => (
+            {mini.slice(0, 4).map((m) => (
               <li key={m.id} className="rounded-xl border border-white/10 p-3">
                 <p className="font-medium">{m.title}</p>
                 <p className="opacity-70">{m.description}</p>
-                <p className="mt-1 text-amber-200">از @{m.bot.username}</p>
                 <Button type="button" size="sm" className="mt-2" onClick={() => router.push(`/app/mini/${m.id}`)}>
                   Open Mini App
                 </Button>

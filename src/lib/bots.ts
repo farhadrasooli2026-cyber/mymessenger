@@ -16,6 +16,8 @@ import {
   DEFAULT_BOT_COMMANDS,
   DEFAULT_BOT_PERMS,
   FORBIDDEN_DEFAULTS,
+  MINI_SCOPES,
+  MINI_SENSITIVE,
   type BotApiPerms,
   type BotButton,
   type BotLog,
@@ -23,6 +25,7 @@ import {
   type BotRecord,
   type BotReportCategory,
   type MiniCategory,
+  type MiniScope,
 } from "@/lib/bot-types";
 
 const OFFICIAL_ID = "official-nixo-help";
@@ -96,6 +99,11 @@ window.addEventListener("message", function(e){
 document.getElementById("ask").onclick=function(){ parent.postMessage({type:"nixo-request-profile"}, "*"); };
 </script></body></html>`,
     paymentHint: true,
+    version: "1.0.0",
+    status: "active",
+    requestedScopes: ["profile", "username"],
+    privacyUrl: "/app/settings/privacy",
+    termsUrl: "/app/settings/account",
     createdAt: Date.now(),
   });
 }
@@ -271,6 +279,7 @@ export async function directoryMiniApps(category?: string) {
     .filter((m) => {
       const bot = liveBot(data, m.botId);
       if (!bot) return false;
+      if (m.status === "removed" || m.status === "suspended" || m.status === "pending") return false;
       if (category && m.category !== category) return false;
       return true;
     })
@@ -322,6 +331,8 @@ export async function developerDashboard(ownerUserId: string, botId: string) {
       category: m.category,
       description: m.description,
       paymentHint: m.paymentHint,
+      status: m.status ?? "active",
+      version: m.version ?? "1.0.0",
     })),
     placements: data.botPlacements.filter((p) => p.botId === botId),
     logs: data.botLogs.filter((l) => l.botId === botId).slice(0, 40),
@@ -442,12 +453,28 @@ export async function setBotStatus(ownerUserId: string, botId: string, status: "
 export async function registerMiniApp(
   ownerUserId: string,
   botId: string,
-  input: { title: string; category: MiniCategory; description: string; html?: string; paymentHint?: boolean },
+  input: {
+    title: string;
+    category: MiniCategory;
+    description: string;
+    html?: string;
+    paymentHint?: boolean;
+    requestedScopes?: MiniScope[];
+    webUrl?: string;
+    privacyUrl?: string;
+    termsUrl?: string;
+    version?: string;
+    iconDataUrl?: string;
+  },
 ) {
   return mutateStore((data) => {
     ensureOfficialBot(data);
     const bot = data.bots.find((b) => b.id === botId && b.ownerUserId === ownerUserId && b.status === "active");
     if (!bot) return { ok: false as const, status: 404, error: "ربات یافت نشد." };
+    const requested = (input.requestedScopes ?? ["profile"]).filter((s): s is MiniScope =>
+      (MINI_SCOPES as readonly string[]).includes(s),
+    );
+    const sensitive = requested.some((s) => MINI_SENSITIVE.includes(s));
     const mini = {
       id: randomId(),
       botId,
@@ -457,9 +484,17 @@ export async function registerMiniApp(
       html: (input.html ?? "<p>مینی‌اپ نیکسو</p>").slice(0, 20_000),
       paymentHint: Boolean(input.paymentHint),
       createdAt: Date.now(),
+      version: (input.version ?? "1.0.0").slice(0, 16),
+      status: (sensitive && !bot.verified ? "pending" : "active") as const,
+      requestedScopes: requested,
+      privacyUrl: (input.privacyUrl ?? "").slice(0, 200),
+      termsUrl: (input.termsUrl ?? "").slice(0, 200),
+      webUrl: input.webUrl && input.webUrl.startsWith("https://") ? input.webUrl : null,
+      iconDataUrl: input.iconDataUrl?.startsWith("data:image/") ? input.iconDataUrl.slice(0, 80_000) : "",
+      updatedAt: Date.now(),
     };
     data.miniApps.push(mini);
-    return { ok: true as const, mini: { id: mini.id, title: mini.title, category: mini.category } };
+    return { ok: true as const, mini: { id: mini.id, title: mini.title, category: mini.category, status: mini.status } };
   });
 }
 
@@ -920,7 +955,16 @@ export async function setMiniProfileGrant(userId: string, miniId: string, allow:
     if (!mini || !liveBot(data, mini.botId)) return { ok: false as const, status: 404, error: "مینی‌اپ نیست." };
     data.miniGrants = data.miniGrants.filter((g) => !(g.miniAppId === miniId && g.userId === userId));
     if (allow) {
-      data.miniGrants.push({ id: randomId(), miniAppId: miniId, userId, profile: true, createdAt: Date.now() });
+      data.miniGrants.push({
+        id: randomId(),
+        miniAppId: miniId,
+        userId,
+        profile: true,
+        createdAt: Date.now(),
+        scopes: ["profile"],
+        installed: true,
+        lastUsedAt: Date.now(),
+      });
     }
     return { ok: true as const, profile: allow };
   });

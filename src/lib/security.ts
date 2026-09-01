@@ -326,6 +326,17 @@ export async function revokeAllDevices(userId: string, actorIp?: string) {
       }
     }
     appendAudit(data, userId, "revoke", { ip: actorIp, detail: "خروج از همهٔ دستگاه‌ها" });
+    const now = Date.now();
+    for (const g of data.miniGrants ?? []) {
+      if (g.userId === userId) {
+        g.revokedAt = now;
+        g.tokenHash = undefined;
+        g.tokenExp = 0;
+      }
+    }
+    for (const s of data.miniSessions ?? []) {
+      if (s.userId === userId && !s.revokedAt) s.revokedAt = now;
+    }
     return n;
   });
 }

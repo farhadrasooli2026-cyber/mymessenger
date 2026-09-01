@@ -23,6 +23,9 @@ import type {
   BotUpdate,
   MiniAppRecord,
   MiniGrant,
+  MiniReview,
+  MiniSession,
+  MiniAccessLog,
 } from "@/lib/bot-types";
 import type { AiChatRecord, AiLog, AiMemoryItem, AiMessageRecord, AiPrefs } from "@/lib/ai-types";
 import type {
@@ -1511,6 +1514,9 @@ export type StoreData = {
   botMessages: BotMessage[];
   miniApps: MiniAppRecord[];
   miniGrants: MiniGrant[];
+  miniReviews: MiniReview[];
+  miniSessions: MiniSession[];
+  miniAccessLogs: MiniAccessLog[];
   botPlacements: BotPlacement[];
   botLogs: BotLog[];
   botUpdates: BotUpdate[];
@@ -1603,6 +1609,9 @@ const EMPTY: StoreData = {
   botMessages: [],
   miniApps: [],
   miniGrants: [],
+  miniReviews: [],
+  miniSessions: [],
+  miniAccessLogs: [],
   botPlacements: [],
   botLogs: [],
   botUpdates: [],
@@ -1744,6 +1753,9 @@ async function readStore(): Promise<StoreData> {
       botMessages: Array.isArray(parsed.botMessages) ? parsed.botMessages : [],
       miniApps: Array.isArray(parsed.miniApps) ? parsed.miniApps : [],
       miniGrants: Array.isArray(parsed.miniGrants) ? parsed.miniGrants : [],
+      miniReviews: Array.isArray(parsed.miniReviews) ? parsed.miniReviews : [],
+      miniSessions: Array.isArray(parsed.miniSessions) ? parsed.miniSessions : [],
+      miniAccessLogs: Array.isArray(parsed.miniAccessLogs) ? parsed.miniAccessLogs : [],
       botPlacements: Array.isArray(parsed.botPlacements) ? parsed.botPlacements : [],
       botLogs: Array.isArray(parsed.botLogs) ? parsed.botLogs : [],
       botUpdates: Array.isArray(parsed.botUpdates) ? parsed.botUpdates : [],
@@ -1913,6 +1925,9 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   }
   data.botChats = (data.botChats ?? []).filter((c) => c.userId !== uid);
   data.miniGrants = (data.miniGrants ?? []).filter((g) => g.userId !== uid);
+  data.miniReviews = (data.miniReviews ?? []).filter((r) => r.userId !== uid);
+  data.miniSessions = (data.miniSessions ?? []).filter((s) => s.userId !== uid);
+  data.miniAccessLogs = (data.miniAccessLogs ?? []).filter((l) => l.userId !== uid);
   data.aiChats = (data.aiChats ?? []).filter((c) => c.userId !== uid);
   data.aiMessages = (data.aiMessages ?? []).filter((m) => m.userId !== uid);
   data.aiMemory = (data.aiMemory ?? []).filter((m) => m.userId !== uid);

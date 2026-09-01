@@ -346,6 +346,16 @@ export function PrivacyDashboard() {
         </section>
 
         <section className="rounded-2xl bg-white/5 p-4 text-sm">
+          <h2 className="font-medium">Connected Apps</h2>
+          <p className="text-[11px] leading-5 opacity-70">
+            مسیر: Settings → Privacy & Security → Connected Apps. مجوز Mini App از آنجا لغو می‌شود و توکن باطل می‌گردد.
+          </p>
+          <Link href="/app/settings/apps" className="mt-2 inline-block text-xs text-amber-200">
+            فهرست برنامه‌های متصل
+          </Link>
+        </section>
+
+        <section className="rounded-2xl bg-white/5 p-4 text-sm">
           <h2 className="font-medium">حذف داده و حداقل داده</h2>
           <p className="text-[11px] leading-5 opacity-70">
             حساب به‌خاطر ورود نکردن حذف نمی‌شود. حذف کامل فقط از مسیر تنظیمات ← حساب با چند مرحله تأیید و دورهٔ بازیابی است.

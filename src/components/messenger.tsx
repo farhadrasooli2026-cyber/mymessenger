@@ -1991,7 +1991,7 @@ export function Messenger({
                     </Link>
                   )}
                   {space.id === "mini" && (
-                    <Link href="/app/bots" className="mt-3 inline-flex h-8 items-center rounded-lg bg-amber-300 px-3 text-sm font-medium text-[#102824]">
+                    <Link href="/app/apps" className="mt-3 inline-flex h-8 items-center rounded-lg bg-amber-300 px-3 text-sm font-medium text-[#102824]">
                       Mini Apps
                     </Link>
                   )}
@@ -2081,6 +2081,12 @@ export function Messenger({
             </Link>
             <Link href="/app/settings/devices" className="block text-sm text-amber-200">
               تنظیمات → دستگاه‌ها
+            </Link>
+            <Link href="/app/apps" className="block text-sm text-amber-200">
+              Mini Apps & Web Apps
+            </Link>
+            <Link href="/app/settings/apps" className="block text-sm text-amber-200">
+              Settings → Privacy & Security → Connected Apps
             </Link>
             <Link href="/app/bots" className="block text-sm text-amber-200">
               تنظیمات → ربات‌ها و مینی‌اپ

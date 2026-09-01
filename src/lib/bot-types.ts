@@ -64,15 +64,49 @@ export const DEFAULT_BOT_COMMANDS = [
 export const MINI_CATEGORIES = [
   { id: "games", label: "بازی", emoji: "🎮" },
   { id: "shopping", label: "فروشگاه", emoji: "🛒" },
-  { id: "education", label: "آموزش", emoji: "📘" },
+  { id: "finance", label: "مالی", emoji: "💳" },
   { id: "productivity", label: "بهره‌وری", emoji: "📋" },
-  { id: "business", label: "کسب‌وکار", emoji: "📊" },
+  { id: "education", label: "آموزش", emoji: "📘" },
   { id: "entertainment", label: "سرگرمی", emoji: "📅" },
+  { id: "business", label: "کسب‌وکار", emoji: "📊" },
+  { id: "utilities", label: "ابزار", emoji: "🔧" },
+  { id: "social", label: "اجتماعی", emoji: "💬" },
   { id: "booking", label: "رزرو", emoji: "📅" },
   { id: "payment", label: "پرداخت", emoji: "💳" },
 ] as const;
 
 export type MiniCategory = (typeof MINI_CATEGORIES)[number]["id"];
+
+export const MINI_SCOPES = [
+  "profile",
+  "username",
+  "basic",
+  "contacts",
+  "camera",
+  "microphone",
+  "location",
+  "files",
+  "notifications",
+  "payments",
+] as const;
+export type MiniScope = (typeof MINI_SCOPES)[number];
+
+export const MINI_SCOPE_FA: Record<MiniScope, string> = {
+  profile: "پروفایل نمایشی",
+  username: "نام کاربری",
+  basic: "اطلاعات پایهٔ حساب (بدون شماره/ایمیل)",
+  contacts: "مخاطبین",
+  camera: "دوربین",
+  microphone: "میکروفون",
+  location: "موقعیت",
+  files: "فایل انتخابی کاربر (نه گالری خصوصی نیکسو)",
+  notifications: "ارسال اعلان",
+  payments: "پرداخت از مسیر NIXO Pay",
+};
+
+export const MINI_SENSITIVE: MiniScope[] = ["contacts", "camera", "microphone", "location", "files", "payments", "notifications"];
+
+export type MiniAppStatus = "active" | "maintenance" | "suspended" | "removed" | "pending";
 
 export const BOT_REPORT_CATEGORIES = [
   { id: "spam", label: "هرزنامه (Spam)" },
@@ -144,6 +178,14 @@ export type MiniAppRecord = {
   html: string;
   paymentHint: boolean;
   createdAt: number;
+  iconDataUrl?: string;
+  version?: string;
+  status?: MiniAppStatus;
+  requestedScopes?: MiniScope[];
+  privacyUrl?: string;
+  termsUrl?: string;
+  webUrl?: string | null;
+  updatedAt?: number;
 };
 
 export type MiniGrant = {
@@ -152,6 +194,40 @@ export type MiniGrant = {
   userId: string;
   profile: boolean;
   createdAt: number;
+  scopes?: MiniScope[];
+  tokenHash?: string;
+  tokenSalt?: string;
+  tokenExp?: number;
+  revokedAt?: number | null;
+  favorite?: boolean;
+  installed?: boolean;
+  lastUsedAt?: number;
+};
+
+export type MiniReview = {
+  id: string;
+  miniAppId: string;
+  userId: string;
+  stars: number;
+  body: string;
+  createdAt: number;
+  hidden: boolean;
+};
+
+export type MiniSession = {
+  id: string;
+  miniAppId: string;
+  userId: string;
+  createdAt: number;
+  revokedAt: number | null;
+};
+
+export type MiniAccessLog = {
+  id: string;
+  miniAppId: string;
+  userId: string;
+  action: string;
+  at: number;
 };
 
 export type BotPlacement = {

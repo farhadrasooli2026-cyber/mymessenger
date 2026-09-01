@@ -12,7 +12,7 @@ import {
   setCommands,
   setWebhook,
 } from "@/lib/bots";
-import type { BotApiPerms, MiniCategory } from "@/lib/bot-types";
+import type { BotApiPerms, MiniCategory, MiniScope } from "@/lib/bot-types";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -74,6 +74,11 @@ export async function POST(request: Request, ctx: Ctx) {
       description: String(body.description ?? ""),
       html: typeof body.html === "string" ? body.html : undefined,
       paymentHint: Boolean(body.paymentHint),
+      requestedScopes: Array.isArray(body.requestedScopes) ? (body.requestedScopes as MiniScope[]) : undefined,
+      webUrl: typeof body.webUrl === "string" ? body.webUrl : undefined,
+      privacyUrl: typeof body.privacyUrl === "string" ? body.privacyUrl : undefined,
+      termsUrl: typeof body.termsUrl === "string" ? body.termsUrl : undefined,
+      version: typeof body.version === "string" ? body.version : undefined,
     });
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);

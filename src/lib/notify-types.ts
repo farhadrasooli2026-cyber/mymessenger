@@ -117,7 +117,7 @@ export function defaultNotifyPrefs(userId: string): NotifyPrefs {
 }
 
 export type NotifyTarget = {
-  type: "chat" | "group" | "channel" | "story" | "business" | "bot" | "ai" | "order" | "security" | "call" | "system" | "live";
+  type: "chat" | "group" | "channel" | "story" | "business" | "bot" | "ai" | "order" | "security" | "call" | "system" | "live" | "mini";
   id: string;
   href?: string;
 };
