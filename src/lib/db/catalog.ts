@@ -30,6 +30,7 @@ export const DB_COLLECTIONS: DbCollection[] = [
   { name: "pushTokens", pk: "id", ownerField: "userId", service: "notify", owner: "user", lifecycle: "purge-on-account", notes: "توکن Push؛ endpoint کامل در API عمومی نیست." },
   { name: "pushJobs", pk: "id", ownerField: "userId", service: "notify", owner: "user", lifecycle: "ttl", notes: "صف Push با Retry و Idempotency." },
   { name: "galleryItems", pk: "id", ownerField: "ownerUserId", service: "media", owner: "user", lifecycle: "soft-delete", notes: "متادیتا؛ بایت در .data/gallery." },
+  { name: "vaultObjects", pk: "id", ownerField: "ownerUserId", service: "media", owner: "user", lifecycle: "soft-delete", notes: "Vault مرکزی؛ بایت در .data/vault با storageKey تصادفی." },
   { name: "savedItems", pk: "id", ownerField: "ownerUserId", service: "saved", owner: "user", lifecycle: "soft-delete", notes: "صندوق ذخیرهٔ خصوصی." },
   { name: "inboxMetas", pk: "id", ownerField: "ownerUserId", service: "inbox", owner: "user", lifecycle: "purge-on-account", notes: "تنظیمات پوشه و mute." },
   { name: "audit", pk: "id", ownerField: "userId", service: "security", owner: "user", lifecycle: "ttl", notes: "بدون OTP/رمز." },

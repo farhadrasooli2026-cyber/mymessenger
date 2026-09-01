@@ -2404,6 +2404,9 @@ export function Messenger({
             <Link href="/app/settings/live" className="block text-sm text-amber-200">
               تنظیمات → Live
             </Link>
+            <Link href="/app/storage" className="block text-sm text-amber-200">
+              فضای رسانه و فایل
+            </Link>
             <Link href="/app/files" className="block text-sm text-amber-200">
               Files & Documents
             </Link>

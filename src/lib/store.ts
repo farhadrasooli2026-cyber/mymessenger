@@ -60,6 +60,7 @@ import type {
 } from "@/lib/shop-types";
 import type { NotifyAudit, NotifyPrefs, NotifyRecord, PushJob, PushToken } from "@/lib/notify-types";
 import type { SearchDoc, SearchIndexJob, SearchMetrics, SearchQueryCache } from "@/lib/search-types";
+import type { VaultJob, VaultObject, VaultSession, StorageMetrics } from "@/lib/storage-types";
 import { applyMigrations, hydrateSchemaMeta } from "@/lib/db/migrate";
 import { repairOrphans } from "@/lib/db/integrity";
 
@@ -1873,6 +1874,10 @@ export type StoreData = {
   stickerReports: StickerModeration[];
   fileAccessLogs: { id: string; userId: string; action: string; target: string; at: number }[];
   mediaJobs: MediaJob[];
+  vaultObjects: VaultObject[];
+  vaultSessions: VaultSession[];
+  vaultJobs: VaultJob[];
+  storageMetrics: StorageMetrics;
   lives: LiveStream[];
   liveRecordings: LiveRecordingMeta[];
   livePrefs: LivePrefs[];
@@ -1993,6 +1998,20 @@ const EMPTY: StoreData = {
   stickerReports: [],
   fileAccessLogs: [],
   mediaJobs: [],
+  vaultObjects: [],
+  vaultSessions: [],
+  vaultJobs: [],
+  storageMetrics: {
+    uploads: 0,
+    uploadFail: 0,
+    downloads: 0,
+    downloadFail: 0,
+    processFail: 0,
+    lastUploadMs: 0,
+    lastDownloadMs: 0,
+    lastProcessMs: 0,
+    alertAt: null,
+  },
   lives: [],
   liveRecordings: [],
   livePrefs: [],
@@ -2176,6 +2195,20 @@ async function readStore(): Promise<StoreData> {
       stickerReports: Array.isArray(parsed.stickerReports) ? parsed.stickerReports : [],
       fileAccessLogs: Array.isArray(parsed.fileAccessLogs) ? parsed.fileAccessLogs : [],
       mediaJobs: Array.isArray(parsed.mediaJobs) ? parsed.mediaJobs : [],
+      vaultObjects: Array.isArray(parsed.vaultObjects) ? parsed.vaultObjects : [],
+      vaultSessions: Array.isArray(parsed.vaultSessions) ? parsed.vaultSessions : [],
+      vaultJobs: Array.isArray(parsed.vaultJobs) ? parsed.vaultJobs : [],
+      storageMetrics: parsed.storageMetrics ?? {
+        uploads: 0,
+        uploadFail: 0,
+        downloads: 0,
+        downloadFail: 0,
+        processFail: 0,
+        lastUploadMs: 0,
+        lastDownloadMs: 0,
+        lastProcessMs: 0,
+        alertAt: null,
+      },
       lives: Array.isArray(parsed.lives) ? parsed.lives : [],
       liveRecordings: Array.isArray(parsed.liveRecordings) ? parsed.liveRecordings : [],
       livePrefs: Array.isArray(parsed.livePrefs) ? parsed.livePrefs : [],
@@ -2276,6 +2309,9 @@ function prune(data: StoreData, now: number): void {
   const gallerySoftMs = 30 * 24 * 60 * 60 * 1000;
   data.galleryItems = (data.galleryItems ?? []).filter((i) => !i.deletedAt || now - i.deletedAt < gallerySoftMs);
   data.mediaJobs = (data.mediaJobs ?? []).filter((j) => now - j.createdAt < 7 * 24 * 60 * 60 * 1000);
+  data.vaultSessions = (data.vaultSessions ?? []).filter((s) => s.expiresAt > now);
+  data.vaultObjects = (data.vaultObjects ?? []).filter((o) => !o.deletedAt || now - o.deletedAt < 30 * 24 * 60 * 60 * 1000);
+  data.vaultJobs = (data.vaultJobs ?? []).filter((j) => now - j.createdAt < 7 * 24 * 60 * 60 * 1000);
   data.dbJobs = (data.dbJobs ?? []).filter((j) => now - j.createdAt < 30 * 24 * 60 * 60 * 1000);
   data.dbAudit = (data.dbAudit ?? []).filter((j) => now - j.at < 30 * 24 * 60 * 60 * 1000);
   repairOrphans(data);
@@ -2390,6 +2426,9 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.stickerReports = (data.stickerReports ?? []).filter((r) => r.reporterUserId !== uid);
   data.fileAccessLogs = (data.fileAccessLogs ?? []).filter((s) => s.userId !== uid);
   data.mediaJobs = (data.mediaJobs ?? []).filter((j) => j.ownerUserId !== uid);
+  data.vaultObjects = (data.vaultObjects ?? []).filter((o) => o.ownerUserId !== uid);
+  data.vaultSessions = (data.vaultSessions ?? []).filter((s) => s.ownerUserId !== uid);
+  data.vaultJobs = (data.vaultJobs ?? []).filter((j) => j.ownerUserId !== uid);
   data.dbJobs = (data.dbJobs ?? []).filter((j) => j.actorUserId !== uid);
   data.dbAudit = (data.dbAudit ?? []).filter((j) => j.actorUserId !== uid);
   data.lives = (data.lives ?? []).map((l) => {

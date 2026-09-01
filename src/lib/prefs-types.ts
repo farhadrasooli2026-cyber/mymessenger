@@ -75,6 +75,7 @@ export const SETTINGS_CATALOG = [
   { href: "/app/settings/chats", title: "چت‌ها", en: "Chats", hint: "پوشه، پین، آرشیو" },
   { href: "/app/settings/media", title: "رسانه و داده", en: "Data & Storage", hint: "Auto Download، کیفیت، Cache" },
   { href: "/app/settings/files", title: "فایل و فضای ذخیره‌سازی", en: "Files & Storage", hint: "عکس، ویدیو، فایل، صوت" },
+  { href: "/app/settings/storage", title: "فضای رسانه", en: "Media Storage", hint: "Vault، سهمیه، Signed URL" },
   { href: "/app/settings/audio", title: "صوت", en: "Voice & Audio", hint: "پخش و پیام صوتی" },
   { href: "/app/settings/stickers", title: "استیکر و ایموجی", en: "Stickers", hint: "بسته و واکنش" },
   { href: "/app/settings/story", title: "استوری", en: "Stories", hint: "حریم استوری و پاسخ" },

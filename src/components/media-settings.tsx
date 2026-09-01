@@ -97,6 +97,7 @@ export function MediaSettings() {
           <p className="text-[11px] opacity-50">{prefs.lockEnabled ? "قفل فعال است." : "قفل خاموش است."} مجوز دوربین، میکروفون و فایل از سیستم‌عامل است.</p>
         </section>
         <p className="text-[11px] opacity-45">رسانهٔ چت خصوصی E2EE است. پشتیبان رسانه طبق Backup حساب. نیکسو اسکرین‌شات را ۱۰۰٪ متوقف نمی‌کند.</p>
+        <Link href="/app/storage" className="text-sm text-amber-200">کتابخانه Media Storage</Link>
         <Link href="/app/gallery" className="text-sm text-amber-200">گالری نیکسو</Link>
         <Link href="/app/settings/files" className="block text-sm text-amber-200">Settings → Files & Storage</Link>
       </div>

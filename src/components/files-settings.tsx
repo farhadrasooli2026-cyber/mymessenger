@@ -98,7 +98,8 @@ export function FilesSettings() {
           <Link href="/app/settings/privacy" className="mt-2 block text-amber-200">Settings → Privacy</Link>
           <Link href="/app/settings/notifications" className="block text-amber-200">Settings → Notifications</Link>
         </section>
-        <Link href="/app/files" className="text-sm text-amber-200">کتابخانه Files & Documents</Link>
+          <Link href="/app/storage" className="text-sm text-amber-200">کتابخانه Media Storage</Link>
+          <Link href="/app/files" className="text-sm text-amber-200">کتابخانه Files & Documents</Link>
         <Link href="/app/settings/media" className="block text-sm text-amber-200">Settings → Data & Storage → Media</Link>
       </div>
     </main>

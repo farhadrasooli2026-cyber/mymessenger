@@ -58,6 +58,7 @@ export async function userDataSummary(userId: string) {
     contacts: (data.contacts ?? []).filter((c) => c.ownerUserId === userId).length,
     notifications: (data.notifications ?? []).filter((n) => n.userId === userId).length,
     gallery: (data.galleryItems ?? []).filter((g) => g.ownerUserId === userId && !g.deletedAt).length,
+    vault: (data.vaultObjects ?? []).filter((v) => v.ownerUserId === userId && !v.deletedAt).length,
     devices: (data.devices ?? []).filter((d) => d.userId === userId).length,
     schemaVersion: hydrateSchemaMeta(data.schemaMeta).version,
   };

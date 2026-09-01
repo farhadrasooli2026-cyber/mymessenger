@@ -232,6 +232,35 @@ export function declaredExtAllowed(allowed: string[] | null | undefined, nameOrE
   return allowed.includes(ext);
 }
 
+export function jpegDimensions(buf: Buffer): { width: number; height: number } | null {
+  if (buf.length < 8 || buf[0] !== 0xff || buf[1] !== 0xd8) return null;
+  let i = 2;
+  while (i + 8 < buf.length) {
+    if (buf[i] !== 0xff) {
+      i += 1;
+      continue;
+    }
+    const marker = buf[i + 1]!;
+    if (marker === 0xc0 || marker === 0xc1 || marker === 0xc2) {
+      return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
+    }
+    if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) {
+      i += 2;
+      continue;
+    }
+    if (i + 4 > buf.length) break;
+    const len = buf.readUInt16BE(i + 2);
+    if (len < 2) break;
+    i += 2 + len;
+  }
+  return null;
+}
+
+export function pngDimensions(buf: Buffer): { width: number; height: number } | null {
+  if (buf.length < 24 || buf[0] !== 0x89 || buf[1] !== 0x50) return null;
+  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+}
+
 export function scanNamedFile(name: string, declaredMime: string, size: number, sniffedKind?: FileKind): { ok: boolean; warning?: string } {
   const ext = extOf(name);
   if (size > FILE_MAX_BYTES) return { ok: false, warning: "حجم فایل از سقف سرور بیشتر است." };
