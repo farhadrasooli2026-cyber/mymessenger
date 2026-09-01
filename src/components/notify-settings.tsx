@@ -201,6 +201,10 @@ export function NotifySettings() {
           <Link href="/app" className="text-amber-200">
             Notification Center در نوار گفتگو
           </Link>
+          {" · "}
+          <Link href="/app/settings/chats" className="text-amber-200">
+            Chat Organization
+          </Link>
         </p>
       </div>
     </main>

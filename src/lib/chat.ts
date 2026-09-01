@@ -274,8 +274,17 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
     data.messages.push(mine);
     thread.updatedAt = now;
     const peer = data.users.find((u) => u.id === thread.peerKey && u.status === "active");
+    const meUser = data.users.find((u) => u.id === userId);
+    data.inboxMetas ??= [];
+    const myMeta = data.inboxMetas.find((m) => m.ownerUserId === userId && m.id === `dm:${threadId}`);
+    if (myMeta?.archivedAt && meUser?.archiveUnarchiveOnNew !== false) myMeta.archivedAt = null;
     if (peer) {
       const peerThread = data.threads.find((t) => t.ownerUserId === peer.id && t.peerKey === userId);
+      if (peerThread) {
+        const key = `dm:${peerThread.id}`;
+        const meta = data.inboxMetas.find((m) => m.ownerUserId === peer.id && m.id === key);
+        if (meta?.archivedAt && peer.archiveUnarchiveOnNew !== false) meta.archivedAt = null;
+      }
       const sender = data.users.find((u) => u.id === userId);
       const label = sender?.displayName || sender?.username || "مخاطب";
       emitNotification(data, {

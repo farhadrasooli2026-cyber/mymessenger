@@ -9,7 +9,7 @@ import { NixoMark } from "@/components/nixo-mark";
 import { nixoSpaces } from "@/lib/brand";
 import { NotifyBell } from "@/components/notify-bell";
 import { MUTE_CHAT_PRESETS } from "@/lib/notify-types";
-import { blobMatches } from "@/lib/search-match";
+import { InboxList, type InboxItem } from "@/components/inbox-list";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -336,13 +336,13 @@ export function Messenger({
   const [lowDataCalls, setLowDataCalls] = useState(false);
   const [hideCallLock, setHideCallLock] = useState(false);
   const [callPrivacy, setCallPrivacy] = useState<"everyone" | "contacts" | "nobody" | "selected">("everyone");
-  const [groups, setGroups] = useState<{ id: string; name: string; color: string; memberCount: number; updatedAt: number }[]>([]);
+  const [, setGroups] = useState<{ id: string; name: string; color: string; memberCount: number; updatedAt: number }[]>([]);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [createGroup, setCreateGroup] = useState(false);
-  const [communities, setCommunities] = useState<{ id: string; name: string; color: string; memberCount: number }[]>([]);
+  const [, setCommunities] = useState<{ id: string; name: string; color: string; memberCount: number }[]>([]);
   const [activeCommunityId, setActiveCommunityId] = useState<string | null>(null);
   const [createCommunity, setCreateCommunity] = useState(false);
-  const [pubChannels, setPubChannels] = useState<{ id: string; name: string; color: string; subscriberCount: number; username: string | null }[]>([]);
+  const [, setPubChannels] = useState<{ id: string; name: string; color: string; subscriberCount: number; username: string | null }[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [createChannel, setCreateChannel] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -582,6 +582,18 @@ export function Messenger({
     }, 400);
     return () => window.clearTimeout(t);
   }, [draft, activeId, voiceRec]);
+
+  useEffect(() => {
+    if (!activeId) return;
+    const t = window.setTimeout(() => {
+      void fetch("/api/inbox", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: `dm:${activeId}`, action: "draft", draft }),
+      });
+    }, 800);
+    return () => window.clearTimeout(t);
+  }, [draft, activeId]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -854,6 +866,13 @@ export function Messenger({
   }
 
   async function logout() {
+    try {
+      Object.keys(sessionStorage)
+        .filter((k) => k.startsWith("nixo-inbox") || k === "nixo.notices")
+        .forEach((k) => sessionStorage.removeItem(k));
+    } catch {
+      /* ignore */
+    }
     await fetch("/api/me", { method: "DELETE" });
     router.replace("/");
   }
@@ -867,23 +886,67 @@ export function Messenger({
   }, [tab, threads]);
 
   const initials = useMemo(() => displayName.slice(0, 1), [displayName]);
-  const listNeedle = query.trim();
-  const listedChannels = useMemo(
-    () => pubChannels.filter((ch) => !listNeedle || blobMatches(`${ch.name} ${ch.username ?? ""}`, listNeedle)),
-    [pubChannels, listNeedle],
-  );
-  const listedCommunities = useMemo(
-    () => communities.filter((c) => !listNeedle || blobMatches(c.name, listNeedle)),
-    [communities, listNeedle],
-  );
-  const listedGroups = useMemo(
-    () => groups.filter((g) => !listNeedle || blobMatches(g.name, listNeedle)),
-    [groups, listNeedle],
-  );
-  const listedThreads = useMemo(
-    () => threads.filter((t) => !listNeedle || blobMatches(`${t.peerName} ${t.peerTitle ?? ""}`, listNeedle)),
-    [threads, listNeedle],
-  );
+
+  function openInboxItem(item: InboxItem) {
+    void fetch("/api/inbox", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: item.key, action: "read" }),
+    }).catch(() => undefined);
+    setSavedOpen(false);
+    if (item.kind === "dm") {
+      setActiveId(item.targetId);
+      setActiveGroupId(null);
+      setActiveCommunityId(null);
+      setActiveChannelId(null);
+      setDraft(item.draft ?? "");
+      setMobileChat(true);
+      setTab("chats");
+      return;
+    }
+    setActiveId(null);
+    if (item.kind === "group") {
+      setActiveGroupId(item.targetId);
+      setActiveCommunityId(null);
+      setActiveChannelId(null);
+      setMobileChat(true);
+      setTab("chats");
+      return;
+    }
+    if (item.kind === "community") {
+      setActiveCommunityId(item.targetId);
+      setActiveGroupId(null);
+      setActiveChannelId(null);
+      setMobileChat(true);
+      setTab("chats");
+      return;
+    }
+    if (item.kind === "channel") {
+      setActiveChannelId(item.targetId);
+      setActiveGroupId(null);
+      setActiveCommunityId(null);
+      setMobileChat(true);
+      setTab("chats");
+      return;
+    }
+    if (item.kind === "bot") {
+      router.push(`/app/bots/chat/${item.targetId}`);
+      return;
+    }
+    if (item.kind === "business") {
+      router.push(`/app/business/b/${item.navId ?? item.targetId}/chat`);
+    }
+  }
+
+  const inboxActiveKey = activeChannelId
+    ? `channel:${activeChannelId}`
+    : activeCommunityId
+      ? `community:${activeCommunityId}`
+      : activeGroupId
+        ? `group:${activeGroupId}`
+        : activeId
+          ? `dm:${activeId}`
+          : null;
 
   return (
     <div
@@ -1067,146 +1130,7 @@ export function Messenger({
         </div>
 
         <ScrollArea className="flex-1">
-          <div className="space-y-1 px-2 pb-24">
-            {listedChannels.map((ch) => (
-              <button
-                key={ch.id}
-                type="button"
-                onClick={() => {
-                  setActiveChannelId(ch.id);
-                  setActiveCommunityId(null);
-                  setActiveGroupId(null);
-                  setMobileChat(true);
-                  setTab("chats");
-                }}
-                className={cn(
-                  "flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-right transition",
-                  activeChannelId === ch.id ? "bg-violet-400/15" : "hover:bg-white/5",
-                )}
-              >
-                <span className="grid size-11 place-items-center rounded-2xl text-sm font-semibold text-[#071614]" style={{ background: ch.color }}>
-                  {ch.name.slice(0, 1)}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="truncate font-medium">{ch.name}</span>
-                    <span className="text-[10px] text-violet-200">کانال</span>
-                  </span>
-                  <span className="mt-0.5 block truncate text-xs text-emerald-100/60">
-                    {ch.username ? `@${ch.username} · ` : ""}
-                    {ch.subscriberCount} دنبال‌کننده
-                  </span>
-                </span>
-              </button>
-            ))}
-            {listedCommunities.map((community) => (
-              <button
-                key={community.id}
-                type="button"
-                onClick={() => {
-                  setActiveCommunityId(community.id);
-                  setActiveGroupId(null);
-                  setActiveChannelId(null);
-                  setMobileChat(true);
-                  setTab("chats");
-                }}
-                className={cn(
-                  "flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-right transition",
-                  activeCommunityId === community.id ? "bg-sky-400/15" : "hover:bg-white/5",
-                )}
-              >
-                <span
-                  className="grid size-11 place-items-center rounded-2xl text-sm font-semibold text-[#071614]"
-                  style={{ background: community.color }}
-                >
-                  {community.name.slice(0, 1)}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="truncate font-medium">{community.name}</span>
-                    <span className="text-[10px] text-sky-200">جامعه</span>
-                  </span>
-                  <span className="mt-0.5 block truncate text-xs text-emerald-100/60">
-                    {community.memberCount} عضو
-                  </span>
-                </span>
-              </button>
-            ))}
-            {listedGroups.map((group) => (
-              <button
-                key={group.id}
-                type="button"
-                onClick={() => {
-                  setActiveGroupId(group.id);
-                  setActiveCommunityId(null);
-                  setActiveChannelId(null);
-                  setMobileChat(true);
-                  setTab("chats");
-                }}
-                className={cn(
-                  "flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-right transition",
-                  activeGroupId === group.id ? "bg-amber-300/15" : "hover:bg-white/5",
-                )}
-              >
-                <span
-                  className="grid size-11 place-items-center rounded-2xl text-sm font-semibold text-[#071614]"
-                  style={{ background: group.color }}
-                >
-                  {group.name.slice(0, 1)}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="truncate font-medium">{group.name}</span>
-                    <span className="text-[10px] text-amber-200">گروه</span>
-                  </span>
-                  <span className="mt-0.5 block truncate text-xs text-emerald-100/60">
-                    {group.memberCount} عضو
-                  </span>
-                </span>
-              </button>
-            ))}
-            {listNeedle &&
-            listedChannels.length + listedCommunities.length + listedGroups.length + listedThreads.length === 0 ? (
-              <p className="px-3 py-8 text-center text-sm text-emerald-100/55">چتی با این نام در فهرست نیست. جستجوی سراسری را بزن.</p>
-            ) : null}
-            {listedThreads.map((thread) => (
-              <button
-                key={thread.id}
-                type="button"
-                onClick={() => {
-                  setActiveId(thread.id);
-                  setActiveGroupId(null);
-                  setActiveCommunityId(null);
-                  setActiveChannelId(null);
-                  setMobileChat(true);
-                  setTab("chats");
-                }}
-                className={cn(
-                  "flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-right transition",
-                  activeId === thread.id ? "bg-emerald-400/12" : "hover:bg-white/5",
-                )}
-              >
-                <span
-                  className="grid size-11 place-items-center rounded-2xl text-sm font-semibold text-[#071614]"
-                  style={{ background: thread.color }}
-                >
-                  {thread.peerName.slice(0, 1)}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="truncate font-medium">
-                      {thread.peerName}
-                      {thread.blockedByMe ? <span className="mr-2 text-[10px] text-rose-300">مسدود</span> : null}
-                    </span>
-                    <span className="text-[10px] text-emerald-100/45">{thread.peerTitle}</span>
-                  </span>
-                  <span className="mt-0.5 block truncate text-xs text-emerald-100/60">
-                    {thread.lastPreview ?? "گفتگوی خصوصی"}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
+          <InboxList accountId={userId} query={query} activeKey={inboxActiveKey} onOpen={openInboxItem} />
         </ScrollArea>
       </aside>
 
@@ -1524,6 +1448,23 @@ export function Messenger({
                 >
                   <Flag className="size-3.5" />
                   گزارش گفتگو
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    if (!confirm("پیام‌های این گفتگو فقط برای تو پاک شود؟ حساب و پیام‌های طرف مقابل حذف نمی‌شود.")) return;
+                    void fetch("/api/inbox", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ key: `dm:${active.id}`, action: "clear", confirm: true }),
+                    }).then(() => {
+                      setMessages([]);
+                    });
+                  }}
+                >
+                  Clear Chat
                 </Button>
               </div>
             )}
@@ -1937,6 +1878,9 @@ export function Messenger({
             </Link>
             <Link href="/app/settings/notifications" className="block text-sm text-amber-200">
               تنظیمات → اعلان‌ها
+            </Link>
+            <Link href="/app/settings/chats" className="block text-sm text-amber-200">
+              تنظیمات → Chats → Chat Organization
             </Link>
             <Link href="/app/settings/account" className="block text-sm text-amber-200">
               تنظیمات → حساب و پشتیبان

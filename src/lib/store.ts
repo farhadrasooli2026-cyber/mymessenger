@@ -129,6 +129,11 @@ function hydrateUser(user: UserRecord): UserRecord {
         ? user.contactOsPermission
         : "unknown",
     contactNotifyJoin: user.contactNotifyJoin !== false,
+    chatOrgSort:
+      user.chatOrgSort === "unread" || user.chatOrgSort === "name" || user.chatOrgSort === "favorites" ? user.chatOrgSort : "recent",
+    archiveUnarchiveOnNew: user.archiveUnarchiveOnNew !== false,
+    listShowPreview: user.listShowPreview !== false,
+    folderOrder: Array.isArray(user.folderOrder) ? user.folderOrder.map(String) : [],
     locationEnabled: Boolean(user.locationEnabled),
     lastSeenAt: user.lastSeenAt ?? 0,
     typingUntil: user.typingUntil ?? 0,
@@ -414,6 +419,10 @@ export type UserRecord = {
   syncedContactHashes: string[];
   contactOsPermission: "unknown" | "allow" | "deny" | "limited";
   contactNotifyJoin: boolean;
+  chatOrgSort: import("@/lib/inbox-types").ChatOrgSort;
+  archiveUnarchiveOnNew: boolean;
+  listShowPreview: boolean;
+  folderOrder: string[];
   locationEnabled: boolean;
   lastSeenAt: number;
   typingUntil: number;
@@ -649,6 +658,75 @@ export type ChatThread = {
   updatedAt: number;
   muteUntil?: number | null;
 };
+
+export type InboxKind = import("@/lib/inbox-types").InboxKind;
+
+export type InboxMeta = {
+  id: string;
+  ownerUserId: string;
+  kind: InboxKind;
+  targetId: string;
+  pinnedAt: number | null;
+  archivedAt: number | null;
+  lastReadAt: number;
+  markedUnread: boolean;
+  favorite: boolean;
+  labels: string[];
+  notesCipher: string;
+  draftCipher: string;
+  hidden: boolean;
+  updatedAt: number;
+  deviceStamp: string;
+};
+
+export type ChatFolder = {
+  id: string;
+  ownerUserId: string;
+  name: string;
+  icon: string;
+  sort: number;
+  builtin: string | null;
+  includeTypes: InboxKind[];
+  includeIds: string[];
+  excludeIds: string[];
+  unreadOnly: boolean;
+  favoritesOnly: boolean;
+  muted: boolean;
+  updatedAt: number;
+  deviceStamp: string;
+};
+
+function hydrateInboxMeta(m: InboxMeta): InboxMeta {
+  return {
+    ...m,
+    pinnedAt: m.pinnedAt ?? null,
+    archivedAt: m.archivedAt ?? null,
+    lastReadAt: m.lastReadAt ?? 0,
+    markedUnread: Boolean(m.markedUnread),
+    favorite: Boolean(m.favorite),
+    labels: Array.isArray(m.labels) ? m.labels.map(String) : [],
+    notesCipher: m.notesCipher ?? "",
+    draftCipher: m.draftCipher ?? "",
+    hidden: Boolean(m.hidden),
+    updatedAt: m.updatedAt ?? 0,
+    deviceStamp: m.deviceStamp ?? "",
+  };
+}
+
+function hydrateChatFolder(f: ChatFolder): ChatFolder {
+  return {
+    ...f,
+    includeTypes: Array.isArray(f.includeTypes) ? f.includeTypes : [],
+    includeIds: Array.isArray(f.includeIds) ? f.includeIds.map(String) : [],
+    excludeIds: Array.isArray(f.excludeIds) ? f.excludeIds.map(String) : [],
+    unreadOnly: Boolean(f.unreadOnly),
+    favoritesOnly: Boolean(f.favoritesOnly),
+    muted: Boolean(f.muted),
+    sort: f.sort ?? 0,
+    builtin: f.builtin ?? null,
+    deviceStamp: f.deviceStamp ?? "",
+  };
+}
 
 export type ChatMessage = {
   id: string;
@@ -1296,6 +1374,8 @@ export type StoreData = {
   contactRequests: ContactRequest[];
   usernameHolds: UsernameHold[];
   reservedUsernames: string[];
+  inboxMetas: InboxMeta[];
+  chatFolders: ChatFolder[];
 };
 
 const EMPTY: StoreData = {
@@ -1377,6 +1457,8 @@ const EMPTY: StoreData = {
   contactRequests: [],
   usernameHolds: [],
   reservedUsernames: [],
+  inboxMetas: [],
+  chatFolders: [],
 };
 
 const STORE_PATH = path.join(
@@ -1507,6 +1589,8 @@ async function readStore(): Promise<StoreData> {
       contactRequests: Array.isArray(parsed.contactRequests) ? parsed.contactRequests : [],
       usernameHolds: Array.isArray(parsed.usernameHolds) ? parsed.usernameHolds : [],
       reservedUsernames: Array.isArray(parsed.reservedUsernames) ? parsed.reservedUsernames : [],
+      inboxMetas: Array.isArray(parsed.inboxMetas) ? parsed.inboxMetas.map(hydrateInboxMeta) : [],
+      chatFolders: Array.isArray(parsed.chatFolders) ? parsed.chatFolders.map(hydrateChatFolder) : [],
     };
   } catch {
     return structuredClone(EMPTY);
@@ -1652,6 +1736,8 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.contacts = (data.contacts ?? []).filter((c) => c.ownerUserId !== uid);
   data.contactInvites = (data.contactInvites ?? []).filter((i) => i.ownerUserId !== uid);
   data.contactRequests = (data.contactRequests ?? []).filter((r) => r.fromUserId !== uid && r.toUserId !== uid);
+  data.inboxMetas = (data.inboxMetas ?? []).filter((m) => m.ownerUserId !== uid);
+  data.chatFolders = (data.chatFolders ?? []).filter((f) => f.ownerUserId !== uid);
   for (const c of data.contacts ?? []) {
     if (c.nixoUserId === uid) c.nixoUserId = null;
   }
