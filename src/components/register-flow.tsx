@@ -14,7 +14,6 @@ import { detectChannel } from "@/lib/identifiers";
 import { cn } from "@/lib/utils";
 
 type Step = "start" | "verify" | "profile" | "complete" | "twostep" | "device" | "recover";
-type Channel = "phone" | "email";
 type Method = "otp" | "password";
 
 type SessionPayload = {
@@ -22,7 +21,6 @@ type SessionPayload = {
   step: Step;
   user?: {
     identifierMasked: string;
-    channel: Channel;
     displayName: string | null;
     status: string;
   } | null;
@@ -40,7 +38,6 @@ export function RegisterFlow() {
   const [boot, setBoot] = useState(true);
   const [step, setStep] = useState<Step>("start");
   const [method, setMethod] = useState<Method>("otp");
-  const [channel, setChannel] = useState<Channel>("phone");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [humanToken, setHumanToken] = useState("");
@@ -135,7 +132,6 @@ export function RegisterFlow() {
       if (session.hasPasskeys) setHasPasskeys(true);
       if (session.user) {
         setMasked(session.user.identifierMasked);
-        setChannel(session.user.channel);
         if (session.user.displayName) setDisplayName(session.user.displayName);
       }
       setBoot(false);
@@ -196,10 +192,8 @@ export function RegisterFlow() {
         masked: string;
         cooldownSeconds: number;
         ttlSeconds: number;
-        channel: Channel;
       };
       setMasked(data.masked);
-      setChannel(data.channel);
       setCooldown(data.cooldownSeconds);
       setTtl(data.ttlSeconds);
       setCode("");
