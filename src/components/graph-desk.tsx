@@ -45,7 +45,8 @@ export function GraphDesk() {
   }
 
   useEffect(() => {
-    void load();
+    const t = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(t);
   }, []);
 
   async function act(body: Record<string, unknown>) {

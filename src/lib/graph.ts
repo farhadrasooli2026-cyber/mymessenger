@@ -13,7 +13,6 @@ import {
   GRAPH_MODEL_VERSION,
   GRAPH_PAGE,
   hydrateGraphPersist,
-  pruneGraphPersist,
   type GraphPersist,
   type RecItem,
   type RecKind,
