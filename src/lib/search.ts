@@ -29,18 +29,16 @@ function liveSub(s: { userId: string; leftAt?: number | null }) {
 
 function canSeeGroup(group: GroupRecord, userId: string) {
   if (group.deletedAt) return false;
-  if (group.bans.some((b) => b.key === userId)) return false;
+  if (group.bans.some((b) => b.key === userId && (!b.until || b.until > Date.now()))) return false;
   if (group.members.some((m) => liveMember(m, userId))) return true;
-  if (group.joinMode === "open") return true;
-  return Boolean(group.username);
+  return group.joinMode === "open" && group.searchVisible !== false;
 }
 
 function canSeeCommunity(community: CommunityRecord, userId: string) {
   if (community.deletedAt) return false;
-  if (community.bans.some((b) => b.key === userId)) return false;
+  if (community.bans.some((b) => b.key === userId && (!b.until || b.until > Date.now()))) return false;
   if (community.members.some((m) => liveMember(m, userId))) return true;
-  if (community.joinMode === "open") return true;
-  return Boolean(community.username);
+  return community.joinMode === "open" && community.searchVisible !== false;
 }
 
 function canSeeChannel(channel: PubChannelRecord, userId: string) {
@@ -278,9 +276,9 @@ function collectDiscoveryHits(data: StoreData, userId: string, input: SearchQuer
     );
   }
   for (const g of data.groups) {
-    if (g.deletedAt || g.joinMode !== "open" || !g.username) continue;
+    if (g.deletedAt || g.joinMode !== "open" || g.searchVisible === false) continue;
     if (!canSeeGroup(g, userId)) continue;
-    if (q.length >= 2 && !blobMatches(`${g.name} ${g.username} ${g.description}`, q)) continue;
+    if (q.length >= 2 && !blobMatches(`${g.name} ${g.username ?? ""} ${g.description} ${(g.tags ?? []).join(" ")} ${g.category ?? ""}`, q)) continue;
     const members = g.members.filter((m) => !m.leftAt).length;
     hits.push(
       rank(
@@ -604,7 +602,7 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
     for (const g of data.groups) {
       if (input.groupId && g.id !== input.groupId) continue;
       if (!canSeeGroup(g, userId)) continue;
-      if (q.length >= 2 && !contentMatches(`${g.name} ${g.username ?? ""} ${g.description}`, q, exactPhrase, kind)) continue;
+      if (q.length >= 2 && !contentMatches(`${g.name} ${g.username ?? ""} ${g.description} ${(g.tags ?? []).join(" ")}`, q, exactPhrase, kind)) continue;
       if (q.length < 2) continue;
       const members = g.members.filter((m) => !m.leftAt).length;
       hits.push(

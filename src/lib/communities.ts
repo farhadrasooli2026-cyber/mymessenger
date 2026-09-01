@@ -7,8 +7,15 @@ import type { CommunityMember, CommunityRecord, StoreData } from "@/lib/store";
 import { canAddToCommunity } from "@/lib/privacy";
 import { rankRole, type GroupRole } from "@/lib/group-types";
 import {
+  COMMUNITY_CREATE_MAX,
+  COMMUNITY_CREATE_WINDOW_MS,
   COMMUNITY_FLOOD_MAX,
   COMMUNITY_FLOOD_WINDOW_MS,
+  COMMUNITY_INVITE_MAX,
+  COMMUNITY_INVITE_WINDOW_MS,
+  COMMUNITY_JOIN_MAX,
+  COMMUNITY_JOIN_WINDOW_MS,
+  COMMUNITY_OWNED_MAX,
   DEFAULT_COMMUNITY_PERMS,
   type CommunityPerms,
   type NotifyMode,
@@ -24,8 +31,26 @@ function findMember(community: CommunityRecord, key: string) {
   return community.members.find((m) => m.key === key && live(m));
 }
 
-function isBanned(community: CommunityRecord, key: string) {
-  return community.bans.some((b) => b.key === key);
+function isBanned(community: CommunityRecord, key: string, now = Date.now()) {
+  return community.bans.some((b) => b.key === key && (b.until == null || b.until > now));
+}
+
+function inviteLive(community: CommunityRecord, now = Date.now()) {
+  if (!community.inviteToken) return false;
+  if (community.inviteExpiresAt && now > community.inviteExpiresAt) return false;
+  if (community.inviteMaxUses != null && (community.inviteUses ?? 0) >= community.inviteMaxUses) return false;
+  return true;
+}
+
+function makeMember(input: Omit<CommunityMember, "id"> & { id?: string }): CommunityMember {
+  return { id: input.id ?? randomId(), ...input };
+}
+
+function rulesBlock(community: CommunityRecord, accept?: boolean) {
+  if (community.rules.trim() && accept !== true) {
+    return { ok: false as const, error: "برای پیوستن باید قوانین جامعه را بپذیری.", status: 400 };
+  }
+  return null;
 }
 
 function canManage(actor: CommunityMember, target?: CommunityMember) {
@@ -59,6 +84,11 @@ function publicCommunity(community: CommunityRecord, viewerKey: string, data: St
     joinMode: community.joinMode,
     perms: community.perms,
     inviteToken: me && staff(me) ? community.inviteToken : null,
+    inviteExpiresAt: me && staff(me) ? community.inviteExpiresAt ?? null : null,
+    inviteMaxUses: me && staff(me) ? community.inviteMaxUses ?? null : null,
+    inviteUses: me && staff(me) ? community.inviteUses ?? 0 : null,
+    visibility: community.joinMode === "open" ? "public" : "private",
+    searchVisible: community.searchVisible !== false,
     memberCount: community.members.filter(live).length,
     myRole: me?.role ?? null,
     notifyMode: me?.notifyMode ?? "all",
@@ -69,6 +99,7 @@ function publicCommunity(community: CommunityRecord, viewerKey: string, data: St
     announcements: community.announcements.slice(-20).reverse(),
     posts: community.posts.filter((p) => !p.deleted).slice(-80),
     members: community.members.filter(live).map((m) => ({
+      id: m.id,
       key: m.key,
       kind: m.kind,
       role: m.role,
@@ -117,6 +148,14 @@ export async function createCommunity(
 
   return mutateStore((data) => {
     const now = Date.now();
+    const createLimit = hitRateLimit(data, `ccreate:${userId}`, COMMUNITY_CREATE_WINDOW_MS, COMMUNITY_CREATE_MAX, now);
+    if (!createLimit.allowed) {
+      return { ok: false as const, error: "ساخت جامعه در این ساعت به سقف رسیده است.", status: 429 };
+    }
+    const owned = data.communities.filter((c) => !c.deletedAt && c.ownerUserId === userId).length;
+    if (owned >= COMMUNITY_OWNED_MAX) {
+      return { ok: false as const, error: "تعداد جامعه‌های قابل ساخت به سقف رسیده است.", status: 429 };
+    }
     const username = input.username?.trim().replace(/^@/, "").toLowerCase() || null;
     if (username) {
       if (!/^[a-z][a-z0-9_]{2,23}$/.test(username)) {
@@ -126,7 +165,7 @@ export async function createCommunity(
         return { ok: false as const, error: "این نام کاربری گرفته شده است.", status: 409 };
       }
     }
-    const owner: CommunityMember = {
+    const owner = makeMember({
       key: userId,
       kind: "user",
       role: "owner",
@@ -137,7 +176,7 @@ export async function createCommunity(
       restrictedUntil: null,
       notifyMode: "all",
       leftAt: null,
-    };
+    });
     const groupIds: string[] = [];
     for (const gid of input.groupIds ?? []) {
       const group = data.groups.find((g) => g.id === gid && !g.deletedAt);
@@ -167,6 +206,10 @@ export async function createCommunity(
       joinMode: input.joinMode ?? "invite",
       perms: { ...DEFAULT_COMMUNITY_PERMS },
       inviteToken: randomId(),
+      inviteExpiresAt: null,
+      inviteMaxUses: null,
+      inviteUses: 0,
+      searchVisible: (input.joinMode ?? "invite") === "open",
       groupIds,
       channels,
       members: [owner],
@@ -198,6 +241,7 @@ export async function updateCommunity(
     color: string;
     joinMode: CommunityRecord["joinMode"];
     perms: CommunityPerms;
+    searchVisible?: boolean;
   }>,
 ) {
   return mutateStore((data) => {
@@ -224,20 +268,46 @@ export async function updateCommunity(
       community.username = u;
     }
     if (patch.color && COLORS.includes(patch.color)) community.color = patch.color;
-    if (patch.joinMode) community.joinMode = patch.joinMode;
+    if (patch.joinMode) {
+      community.joinMode = patch.joinMode;
+      if (patch.joinMode !== "open") community.searchVisible = false;
+    }
+    if (typeof patch.searchVisible === "boolean") {
+      community.searchVisible = community.joinMode === "open" ? patch.searchVisible : false;
+    }
     if (patch.perms) community.perms = { ...DEFAULT_COMMUNITY_PERMS, ...patch.perms };
     community.updatedAt = now;
     return { ok: true as const, community: publicCommunity(community, userId, data) };
   });
 }
 
-export async function rotateInvite(userId: string, communityId: string, action: "new" | "revoke") {
+export async function rotateInvite(
+  userId: string,
+  communityId: string,
+  action: "new" | "revoke",
+  extra?: { expiresInHours?: number | null; maxUses?: number | null },
+) {
   return mutateStore((data) => {
     const community = data.communities.find((c) => c.id === communityId && !c.deletedAt);
     if (!community) return { ok: false as const, error: "جامعه یافت نشد.", status: 404 };
     const me = findMember(community, userId);
     if (!me || !staff(me)) return { ok: false as const, error: "فقط ادمین لینک دعوت را مدیریت می‌کند.", status: 403 };
+    const inviteLimit = hitRateLimit(data, `cinvite:${userId}`, COMMUNITY_INVITE_WINDOW_MS, COMMUNITY_INVITE_MAX);
+    if (!inviteLimit.allowed) {
+      return { ok: false as const, error: "ساخت دعوت در این بازه به سقف رسیده است.", status: 429 };
+    }
     community.inviteToken = action === "revoke" ? "" : randomId();
+    if (action === "new") {
+      community.inviteUses = 0;
+      if (extra?.expiresInHours === null) community.inviteExpiresAt = null;
+      else if (typeof extra?.expiresInHours === "number") {
+        community.inviteExpiresAt = Date.now() + Math.max(1, extra.expiresInHours) * 3600_000;
+      }
+      if (extra?.maxUses === null) community.inviteMaxUses = null;
+      else if (typeof extra?.maxUses === "number") {
+        community.inviteMaxUses = Math.max(1, Math.min(10_000, Math.floor(extra.maxUses)));
+      }
+    }
     community.updatedAt = Date.now();
     return { ok: true as const, inviteToken: community.inviteToken || null };
   });
@@ -246,7 +316,7 @@ export async function rotateInvite(userId: string, communityId: string, action: 
 export async function previewInvite(token: string) {
   const data = await readStoreSnapshot();
   const community = data.communities.find((c) => c.inviteToken && c.inviteToken === token && !c.deletedAt);
-  if (!community) return null;
+  if (!community || !inviteLive(community)) return null;
   return {
     id: community.id,
     name: community.name,
@@ -254,21 +324,29 @@ export async function previewInvite(token: string) {
     color: community.color,
     memberCount: community.members.filter(live).length,
     joinMode: community.joinMode,
+    visibility: community.joinMode === "open" ? "public" : "private",
     rules: community.rules,
+    requiresRules: Boolean(community.rules.trim()),
     groupCount: community.groupIds.length,
     channelCount: community.channels.length,
   };
 }
 
-export async function joinByToken(userId: string, token: string) {
+export async function joinByToken(userId: string, token: string, extra?: { acceptRules?: boolean }) {
   return mutateStore((data) => {
+    const now = Date.now();
+    const joinLimit = hitRateLimit(data, `cjoin:${userId}`, COMMUNITY_JOIN_WINDOW_MS, COMMUNITY_JOIN_MAX, now);
+    if (!joinLimit.allowed) {
+      return { ok: false as const, error: "پیوستن در این بازه به سقف رسیده است.", status: 429 };
+    }
     const community = data.communities.find((c) => c.inviteToken && c.inviteToken === token && !c.deletedAt);
-    if (!community) return { ok: false as const, error: "لینک دعوت نامعتبر است.", status: 404 };
+    if (!community || !inviteLive(community, now)) return { ok: false as const, error: "لینک دعوت نامعتبر است.", status: 404 };
     const user = data.users.find((u) => u.id === userId);
     if (!user) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
-    if (isBanned(community, userId)) return { ok: false as const, error: "از این جامعه بن شده‌ای.", status: 403 };
+    if (isBanned(community, userId, now)) return { ok: false as const, error: "از این جامعه بن شده‌ای.", status: 403 };
     if (findMember(community, userId)) return { ok: true as const, community: publicCommunity(community, userId, data), already: true };
-    const now = Date.now();
+    const blocked = rulesBlock(community, extra?.acceptRules);
+    if (blocked) return blocked;
     if (community.joinMode === "request") {
       if (community.requests.some((r) => r.userId === userId && r.status === "pending")) {
         return { ok: false as const, error: "درخواست عضویت قبلی در انتظار است.", status: 409 };
@@ -280,20 +358,24 @@ export async function joinByToken(userId: string, token: string) {
         createdAt: now,
         status: "pending",
       });
+      community.inviteUses = (community.inviteUses ?? 0) + 1;
       return { ok: true as const, pending: true as const };
     }
-    community.members.push({
-      key: userId,
-      kind: "user",
-      role: "member",
-      name: user.displayName || user.username || "عضو",
-      username: user.username ?? null,
-      joinedAt: now,
-      mutedUntil: null,
-      restrictedUntil: null,
-      notifyMode: "all",
-      leftAt: null,
-    });
+    community.members.push(
+      makeMember({
+        key: userId,
+        kind: "user",
+        role: "member",
+        name: user.displayName || user.username || "عضو",
+        username: user.username ?? null,
+        joinedAt: now,
+        mutedUntil: null,
+        restrictedUntil: null,
+        notifyMode: "all",
+        leftAt: null,
+      }),
+    );
+    community.inviteUses = (community.inviteUses ?? 0) + 1;
     community.updatedAt = now;
     return { ok: true as const, community: publicCommunity(community, userId, data) };
   });
@@ -310,18 +392,22 @@ export async function decideRequest(userId: string, communityId: string, request
     req.status = approve ? "approved" : "rejected";
     if (approve) {
       if (isBanned(community, req.userId)) return { ok: false as const, error: "این کاربر بن است.", status: 403 };
-      community.members.push({
-        key: req.userId,
-        kind: "user",
-        role: "member",
-        name: req.name,
-        username: null,
-        joinedAt: Date.now(),
-        mutedUntil: null,
-        restrictedUntil: null,
-        notifyMode: "all",
-        leftAt: null,
-      });
+      if (!findMember(community, req.userId)) {
+        community.members.push(
+          makeMember({
+            key: req.userId,
+            kind: "user",
+            role: "member",
+            name: req.name,
+            username: null,
+            joinedAt: Date.now(),
+            mutedUntil: null,
+            restrictedUntil: null,
+            notifyMode: "all",
+            leftAt: null,
+          }),
+        );
+      }
     }
     community.updatedAt = Date.now();
     return { ok: true as const, community: publicCommunity(community, userId, data) };
@@ -337,41 +423,49 @@ export async function addMembers(userId: string, communityId: string, keys: stri
     if (!(me.role === "owner" || staff(me) || community.perms.inviteMembers)) {
       return { ok: false as const, error: "اجازهٔ دعوت نداری.", status: 403 };
     }
+    const inviteLimit = hitRateLimit(data, `cinvite:${userId}`, COMMUNITY_INVITE_WINDOW_MS, COMMUNITY_INVITE_MAX);
+    if (!inviteLimit.allowed) {
+      return { ok: false as const, error: "دعوت در این بازه به سقف رسیده است.", status: 429 };
+    }
     const now = Date.now();
     for (const raw of keys.slice(0, 40)) {
       const seed = SEED_PEERS.find((p) => p.peerKey === raw);
       const key = seed ? `seed:${seed.peerKey}` : data.users.find((u) => u.id === raw || u.username === raw.replace(/^@/, ""))?.id;
       if (!key || findMember(community, key) || isBanned(community, key)) continue;
       if (seed) {
-        community.members.push({
-          key,
-          kind: "seed",
-          role: "member",
-          name: seed.peerName,
-          username: seed.peerKey,
-          joinedAt: now,
-          mutedUntil: null,
-          restrictedUntil: null,
-          notifyMode: "all",
-          leftAt: null,
-        });
+        community.members.push(
+          makeMember({
+            key,
+            kind: "seed",
+            role: "member",
+            name: seed.peerName,
+            username: seed.peerKey,
+            joinedAt: now,
+            mutedUntil: null,
+            restrictedUntil: null,
+            notifyMode: "all",
+            leftAt: null,
+          }),
+        );
         continue;
       }
       const other = data.users.find((u) => u.id === key);
       if (!other) continue;
       if (!canAddToCommunity(data, userId, other.id)) continue;
-      community.members.push({
-        key: other.id,
-        kind: "user",
-        role: "member",
-        name: other.displayName || other.username || "عضو",
-        username: other.username ?? null,
-        joinedAt: now,
-        mutedUntil: null,
-        restrictedUntil: null,
-        notifyMode: "all",
-        leftAt: null,
-      });
+      community.members.push(
+        makeMember({
+          key: other.id,
+          kind: "user",
+          role: "member",
+          name: other.displayName || other.username || "عضو",
+          username: other.username ?? null,
+          joinedAt: now,
+          mutedUntil: null,
+          restrictedUntil: null,
+          notifyMode: "all",
+          leftAt: null,
+        }),
+      );
     }
     community.updatedAt = now;
     return { ok: true as const, community: publicCommunity(community, userId, data) };
@@ -382,8 +476,8 @@ export async function moderateMember(
   userId: string,
   communityId: string,
   targetKey: string,
-  action: "remove" | "ban" | "unban" | "mute" | "restrict" | "role",
-  extra?: { ms?: number; role?: GroupRole },
+  action: "remove" | "ban" | "unban" | "mute" | "restrict" | "role" | "transfer" | "kick",
+  extra?: { ms?: number; role?: GroupRole; confirm?: string; until?: number | null; membershipId?: string },
 ) {
   return mutateStore((data) => {
     const community = data.communities.find((c) => c.id === communityId && !c.deletedAt);
@@ -399,7 +493,27 @@ export async function moderateMember(
       return { ok: true as const, community: publicCommunity(community, userId, data) };
     }
     const target = community.members.find((m) => m.key === targetKey);
+    if (extra?.membershipId && target && target.id !== extra.membershipId) {
+      return { ok: false as const, error: "عضویت نامعتبر است.", status: 403 };
+    }
+    if (action === "transfer") {
+      if (me.role !== "owner") return { ok: false as const, error: "فقط مالک می‌تواند مالکیت را واگذار کند.", status: 403 };
+      if (extra?.confirm !== "TRANSFER") {
+        return { ok: false as const, error: "برای انتقال مالکیت باید تأیید امنیتی TRANSFER ارسال شود.", status: 400 };
+      }
+      if (!target || !live(target) || target.kind !== "user") {
+        return { ok: false as const, error: "عضو معتبر نیست.", status: 400 };
+      }
+      me.role = "admin";
+      target.role = "owner";
+      community.ownerUserId = target.key;
+      community.updatedAt = now;
+      return { ok: true as const, community: publicCommunity(community, userId, data) };
+    }
     if (!target || !live(target)) return { ok: false as const, error: "عضو یافت نشد.", status: 404 };
+    if (target.role === "owner" && me.role !== "owner") {
+      return { ok: false as const, error: "مالک جامعه قابل حذف یا تغییر نقش نیست.", status: 403 };
+    }
     if (action === "role") {
       if (me.role !== "owner") return { ok: false as const, error: "فقط مالک نقش ادمین/ناظم را عوض می‌کند.", status: 403 };
       const role = extra?.role;
@@ -416,10 +530,12 @@ export async function moderateMember(
       (me.role === "moderator" && (action === "restrict" || action === "mute")) ||
       community.perms.manageMembers;
     if (!allowed || !canManage(me, target)) return { ok: false as const, error: "نمی‌توانی این عضو را مدیریت کنی.", status: 403 };
-    if (action === "remove") target.leftAt = now;
+    if (action === "remove" || action === "kick") target.leftAt = now;
     else if (action === "ban") {
       target.leftAt = now;
-      if (!community.bans.some((b) => b.key === targetKey)) community.bans.push({ key: targetKey, at: now });
+      const until = extra?.until === null ? null : typeof extra?.until === "number" ? extra.until : extra?.ms ? now + extra.ms : null;
+      community.bans = community.bans.filter((b) => b.key !== targetKey);
+      community.bans.push({ key: targetKey, at: now, until });
     } else if (action === "mute") {
       target.mutedUntil = now + Math.min(30 * 24 * 3600_000, Math.max(60_000, extra?.ms ?? 3600_000));
     } else if (action === "restrict") {
@@ -456,12 +572,15 @@ export async function leaveCommunity(userId: string, communityId: string) {
   });
 }
 
-export async function deleteCommunity(userId: string, communityId: string) {
+export async function deleteCommunity(userId: string, communityId: string, extra?: { confirm?: string }) {
   return mutateStore((data) => {
     const community = data.communities.find((c) => c.id === communityId && !c.deletedAt);
     if (!community) return { ok: false as const, error: "جامعه یافت نشد.", status: 404 };
     const me = findMember(community, userId);
     if (!me || me.role !== "owner") return { ok: false as const, error: "فقط مالک می‌تواند جامعه را حذف کند.", status: 403 };
+    if (extra?.confirm !== "DELETE") {
+      return { ok: false as const, error: "برای حذف جامعه باید تأیید DELETE ارسال شود.", status: 400 };
+    }
     community.deletedAt = Date.now();
     for (const gid of community.groupIds) {
       const group = data.groups.find((g) => g.id === gid);
@@ -469,6 +588,45 @@ export async function deleteCommunity(userId: string, communityId: string) {
     }
     return { ok: true as const };
   });
+}
+
+export async function cancelJoinRequest(userId: string, communityId: string) {
+  return mutateStore((data) => {
+    const community = data.communities.find((c) => c.id === communityId && !c.deletedAt);
+    if (!community) return { ok: false as const, error: "جامعه یافت نشد.", status: 404 };
+    const req = community.requests.find((r) => r.status === "pending" && r.userId === userId);
+    if (!req) return { ok: false as const, error: "درخواست یافت نشد.", status: 404 };
+    req.status = "cancelled";
+    return { ok: true as const };
+  });
+}
+
+export async function discoverCommunities(userId: string, q = "") {
+  const data = await readStoreSnapshot();
+  const needle = q.trim().toLowerCase();
+  const mine = new Set(
+    data.communities.filter((c) => c.members.some((m) => m.key === userId && !m.leftAt)).map((c) => c.id),
+  );
+  return data.communities
+    .filter((c) => !c.deletedAt && c.joinMode === "open" && c.searchVisible !== false)
+    .filter((c) => !c.bans.some((b) => b.key === userId && (!b.until || b.until > Date.now())))
+    .filter((c) => {
+      if (needle.length < 2) return true;
+      return `${c.name} ${c.username ?? ""} ${c.description}`.toLowerCase().includes(needle);
+    })
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      description: c.description.slice(0, 180),
+      username: c.username,
+      color: c.color,
+      memberCount: c.members.filter(live).length,
+      groupCount: c.groupIds.length,
+      joined: mine.has(c.id),
+      visibility: "public" as const,
+    }))
+    .sort((a, b) => b.memberCount - a.memberCount)
+    .slice(0, 40);
 }
 
 export async function attachGroup(userId: string, communityId: string, groupId: string) {

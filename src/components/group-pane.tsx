@@ -26,6 +26,7 @@ import { MediaDock } from "@/components/media-dock";
 import { MediaBubble } from "@/components/media-bubble";
 
 type GMember = {
+  id?: string;
   key: string;
   kind: "user" | "seed";
   role: GroupRole;
@@ -118,6 +119,7 @@ export function GroupPane({
   const [pollQ, setPollQ] = useState("");
   const [pollOpts, setPollOpts] = useState("بله\nخیر");
   const [deleteStep, setDeleteStep] = useState(0);
+  const [memberQuery, setMemberQuery] = useState("");
   const [bgOpen, setBgOpen] = useState(false);
   const [bgDraft, setBgDraft] = useState<BgDraft>(() => {
     if (typeof window === "undefined") return { kind: "default" };
@@ -644,7 +646,7 @@ export function GroupPane({
                 )}
                 {admin && (
                   <div className="mt-2 flex gap-2">
-                    <Button type="button" size="sm" variant="secondary" onClick={() => void fetch(`/api/groups/${groupId}/invite`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "new" }) }).then(load)}>لینک جدید</Button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => void fetch(`/api/groups/${groupId}/invite`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "new", expiresInHours: 168, maxUses: 50 }) }).then(load)}>لینک جدید (۷روز / ۵۰)</Button>
                     <Button type="button" size="sm" variant="ghost" className="text-rose-200" onClick={() => void fetch(`/api/groups/${groupId}/invite`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "revoke" }) }).then(load)}>باطل کردن</Button>
                   </div>
                 )}
@@ -698,7 +700,15 @@ export function GroupPane({
             )}
             <div>
               <p className="text-sm font-medium">اعضا</p>
-              {group.members.map((m) => (
+              <Input
+                value={memberQuery}
+                onChange={(e) => setMemberQuery(e.target.value)}
+                placeholder="جستجوی عضو"
+                className="mt-1 h-8 bg-black/20 text-xs"
+              />
+              {group.members
+                .filter((m) => !memberQuery.trim() || m.name.includes(memberQuery.trim()) || m.role.includes(memberQuery.trim().toLowerCase()))
+                .map((m) => (
                 <div key={m.key} className="mt-1 flex flex-wrap items-center justify-between gap-1 text-xs">
                   <span>{m.name} · {ROLE_FA[m.role]}</span>
                   {admin && m.key !== userIdHint && (
@@ -722,13 +732,20 @@ export function GroupPane({
                         سفارشی
                       </button>
                       <button type="button" className="rounded bg-white/10 px-1" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "restrict", targetKey: m.key, ms: 86400000 }) }).then(load)}>محدود</button>
-                      <button type="button" className="rounded bg-white/10 px-1" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "remove", targetKey: m.key }) }).then(load)}>حذف</button>
-                      <button type="button" className="rounded bg-rose-500/20 px-1" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ban", targetKey: m.key }) }).then(load)}>بن</button>
+                      <button type="button" className="rounded bg-white/10 px-1" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "kick", targetKey: m.key, membershipId: m.id }) }).then(load)}>اخراج</button>
+                      <button type="button" className="rounded bg-white/10 px-1" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "remove", targetKey: m.key, membershipId: m.id }) }).then(load)}>حذف</button>
+                      <button type="button" className="rounded bg-rose-500/20 px-1" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ban", targetKey: m.key, membershipId: m.id, until: null }) }).then(load)}>بن دائم</button>
+                      <button type="button" className="rounded bg-rose-500/10 px-1" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ban", targetKey: m.key, membershipId: m.id, ms: 24 * 3600_000 }) }).then(load)}>بن ۱روز</button>
                       {group.myRole === "owner" && m.kind === "user" && (
                         <>
                           <button type="button" className="rounded bg-white/10 px-1" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "role", targetKey: m.key, role: "admin" }) }).then(load)}>ادمین</button>
                           <button type="button" className="rounded bg-white/10 px-1" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "role", targetKey: m.key, role: "moderator" }) }).then(load)}>ناظم</button>
-                          <button type="button" className="rounded bg-white/10 px-1" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "transfer", targetKey: m.key }) }).then(load)}>مالکیت</button>
+                          <button type="button" className="rounded bg-white/10 px-1" onClick={() => {
+                            if (!window.confirm("مالکیت منتقل شود؟ باید TRANSFER را تأیید کنی.")) return;
+                            const confirm = window.prompt("برای تأیید بنویس TRANSFER", "");
+                            if (confirm !== "TRANSFER") return;
+                            void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "transfer", targetKey: m.key, membershipId: m.id, confirm: "TRANSFER" }) }).then(load);
+                          }}>مالکیت</button>
                         </>
                       )}
                     </span>
@@ -877,7 +894,7 @@ export function GroupPane({
                       setDeleteStep((s) => s + 1);
                       return;
                     }
-                    await fetch(`/api/groups/${groupId}`, { method: "DELETE" });
+                    await fetch(`/api/groups/${groupId}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: "DELETE" }) });
                     onLeft();
                   }}
                 >

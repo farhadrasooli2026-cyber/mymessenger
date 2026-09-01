@@ -43,7 +43,8 @@ export async function DELETE(request: Request, ctx: Ctx) {
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true });
   }
-  const result = await deleteCommunity(user.id, id);
+  const body = await request.json().catch(() => null) as { confirm?: string } | null;
+  const result = await deleteCommunity(user.id, id, { confirm: body?.confirm });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true });
 }

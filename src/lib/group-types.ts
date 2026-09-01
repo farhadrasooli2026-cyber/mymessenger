@@ -2,6 +2,25 @@ export const GROUP_MAX_MEMBERS = 256;
 export const GROUP_MAX_PINS = 5;
 export const GROUP_FLOOD_WINDOW_MS = 20_000;
 export const GROUP_FLOOD_MAX = 10;
+export const GROUP_OWNED_MAX = 20;
+export const GROUP_CREATE_WINDOW_MS = 60 * 60 * 1000;
+export const GROUP_CREATE_MAX = 8;
+export const GROUP_JOIN_WINDOW_MS = 10 * 60 * 1000;
+export const GROUP_JOIN_MAX = 20;
+export const GROUP_INVITE_WINDOW_MS = 10 * 60 * 1000;
+export const GROUP_INVITE_MAX = 40;
+export const GROUP_MEMBER_PAGE = 40;
+export const GROUP_CATEGORIES = ["general", "friends", "work", "gaming", "education", "local", "tech", "art"] as const;
+export type GroupCategory = (typeof GROUP_CATEGORIES)[number];
+
+export type CustomGroupRole = {
+  id: string;
+  name: string;
+  inviteMembers: boolean;
+  pinMessages: boolean;
+  deleteMessages: boolean;
+  muteMembers: boolean;
+};
 export const GROUP_STORAGE_MAX_ITEMS = 2000;
 export const GROUP_SLOW_PRESETS = [
   { id: "off", ms: 0, label: "خاموش" },

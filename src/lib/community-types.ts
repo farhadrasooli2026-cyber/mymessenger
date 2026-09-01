@@ -2,6 +2,13 @@ import type { GroupRole } from "@/lib/group-types";
 
 export const COMMUNITY_FLOOD_WINDOW_MS = 20_000;
 export const COMMUNITY_FLOOD_MAX = 8;
+export const COMMUNITY_OWNED_MAX = 10;
+export const COMMUNITY_CREATE_WINDOW_MS = 60 * 60 * 1000;
+export const COMMUNITY_CREATE_MAX = 6;
+export const COMMUNITY_JOIN_WINDOW_MS = 10 * 60 * 1000;
+export const COMMUNITY_JOIN_MAX = 20;
+export const COMMUNITY_INVITE_WINDOW_MS = 10 * 60 * 1000;
+export const COMMUNITY_INVITE_MAX = 40;
 
 export type CommunityRole = GroupRole;
 export type NotifyMode = "all" | "mentions" | "important" | "mute";

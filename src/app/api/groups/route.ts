@@ -17,10 +17,13 @@ export async function POST(request: Request) {
   const result = await createGroup(user.id, {
     name: String(body.name ?? ""),
     description: typeof body.description === "string" ? body.description : "",
+    color: typeof body.color === "string" ? body.color : undefined,
     photoDataUrl: typeof body.photoDataUrl === "string" ? body.photoDataUrl : undefined,
     memberKeys: Array.isArray(body.memberKeys) ? body.memberKeys.map(String) : [],
     joinMode: body.joinMode === "open" || body.joinMode === "request" || body.joinMode === "invite" ? body.joinMode : "invite",
     username: typeof body.username === "string" ? body.username : undefined,
+    category: typeof body.category === "string" ? body.category : undefined,
+    tags: Array.isArray(body.tags) ? body.tags.map(String) : undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, group: result.group });

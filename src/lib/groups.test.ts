@@ -14,6 +14,7 @@ import {
   pinMessage,
   rotateInvite,
   sendGroupMessage,
+  updateGroup,
 } from "./groups";
 
 const envelope = {
@@ -148,9 +149,11 @@ describe("NIXO groups", () => {
     if (rotated.ok) expect(rotated.inviteToken).not.toBe(first);
     const revoked = await rotateInvite(owner, created.group.id, "revoke");
     expect(revoked.ok).toBe(true);
-    const outsiderDelete = await deleteGroup(other, created.group.id);
+    const outsiderDelete = await deleteGroup(other, created.group.id, { confirm: "DELETE" });
     expect(outsiderDelete.ok).toBe(false);
-    const gone = await deleteGroup(owner, created.group.id);
+    const missingConfirm = await deleteGroup(owner, created.group.id);
+    expect(missingConfirm.ok).toBe(false);
+    const gone = await deleteGroup(owner, created.group.id, { confirm: "DELETE" });
     expect(gone.ok).toBe(true);
     expect(await getGroup(owner, created.group.id)).toBeNull();
   });
@@ -166,5 +169,43 @@ describe("NIXO groups", () => {
     }
     expect(last.ok).toBe(false);
     if (!last.ok) expect(last.status).toBe(429);
+  });
+
+  it("blocks IDOR, private discovery, expired invites, and unconfirmed owner transfer", async () => {
+    const owner = await activeUser("grp_idor");
+    const stranger = await activeUser("grp_str");
+    const member = await activeUser("grp_mem2");
+    const secret = await createGroup(owner, { name: "اتاق مخفی", joinMode: "invite", category: "work" });
+    expect(secret.ok).toBe(true);
+    if (!secret.ok) return;
+    const open = await createGroup(owner, { name: "باشگاه عمومی", joinMode: "open", category: "friends", tags: ["nixo"] });
+    expect(open.ok).toBe(true);
+    if (!open.ok) return;
+    expect(await getGroup(stranger, secret.group.id)).toBeNull();
+    const steal = await moderateMember(stranger, secret.group.id, owner, "role", { role: "admin" });
+    expect(steal.ok).toBe(false);
+    const joined = await joinByToken(member, open.group.inviteToken!);
+    expect(joined.ok).toBe(true);
+    const wrongMem = await moderateMember(owner, open.group.id, member, "mute", { ms: 60_000, membershipId: "not-this-membership" });
+    expect(wrongMem.ok).toBe(false);
+    const noTransfer = await moderateMember(owner, open.group.id, member, "transfer");
+    expect(noTransfer.ok).toBe(false);
+    const { discoverGroups } = await import("./group-discovery");
+    const found = await discoverGroups(stranger, { q: "اتاق" });
+    expect(found.some((g) => g.id === secret.group.id)).toBe(false);
+    const publicHits = await discoverGroups(stranger, { q: "باشگاه" });
+    expect(publicHits.some((g) => g.id === open.group.id)).toBe(true);
+    await updateGroup(owner, secret.group.id, { inviteExpiresAt: Date.now() - 1000 });
+    const expired = await joinByToken(stranger, secret.group.inviteToken!);
+    expect(expired.ok).toBe(false);
+    await updateGroup(owner, open.group.id, { rules: "احترام الزامی است." });
+    const needRules = await joinByToken(stranger, open.group.inviteToken!);
+    expect(needRules.ok).toBe(false);
+    const accepted = await joinByToken(stranger, open.group.inviteToken!, { acceptRules: true });
+    expect(accepted.ok).toBe(true);
+    const banned = await moderateMember(owner, open.group.id, member, "ban", { until: Date.now() - 1000 });
+    expect(banned.ok).toBe(true);
+    const rejoinExpiredBan = await joinByToken(member, open.group.inviteToken!, { acceptRules: true });
+    expect(rejoinExpiredBan.ok).toBe(true);
   });
 });

@@ -88,11 +88,15 @@ export async function fileReport(
     }
     if (input.targetKind === "group") {
       const group = data.groups.find((g) => g.id === input.targetKey && !g.deletedAt);
-      if (!group) return { ok: false as const, error: "گروه یافت نشد.", status: 404 };
+      if (!group || !group.members.some((m) => m.key === reporterId && !m.leftAt)) {
+        return { ok: false as const, error: "گروه یافت نشد.", status: 404 };
+      }
     }
     if (input.targetKind === "community") {
       const community = data.communities.find((c) => c.id === input.targetKey && !c.deletedAt);
-      if (!community) return { ok: false as const, error: "جامعه یافت نشد.", status: 404 };
+      if (!community || !community.members.some((m) => m.key === reporterId && !m.leftAt)) {
+        return { ok: false as const, error: "جامعه یافت نشد.", status: 404 };
+      }
     }
     if (input.targetKind === "channel") {
       const inCommunity = data.communities.some(

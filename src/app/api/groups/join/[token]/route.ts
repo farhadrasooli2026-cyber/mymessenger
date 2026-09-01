@@ -11,11 +11,12 @@ export async function GET(_req: Request, ctx: Ctx) {
   return json({ ok: true, group: preview });
 }
 
-export async function POST(_req: Request, ctx: Ctx) {
+export async function POST(request: Request, ctx: Ctx) {
   const user = await requireActiveUser();
   if (!user) return jsonError("نشست فعال نیست.", 401);
   const { token } = await ctx.params;
-  const result = await joinByToken(user.id, token);
+  const body = (await request.json().catch(() => null)) as { acceptRules?: boolean } | null;
+  const result = await joinByToken(user.id, token, { acceptRules: Boolean(body?.acceptRules) });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, pending: "pending" in result ? result.pending : undefined, already: "already" in result ? result.already : undefined, group: "group" in result ? result.group : undefined });
 }

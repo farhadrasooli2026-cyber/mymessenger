@@ -51,6 +51,7 @@ import { labelDisappear, systemCaptureText, systemDisappearText } from "@/lib/di
 import { CallStage, type LiveCall } from "@/components/call-stage";
 import { CallsTab, type HistoryCall } from "@/components/calls-tab";
 import { GroupCreate } from "@/components/group-create";
+import { GroupsDiscover } from "@/components/groups-discover";
 import { GroupPane } from "@/components/group-pane";
 import { CommunityCreate } from "@/components/community-create";
 import { CommunityPane } from "@/components/community-pane";
@@ -408,6 +409,7 @@ export function Messenger({
   const [, setGroups] = useState<{ id: string; name: string; color: string; memberCount: number; updatedAt: number }[]>([]);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [createGroup, setCreateGroup] = useState(false);
+  const [discoverGroups, setDiscoverGroups] = useState(false);
   const [, setCommunities] = useState<{ id: string; name: string; color: string; memberCount: number }[]>([]);
   const [activeCommunityId, setActiveCommunityId] = useState<string | null>(null);
   const [createCommunity, setCreateCommunity] = useState(false);
@@ -1315,6 +1317,15 @@ export function Messenger({
           >
             <Users className="ml-1 size-3.5" />
             ایجاد گروه
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-9 w-full"
+            onClick={() => setDiscoverGroups(true)}
+          >
+            <Search className="ml-1 size-3.5" />
+            کشف گروه عمومی
           </Button>
           <Button
             type="button"
@@ -2865,6 +2876,18 @@ export function Messenger({
           onClose={() => setCreateGroup(false)}
           onCreated={(id) => {
             setCreateGroup(false);
+            setActiveGroupId(id);
+            setTab("chats");
+            setMobileChat(true);
+            void loadGroups();
+          }}
+        />
+      )}
+      {discoverGroups && (
+        <GroupsDiscover
+          onClose={() => setDiscoverGroups(false)}
+          onOpen={(id) => {
+            setDiscoverGroups(false);
             setActiveGroupId(id);
             setTab("chats");
             setMobileChat(true);

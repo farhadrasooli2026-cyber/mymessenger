@@ -18,6 +18,8 @@ export function GroupCreate({ onCreated, onClose }: { onCreated: (id: string) =>
   const [username, setUsername] = useState("");
   const [color, setColor] = useState(COLORS[0]!);
   const [joinMode, setJoinMode] = useState<"invite" | "request" | "open">("invite");
+  const [category, setCategory] = useState("general");
+  const [tags, setTags] = useState("");
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [hits, setHits] = useState<{ id: string; displayName: string; username: string | null }[]>([]);
@@ -35,6 +37,8 @@ export function GroupCreate({ onCreated, onClose }: { onCreated: (id: string) =>
           memberKeys: picked,
           joinMode,
           username: username || undefined,
+          tags: tags.split(/[,\s]+/).filter(Boolean).slice(0, 8),
+          category,
         }),
       });
       const data = await res.json();
@@ -150,6 +154,12 @@ export function GroupCreate({ onCreated, onClose }: { onCreated: (id: string) =>
                 {label}
               </label>
             ))}
+            <select value={category} onChange={(e) => setCategory(e.target.value)} className="mt-3 h-9 w-full rounded-lg bg-black/20 px-2 text-sm">
+              {["general", "friends", "work", "gaming", "education", "local", "tech", "art"].map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+            <Input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="برچسب‌ها با فاصله" className="mt-2 bg-black/20" />
             <p className="mt-3 text-xs leading-6 text-emerald-100/60">
               {picked.length} عضو انتخاب شده · {name || "بدون نام"}
             </p>

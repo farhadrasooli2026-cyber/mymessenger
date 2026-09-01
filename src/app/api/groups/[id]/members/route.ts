@@ -1,8 +1,18 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
-import { addMembers, moderateMember, setNotifyMute } from "@/lib/groups";
+import { addMembers, listGroupMembers, moderateMember, setNotifyMute } from "@/lib/groups";
 
 type Ctx = { params: Promise<{ id: string }> };
+
+export async function GET(request: Request, ctx: Ctx) {
+  const user = await requireActiveUser();
+  if (!user) return jsonError("نشست فعال نیست.", 401);
+  const { id } = await ctx.params;
+  const url = new URL(request.url);
+  const result = await listGroupMembers(user.id, id, url.searchParams.get("q") ?? "", url.searchParams.get("cursor") ?? "");
+  if (!result) return jsonError("گروه یافت نشد.", 404);
+  return json({ ok: true, ...result });
+}
 
 export async function POST(request: Request, ctx: Ctx) {
   const user = await requireActiveUser();
@@ -26,10 +36,14 @@ export async function POST(request: Request, ctx: Ctx) {
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true, group: result.group });
   }
-  const action = body.action as "remove" | "ban" | "unban" | "mute" | "restrict" | "role" | "transfer";
+  const action = body.action as "remove" | "ban" | "unban" | "mute" | "restrict" | "role" | "transfer" | "kick";
   const result = await moderateMember(user.id, id, String(body.targetKey ?? ""), action, {
     ms: typeof body.ms === "number" ? body.ms : undefined,
     confirm: typeof body.confirm === "string" ? body.confirm : undefined,
+    role: body.role === "admin" || body.role === "moderator" || body.role === "member" ? body.role : undefined,
+    until: body.until === null ? null : typeof body.until === "number" ? body.until : undefined,
+    membershipId: typeof body.membershipId === "string" ? body.membershipId : undefined,
+    customRoleId: body.customRoleId === null || typeof body.customRoleId === "string" ? (body.customRoleId as string | null) : undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, group: result.group });

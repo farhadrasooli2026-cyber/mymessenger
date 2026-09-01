@@ -110,9 +110,11 @@ describe("NIXO communities", () => {
     expect(banned.ok).toBe(true);
     const again = await joinByToken(other, created.community.inviteToken!);
     expect(again.ok).toBe(false);
-    const outsider = await deleteCommunity(other, created.community.id);
+    const outsider = await deleteCommunity(other, created.community.id, { confirm: "DELETE" });
     expect(outsider.ok).toBe(false);
-    const gone = await deleteCommunity(owner, created.community.id);
+    const missing = await deleteCommunity(owner, created.community.id);
+    expect(missing.ok).toBe(false);
+    const gone = await deleteCommunity(owner, created.community.id, { confirm: "DELETE" });
     expect(gone.ok).toBe(true);
   });
 

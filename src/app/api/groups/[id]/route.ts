@@ -37,6 +37,12 @@ export async function PATCH(request: Request, ctx: Ctx) {
     allowedReactions: Array.isArray(body.allowedReactions) ? body.allowedReactions.map(String) : body.allowedReactions === null ? null : undefined,
     fileMaxBytes: typeof body.fileMaxBytes === "number" ? body.fileMaxBytes : undefined,
     allowedFileExts: Array.isArray(body.allowedFileExts) ? body.allowedFileExts.map(String) : body.allowedFileExts === null ? null : undefined,
+    category: typeof body.category === "string" ? body.category : undefined,
+    tags: Array.isArray(body.tags) ? body.tags.map(String) : undefined,
+    searchVisible: typeof body.searchVisible === "boolean" ? body.searchVisible : undefined,
+    inviteExpiresAt: body.inviteExpiresAt === null ? null : typeof body.inviteExpiresAt === "number" ? body.inviteExpiresAt : undefined,
+    inviteMaxUses: body.inviteMaxUses === null ? null : typeof body.inviteMaxUses === "number" ? body.inviteMaxUses : undefined,
+    customRoles: Array.isArray(body.customRoles) ? (body.customRoles as never) : undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, group: result.group });
@@ -52,7 +58,8 @@ export async function DELETE(request: Request, ctx: Ctx) {
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true });
   }
-  const result = await deleteGroup(user.id, id);
+  const body = await request.json().catch(() => null) as { confirm?: string } | null;
+  const result = await deleteGroup(user.id, id, { confirm: body?.confirm });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true });
 }

@@ -440,7 +440,7 @@ export function CommunityPane({
                     setDeleteStep((s) => s + 1);
                     return;
                   }
-                  await fetch(`/api/communities/${communityId}`, { method: "DELETE" });
+                  await fetch(`/api/communities/${communityId}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: "DELETE" }) });
                   onLeft();
                 }}>
                   {deleteStep === 0 ? "هشدار: برگشت‌ناپذیر است" : deleteStep === 1 ? "تأیید می‌کنم" : "تأیید نهایی و حذف"}

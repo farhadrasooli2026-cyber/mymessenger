@@ -26,10 +26,13 @@ export async function POST(request: Request, ctx: Ctx) {
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true, community: result.community });
   }
-  const action = body.action as "remove" | "ban" | "unban" | "mute" | "restrict" | "role";
+  const action = body.action as "remove" | "ban" | "unban" | "mute" | "restrict" | "role" | "transfer" | "kick";
   const result = await moderateMember(user.id, id, String(body.targetKey ?? ""), action, {
     ms: typeof body.ms === "number" ? body.ms : undefined,
     role: body.role === "admin" || body.role === "moderator" || body.role === "member" ? body.role : undefined,
+    confirm: typeof body.confirm === "string" ? body.confirm : undefined,
+    until: body.until === null ? null : typeof body.until === "number" ? body.until : undefined,
+    membershipId: typeof body.membershipId === "string" ? body.membershipId : undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, community: result.community });

@@ -945,9 +945,11 @@ export async function addBotToGroup(
     const key = `bot:${bot.id}`;
     if (!group.members.some((m) => m.key === key && !m.leftAt)) {
       group.members.push({
+        id: randomId(),
         key,
         kind: "bot",
         role: perms.canModerate ? "moderator" : "member",
+        customRoleId: null,
         name: bot.name,
         joinedAt: Date.now(),
         mutedUntil: null,

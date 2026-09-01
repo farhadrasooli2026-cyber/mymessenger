@@ -4,7 +4,7 @@ import path from "node:path";
 import type { Channel } from "@/lib/identifiers";
 import type { CatalogCategory, CatalogItem, UserPhoto, UsernameChange, Visibility } from "@/lib/profile-types";
 import { defaultUserFields } from "@/lib/profile-types";
-import type { GroupAdminPerms, GroupHistoryMode, GroupPerms, GroupRole } from "@/lib/group-types";
+import type { CustomGroupRole, GroupAdminPerms, GroupHistoryMode, GroupPerms, GroupRole } from "@/lib/group-types";
 import type { LivePrefs, LiveRecordingMeta, LiveStream } from "@/lib/live-types";
 import { DEFAULT_GROUP_ADMIN_PERMS, DEFAULT_GROUP_PERMS } from "@/lib/group-types";
 import type { CommunityPerms, CommunityRole, NotifyMode } from "@/lib/community-types";
@@ -313,7 +313,16 @@ function hydrateGroup(group: GroupRecord): GroupRecord {
     slowModeMs: typeof group.slowModeMs === "number" ? group.slowModeMs : 0,
     historyMode: group.historyMode === "from-join" ? "from-join" : "all",
     inviteToken: group.inviteToken || "",
-    members: Array.isArray(group.members) ? group.members : [],
+    inviteExpiresAt: typeof group.inviteExpiresAt === "number" ? group.inviteExpiresAt : null,
+    inviteMaxUses: typeof group.inviteMaxUses === "number" ? group.inviteMaxUses : null,
+    inviteUses: typeof group.inviteUses === "number" ? group.inviteUses : 0,
+    members: Array.isArray(group.members)
+      ? group.members.map((m) => ({
+          ...m,
+          id: m.id || `gm_${m.key}_${m.joinedAt}`,
+          customRoleId: m.customRoleId ?? null,
+        }))
+      : [],
     requests: Array.isArray(group.requests) ? group.requests : [],
     bans: Array.isArray(group.bans) ? group.bans : [],
     pinIds: Array.isArray(group.pinIds) ? group.pinIds : [],
@@ -326,6 +335,10 @@ function hydrateGroup(group: GroupRecord): GroupRecord {
     audit: Array.isArray(group.audit) ? group.audit : [],
     communityId: group.communityId ?? null,
     deletedAt: group.deletedAt ?? null,
+    category: group.category || "general",
+    tags: Array.isArray(group.tags) ? group.tags.map(String).slice(0, 8) : [],
+    searchVisible: group.searchVisible !== false,
+    customRoles: Array.isArray(group.customRoles) ? group.customRoles : [],
   };
 }
 
@@ -338,9 +351,18 @@ function hydrateCommunity(community: CommunityRecord): CommunityRecord {
     joinMode: community.joinMode === "open" || community.joinMode === "request" ? community.joinMode : "invite",
     perms: { ...DEFAULT_COMMUNITY_PERMS, ...(community.perms ?? {}) },
     inviteToken: community.inviteToken || "",
+    inviteExpiresAt: typeof community.inviteExpiresAt === "number" ? community.inviteExpiresAt : null,
+    inviteMaxUses: typeof community.inviteMaxUses === "number" ? community.inviteMaxUses : null,
+    inviteUses: typeof community.inviteUses === "number" ? community.inviteUses : 0,
+    searchVisible: community.searchVisible !== false,
     groupIds: Array.isArray(community.groupIds) ? community.groupIds : [],
     channels: Array.isArray(community.channels) ? community.channels : [],
-    members: Array.isArray(community.members) ? community.members : [],
+    members: Array.isArray(community.members)
+      ? community.members.map((m) => ({
+          ...m,
+          id: m.id || `cm_${m.key}_${m.joinedAt}`,
+        }))
+      : [],
     requests: Array.isArray(community.requests) ? community.requests : [],
     bans: Array.isArray(community.bans) ? community.bans : [],
     announcements: Array.isArray(community.announcements) ? community.announcements : [],
@@ -1047,9 +1069,11 @@ export type GroupCallRoom = {
 };
 
 export type GroupMember = {
+  id: string;
   key: string;
   kind: "user" | "seed" | "bot";
   role: GroupRole;
+  customRoleId?: string | null;
   name: string;
   joinedAt: number;
   mutedUntil: number | null;
@@ -1074,12 +1098,13 @@ export type GroupJoinRequest = {
   userId: string;
   name: string;
   createdAt: number;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "cancelled";
 };
 
 export type GroupBan = {
   key: string;
   at: number;
+  until?: number | null;
 };
 
 export type GroupRecord = {
@@ -1099,6 +1124,9 @@ export type GroupRecord = {
   slowModeMs: number;
   historyMode: GroupHistoryMode;
   inviteToken: string;
+  inviteExpiresAt: number | null;
+  inviteMaxUses: number | null;
+  inviteUses: number;
   members: GroupMember[];
   requests: GroupJoinRequest[];
   bans: GroupBan[];
@@ -1112,6 +1140,10 @@ export type GroupRecord = {
   deletedAt: number | null;
   fileMaxBytes?: number;
   allowedFileExts?: string[] | null;
+  category: string;
+  tags: string[];
+  searchVisible: boolean;
+  customRoles: CustomGroupRole[];
 };
 
 export type GroupPoll = {
@@ -1149,6 +1181,7 @@ export type GroupMessage = {
 };
 
 export type CommunityMember = {
+  id: string;
   key: string;
   kind: "user" | "seed";
   role: CommunityRole;
@@ -1166,10 +1199,10 @@ export type CommunityJoinRequest = {
   userId: string;
   name: string;
   createdAt: number;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "cancelled";
 };
 
-export type CommunityBan = { key: string; at: number };
+export type CommunityBan = { key: string; at: number; until?: number | null };
 
 export type CommunityAnnouncement = {
   id: string;
@@ -1209,6 +1242,10 @@ export type CommunityRecord = {
   joinMode: "invite" | "request" | "open";
   perms: CommunityPerms;
   inviteToken: string;
+  inviteExpiresAt: number | null;
+  inviteMaxUses: number | null;
+  inviteUses: number;
+  searchVisible: boolean;
   groupIds: string[];
   channels: CommunityChannel[];
   members: CommunityMember[];
