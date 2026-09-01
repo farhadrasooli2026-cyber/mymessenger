@@ -2,7 +2,7 @@ import "server-only";
 import { decryptText, encryptText, hmacIdentifier, randomId } from "@/lib/crypto-utils";
 import { normalizeEmail, normalizePhone } from "@/lib/identifiers";
 import { hitRateLimit } from "@/lib/rate-limit";
-import { mutateStore, readStoreSnapshot } from "@/lib/store";
+import { bumpDiscoveryCaches, mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { ContactGroupKind, ContactRecord, StoreData } from "@/lib/store";
 import { audienceAllows, canFindByUsername, pairBlocked, setBlockedPeer } from "@/lib/privacy";
 import { publicProfile } from "@/lib/profile";
@@ -28,6 +28,7 @@ function ensureArrays(data: StoreData) {
   data.contactInvites ??= [];
   data.contactRequests ??= [];
   data.contactLists ??= [];
+  data.follows ??= [];
 }
 
 function notesOf(row: ContactRecord) {
@@ -98,7 +99,7 @@ function addToContactIds(data: StoreData, ownerId: string, otherId: string | nul
 
 export async function listContacts(
   userId: string,
-  opts: { q?: string; sort?: string; group?: string; favorites?: boolean; recently?: boolean } = {},
+  opts: { q?: string; sort?: string; group?: string; favorites?: boolean; recently?: boolean; offset?: number; limit?: number; cursor?: string } = {},
 ) {
   const data = await readStoreSnapshot();
   const me = data.users.find((u) => u.id === userId);
@@ -126,11 +127,24 @@ export async function listContacts(
     rows.sort((a, b) => a.name.localeCompare(b.name, "fa"));
   }
   const duplicates = findDuplicateIds(rows);
+  const offset = Math.max(0, opts.offset ?? 0);
+  const limit = Math.min(50, Math.max(1, opts.limit ?? 40));
+  const start = opts.cursor ? Math.max(0, rows.findIndex((c) => c.id === opts.cursor) + 1) : offset;
+  const page = rows.slice(start, start + limit);
+  const last = page[page.length - 1];
   const pending = data.contactRequests.filter((r) => r.toUserId === userId && r.status === "pending");
   const outgoing = data.contactRequests.filter((r) => r.fromUserId === userId && r.status === "pending");
+  const friends = (me.friendIds ?? [])
+    .map((id) => data.users.find((u) => u.id === id && u.status === "active"))
+    .filter(Boolean)
+    .map((u) => publicProfile(u!, userId));
   return {
     ok: true as const,
-    contacts: rows.map(publicContact),
+    contacts: page.map(publicContact),
+    hasMore: start + page.length < rows.length,
+    nextOffset: start + page.length,
+    nextCursor: start + page.length < rows.length && last ? last.id : null,
+    total: rows.length,
     favorites: data.contacts.filter((c) => c.ownerUserId === userId && c.favorite).map(publicContact),
     recently: data.contacts
       .filter((c) => c.ownerUserId === userId && c.lastContactedAt > 0)
@@ -141,6 +155,8 @@ export async function listContacts(
     duplicates,
     requestsIn: pending.map((r) => requestView(data, r, userId)),
     requestsOut: outgoing.map((r) => requestView(data, r, userId)),
+    friends,
+    mutedPeerKeys: me.mutedPeerKeys ?? [],
     permission: me.contactOsPermission,
     syncEnabled: me.contactSyncEnabled,
     autoSync: Boolean(me.contactAutoSync),
@@ -159,7 +175,7 @@ function requestView(data: StoreData, r: StoreData["contactRequests"][number], v
     id: r.id,
     fromUserId: r.fromUserId,
     toUserId: r.toUserId,
-    status: r.status,
+    status: r.status === "declined" ? "rejected" : r.status,
     createdAt: r.createdAt,
     peer: other ? publicProfile(other, viewerId) : null,
   };
@@ -230,16 +246,22 @@ export async function saveContact(userId: string, patch: ContactPatch) {
       row.deviceStamp = String(patch.deviceStamp ?? row.deviceStamp ?? "").slice(0, 80);
       row.nixoUserId = linkNixoUser(data, userId, row.phone, row.email, row.username);
       addToContactIds(data, userId, row.nixoUserId);
+      bumpDiscoveryCaches(data);
       return { ok: true as const, contact: publicContact(row) };
     }
     if (!name) return { ok: false as const, error: "نام مخاطب لازم است.", status: 400 };
     const phone = patch.phone ? (normalizePhone(patch.phone) ?? patch.phone.trim().slice(0, 32)) : "";
     const email = patch.email ? (normalizeEmail(patch.email) ?? patch.email.trim().slice(0, 80)) : "";
     const username = patch.username ? (normalizeUsername(patch.username) ?? patch.username.replace(/^@/, "").trim()).toLowerCase() : "";
+    const linked = linkNixoUser(data, userId, phone, email, username);
+    if (linked && !patch.force) {
+      const existing = data.contacts.find((c) => c.ownerUserId === userId && c.nixoUserId === linked);
+      if (existing) return { ok: true as const, contact: publicContact(existing), reused: true as const };
+    }
     const row: ContactRecord = {
       id: randomId(),
       ownerUserId: userId,
-      nixoUserId: linkNixoUser(data, userId, phone, email, username),
+      nixoUserId: linked,
       name,
       phone,
       email,
@@ -261,6 +283,7 @@ export async function saveContact(userId: string, patch: ContactPatch) {
     if (patch.notes) setNotes(row, patch.notes);
     data.contacts.push(row);
     addToContactIds(data, userId, row.nixoUserId);
+    bumpDiscoveryCaches(data);
     return { ok: true as const, contact: publicContact(row) };
   });
 }
@@ -276,6 +299,7 @@ export async function deleteContact(userId: string, contactId: string) {
       me.contactIds = me.contactIds.filter((id) => id !== linked);
     }
     const still = data.users.find((u) => u.id === linked);
+    bumpDiscoveryCaches(data);
     return { ok: true as const, accountKept: Boolean(still) };
   });
 }
@@ -446,6 +470,7 @@ export async function viewPerson(viewerId: string, username: string) {
     ? data.messages.filter((m) => m.threadId === thread.id && (m.kind === "photo" || m.kind === "video" || m.kind === "file")).length
     : 0;
   const mine = data.contacts.find((c) => c.ownerUserId === viewerId && c.nixoUserId === target.id);
+  const viewer = data.users.find((u) => u.id === viewerId);
   return {
     ok: true as const,
     profile,
@@ -455,6 +480,10 @@ export async function viewPerson(viewerId: string, username: string) {
     localContact: mine ? publicContact(mine) : null,
     qrPayload: { t: "nixo-contact", u: target.username },
     othersContactsHidden: true,
+    friend: Boolean(viewer?.friendIds?.includes(target.id)),
+    following: Boolean((data.follows ?? []).some((f) => f.followerId === viewerId && f.followeeId === target.id)),
+    muted: Boolean(viewer?.mutedPeerKeys?.includes(target.id)),
+    blocked: pairBlocked(data, viewerId, target.id),
   };
 }
 
@@ -507,6 +536,7 @@ export async function acceptInvite(userId: string, token: string) {
     const owner = data.users.find((u) => u.id === invite.ownerUserId);
     const me = data.users.find((u) => u.id === userId);
     if (!owner || !me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    if (pairBlocked(data, userId, owner.id)) return { ok: false as const, error: "ارتباط مسدود است.", status: 403 };
     addToContactIds(data, owner.id, me.id);
     addToContactIds(data, me.id, owner.id);
     const exists = data.contacts.find((c) => c.ownerUserId === userId && c.nixoUserId === owner.id);
@@ -547,10 +577,23 @@ export async function sendRequest(userId: string, targetId: string) {
     if (pairBlocked(data, userId, targetId)) return { ok: false as const, error: "ارتباط مسدود است.", status: 403 };
     const target = data.users.find((u) => u.id === targetId && u.status === "active");
     if (!target) return { ok: false as const, error: "کاربر یافت نشد.", status: 404 };
+    const me = data.users.find((u) => u.id === userId);
+    if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    if ((me.friendIds ?? []).includes(targetId) || (target.friendIds ?? []).includes(userId)) {
+      return { ok: true as const, requestId: "friends", status: "accepted" as const };
+    }
     const existing = data.contactRequests.find(
       (r) => r.status === "pending" && ((r.fromUserId === userId && r.toUserId === targetId) || (r.fromUserId === targetId && r.toUserId === userId)),
     );
-    if (existing) return { ok: true as const, requestId: existing.id };
+    if (existing) return { ok: true as const, requestId: existing.id, status: existing.status };
+    const spam = hitRateLimit(data, `ctreq-burst:${userId}`, 10 * 60_000, 8);
+    if (!spam.allowed) {
+      data.audit = [
+        { id: `frq-${Date.now()}`, userId, kind: "suspicious" as const, createdAt: Date.now(), detail: "friend-request-spam" },
+        ...(data.audit ?? []),
+      ].slice(0, 400);
+      return { ok: false as const, error: "درخواست ارتباط محدود شد.", status: 429 };
+    }
     const row = {
       id: randomId(),
       fromUserId: userId,
@@ -563,13 +606,14 @@ export async function sendRequest(userId: string, targetId: string) {
     emitNotification(data, {
       userId: targetId,
       category: "system",
-      kind: "contact-request",
-      title: "درخواست ارتباط",
-      body: "یک کاربر نیکسو می‌خواهد با تو ارتباط بگیرد.",
+      kind: "friend-request",
+      title: "درخواست دوستی",
+      body: "یک کاربر نیکسو درخواست دوستی فرستاده است.",
       sourceId: `req:${row.id}`,
+      actorUserId: userId,
       target: { type: "system", id: row.id, href: "/app/contacts" },
     });
-    return { ok: true as const, requestId: row.id };
+    return { ok: true as const, requestId: row.id, status: "pending" as const };
   });
 }
 
@@ -591,15 +635,16 @@ export async function resolveRequest(userId: string, requestId: string, action: 
     if (!req) return { ok: false as const, error: "درخواست یافت نشد.", status: 404 };
     if (action === "block") {
       if (req.toUserId !== userId) return { ok: false as const, error: "اجازه نیست.", status: 403 };
-      req.status = "declined";
+      req.status = "blocked";
       req.updatedAt = Date.now();
       const me = data.users.find((u) => u.id === userId);
       if (me && !me.blockedPeerKeys.includes(req.fromUserId)) me.blockedPeerKeys.push(req.fromUserId);
+      bumpDiscoveryCaches(data);
       return { ok: true as const };
     }
     if (action === "decline" || action === "report") {
       if (req.toUserId !== userId) return { ok: false as const, error: "اجازه نیست.", status: 403 };
-      req.status = "declined";
+      req.status = "rejected";
       req.updatedAt = Date.now();
       return { ok: true as const };
     }
@@ -608,6 +653,156 @@ export async function resolveRequest(userId: string, requestId: string, action: 
     req.updatedAt = Date.now();
     addToContactIds(data, userId, req.fromUserId);
     addToContactIds(data, req.fromUserId, userId);
+    const me = data.users.find((u) => u.id === userId);
+    const other = data.users.find((u) => u.id === req.fromUserId);
+    if (me && other) {
+      if (!me.friendIds.includes(other.id)) me.friendIds.push(other.id);
+      if (!other.friendIds.includes(me.id)) other.friendIds.push(me.id);
+    }
+    emitNotification(data, {
+      userId: req.fromUserId,
+      category: "system",
+      kind: "friend-accepted",
+      title: "درخواست دوستی پذیرفته شد",
+      body: "حالا در فهرست دوستان هستید.",
+      sourceId: `reqok:${req.id}`,
+      actorUserId: userId,
+      target: { type: "system", id: req.id, href: "/app/contacts" },
+    });
+    bumpDiscoveryCaches(data);
+    return { ok: true as const };
+  });
+}
+
+export async function cancelRequest(userId: string, requestId: string) {
+  return mutateStore((data) => {
+    const req = data.contactRequests.find((r) => r.id === requestId);
+    if (!req) return { ok: false as const, error: "درخواست یافت نشد.", status: 404 };
+    if (req.fromUserId !== userId) return { ok: false as const, error: "اجازه نیست.", status: 403 };
+    if (req.status !== "pending") return { ok: false as const, error: "این درخواست قابل لغو نیست.", status: 400 };
+    req.status = "cancelled";
+    req.updatedAt = Date.now();
+    return { ok: true as const };
+  });
+}
+
+export async function removeFriend(userId: string, peerId: string) {
+  return mutateStore((data) => {
+    if (userId === peerId) return { ok: false as const, error: "نامعتبر.", status: 400 };
+    const me = data.users.find((u) => u.id === userId);
+    const other = data.users.find((u) => u.id === peerId);
+    if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    me.friendIds = (me.friendIds ?? []).filter((id) => id !== peerId);
+    if (other) other.friendIds = (other.friendIds ?? []).filter((id) => id !== userId);
+    bumpDiscoveryCaches(data);
+    return { ok: true as const, friendIds: me.friendIds };
+  });
+}
+
+export async function followUser(userId: string, peerId: string) {
+  return mutateStore((data) => {
+    const flood = hitRateLimit(data, `follow:${userId}`, 60 * 60_000, 40);
+    if (!flood.allowed) return { ok: false as const, error: "Follow محدود شد.", status: 429 };
+    const burst = hitRateLimit(data, `follow-burst:${userId}`, 10 * 60_000, 15);
+    if (!burst.allowed) {
+      data.audit = [
+        { id: `fol-${Date.now()}`, userId, kind: "suspicious" as const, createdAt: Date.now(), detail: "mass-follow" },
+        ...(data.audit ?? []),
+      ].slice(0, 400);
+      return { ok: false as const, error: "Follow محدود شد.", status: 429 };
+    }
+    if (userId === peerId) return { ok: false as const, error: "نامعتبر.", status: 400 };
+    ensureArrays(data);
+    if (pairBlocked(data, userId, peerId)) return { ok: false as const, error: "ارتباط مسدود است.", status: 403 };
+    const target = data.users.find((u) => u.id === peerId && u.status === "active");
+    const me = data.users.find((u) => u.id === userId);
+    if (!target || !me) return { ok: false as const, error: "کاربر یافت نشد.", status: 404 };
+    if (!audienceAllows(target.privacyFollow ?? "everyone", target.contactIds, [], userId, target.friendIds)) {
+      return { ok: false as const, error: "Follow برای تو مجاز نیست.", status: 403 };
+    }
+    const existing = data.follows.find((f) => f.followerId === userId && f.followeeId === peerId);
+    if (existing) return { ok: true as const, followId: existing.id, reused: true as const };
+    const row = { id: randomId(), followerId: userId, followeeId: peerId, createdAt: Date.now() };
+    data.follows.push(row);
+    emitNotification(data, {
+      userId: peerId,
+      category: "system",
+      kind: "follow",
+      title: "دنبال‌کننده جدید",
+      body: "یک کاربر نیکسو تو را Follow کرد.",
+      sourceId: `fol:${row.id}`,
+      actorUserId: userId,
+      target: { type: "system", id: row.id, href: "/app/contacts" },
+    });
+    bumpDiscoveryCaches(data);
+    return { ok: true as const, followId: row.id };
+  });
+}
+
+export async function unfollowUser(userId: string, peerId: string) {
+  return mutateStore((data) => {
+    ensureArrays(data);
+    const before = data.follows.length;
+    data.follows = data.follows.filter((f) => !(f.followerId === userId && f.followeeId === peerId));
+    if (data.follows.length === before) return { ok: false as const, error: "Follow یافت نشد.", status: 404 };
+    bumpDiscoveryCaches(data);
+    return { ok: true as const };
+  });
+}
+
+function graphPeople(data: StoreData, viewerId: string, ids: string[]) {
+  return ids
+    .map((id) => data.users.find((u) => u.id === id && u.status === "active"))
+    .filter(Boolean)
+    .filter((u) => !pairBlocked(data, viewerId, u!.id))
+    .map((u) => publicProfile(u!, viewerId));
+}
+
+export async function listSocialGraph(viewerId: string, targetId: string, which: "followers" | "following" | "friends") {
+  const data = await readStoreSnapshot();
+  const target = data.users.find((u) => u.id === targetId && u.status === "active");
+  if (!target) return { ok: false as const, error: "کاربر یافت نشد.", status: 404 as const };
+  if (pairBlocked(data, viewerId, targetId) && viewerId !== targetId) {
+    return { ok: false as const, error: "در دسترس نیست.", status: 404 as const };
+  }
+  const own = viewerId === targetId;
+  if (which === "friends") {
+    if (!own) return { ok: true as const, hidden: true as const, people: [] as ReturnType<typeof publicProfile>[] };
+    return { ok: true as const, hidden: false as const, people: graphPeople(data, viewerId, target.friendIds ?? []) };
+  }
+  if (which === "followers") {
+    if (!own && target.hideFollowers) return { ok: true as const, hidden: true as const, people: [] as ReturnType<typeof publicProfile>[] };
+    const ids = (data.follows ?? []).filter((f) => f.followeeId === targetId).map((f) => f.followerId);
+    return { ok: true as const, hidden: false as const, people: graphPeople(data, viewerId, ids) };
+  }
+  if (!own && target.hideFollowing) return { ok: true as const, hidden: true as const, people: [] as ReturnType<typeof publicProfile>[] };
+  const ids = (data.follows ?? []).filter((f) => f.followerId === targetId).map((f) => f.followeeId);
+  return { ok: true as const, hidden: false as const, people: graphPeople(data, viewerId, ids) };
+}
+
+export async function muteUser(userId: string, peerId: string, muted: boolean) {
+  return mutateStore((data) => {
+    const me = data.users.find((u) => u.id === userId);
+    if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    const key = peerId.trim();
+    if (!key || key === userId) return { ok: false as const, error: "کاربر نامعتبر است.", status: 400 };
+    if (muted) {
+      if (!me.mutedPeerKeys.includes(key)) me.mutedPeerKeys.push(key);
+    } else {
+      me.mutedPeerKeys = me.mutedPeerKeys.filter((id) => id !== key);
+    }
+    bumpDiscoveryCaches(data);
+    return { ok: true as const, mutedPeerKeys: me.mutedPeerKeys, blocked: me.blockedPeerKeys.includes(key) };
+  });
+}
+
+export async function clearMyContacts(userId: string) {
+  return mutateStore((data) => {
+    const me = data.users.find((u) => u.id === userId);
+    if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    data.contacts = (data.contacts ?? []).filter((c) => c.ownerUserId !== userId);
+    me.contactIds = [];
+    bumpDiscoveryCaches(data);
     return { ok: true as const };
   });
 }

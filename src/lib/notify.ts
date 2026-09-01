@@ -252,6 +252,7 @@ export type EmitNotifyInput = {
   reply?: boolean;
   allowDuringDnd?: boolean;
   forceSuppress?: boolean;
+  actorUserId?: string;
 };
 
 export function previewBody(prefs: NotifyPrefs, input: EmitNotifyInput) {
@@ -272,6 +273,14 @@ export function emitNotification(data: StoreData, input: EmitNotifyInput): Notif
   const me = data.users.find((u) => u.id === input.userId && u.status === "active");
   if (!me) return null;
   if (!destinationAllowed(data, input)) return null;
+  if (
+    input.actorUserId &&
+    (me.mutedPeerKeys ?? []).includes(input.actorUserId) &&
+    input.category !== "security" &&
+    (input.category === "messages" || input.category === "calls")
+  ) {
+    return null;
+  }
   const prefs = prefsOf(data, input.userId);
   const now = Date.now();
   const incomingCall = input.category === "calls" && input.kind.startsWith("incoming");

@@ -17,6 +17,11 @@ import {
   acceptInvite,
   startChatFromContact,
   blockPerson,
+  sendRequest,
+  resolveRequest,
+  listSocialGraph,
+  followUser,
+  muteUser,
 } from "./contacts";
 
 async function activeUser(username: string, channel: "email" | "phone" = "email", identifier?: string) {
@@ -131,5 +136,42 @@ describe("NIXO contacts", () => {
     expect(again.ok).toBe(false);
     const snap = await readStoreSnapshot();
     expect(snap.users.find((u) => u.id === b)?.status).toBe("active");
+  });
+
+  it("keeps friend, follow, mute, and contact IDs owner-scoped", async () => {
+    const a = await activeUser("ct_soc_a");
+    const b = await activeUser("ct_soc_b");
+    const c = await activeUser("ct_soc_c");
+    const first = await saveContact(a, { name: "دوست", username: "ct_soc_b" });
+    const again = await saveContact(a, { name: "همان", username: "ct_soc_b" });
+    expect(first.ok && again.ok && "reused" in again && again.reused).toBe(true);
+    if (first.ok && again.ok) expect(again.contact.id).toBe(first.contact.id);
+    const req = await sendRequest(a, b);
+    expect(req.ok).toBe(true);
+    if (!req.ok) return;
+    const stolen = await resolveRequest(c, req.requestId, "accept");
+    expect(stolen.ok).toBe(false);
+    const listed = await listContacts(b);
+    expect(listed.ok && listed.requestsIn.some((r) => r.id === req.requestId)).toBe(true);
+    const accepted = await resolveRequest(b, req.requestId, "accept");
+    expect(accepted.ok).toBe(true);
+    const friendsA = await listSocialGraph(a, a, "friends");
+    expect(friendsA.ok && friendsA.people.some((p) => p.id === b)).toBe(true);
+    const friendsC = await listSocialGraph(c, a, "friends");
+    expect(friendsC.ok && friendsC.hidden && friendsC.people.length === 0).toBe(true);
+    await followUser(a, b);
+    await updatePrivacy(b, { hideFollowers: true });
+    const hidden = await listSocialGraph(a, b, "followers");
+    expect(hidden.ok && hidden.hidden).toBe(true);
+    const ownFollowers = await listSocialGraph(b, b, "followers");
+    expect(ownFollowers.ok && ownFollowers.people.some((p) => p.id === a)).toBe(true);
+    await muteUser(b, a, true);
+    const opened = await startChatFromContact(a, undefined, b);
+    expect(opened.ok).toBe(true);
+    await blockPerson(b, a, true);
+    const afterBlock = await startChatFromContact(a, undefined, b);
+    expect(afterBlock.ok).toBe(false);
+    const paged = await listContacts(a, { limit: 1 });
+    expect(paged.ok && (paged.nextCursor === null || typeof paged.nextCursor === "string")).toBe(true);
   });
 });

@@ -16,7 +16,7 @@ const V3 = [
   { id: "contacts", label: "مخاطبین" },
   { id: "nobody", label: "هیچ‌کس" },
 ] as const;
-const V4 = [...V3, { id: "selected", label: "انتخاب‌شده" }] as const;
+const V4 = [...V3, { id: "friends", label: "دوستان" }, { id: "selected", label: "انتخاب‌شده" }] as const;
 
 function Radios({
   value,
@@ -212,6 +212,20 @@ export function PrivacyDashboard() {
           <Radios value={str("privacyCommunities")} options={V4} onChange={(id) => void save({ privacyCommunities: id })} />
           <p className="mt-2 text-xs">دعوت کانال</p>
           <Radios value={str("privacyChannels")} options={V4} onChange={(id) => void save({ privacyChannels: id })} />
+        </section>
+
+        <section className="rounded-2xl bg-white/5 p-4 text-sm">
+          <h2 className="font-medium">Follow</h2>
+          <p className="text-xs">چه کسانی می‌توانند تو را Follow کنند</p>
+          <Radios value={str("privacyFollow")} options={V4} onChange={(id) => void save({ privacyFollow: id })} />
+          <label className="mt-2 flex items-center gap-2 text-xs">
+            <input type="checkbox" checked={bool("hideFollowers")} onChange={(e) => void save({ hideFollowers: e.target.checked })} />
+            پنهان کردن فهرست Followers از دیگران
+          </label>
+          <label className="mt-2 flex items-center gap-2 text-xs">
+            <input type="checkbox" checked={bool("hideFollowing")} onChange={(e) => void save({ hideFollowing: e.target.checked })} />
+            پنهان کردن فهرست Following از دیگران
+          </label>
         </section>
 
         <section className="rounded-2xl bg-white/5 p-4 text-sm">

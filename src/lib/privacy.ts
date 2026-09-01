@@ -2,7 +2,7 @@ import "server-only";
 import { hmacIdentifier } from "@/lib/crypto-utils";
 import { normalizeEmail, normalizePhone } from "@/lib/identifiers";
 import { hitRateLimit } from "@/lib/rate-limit";
-import { mutateStore, readStoreSnapshot } from "@/lib/store";
+import { bumpDiscoveryCaches, mutateStore, readStoreSnapshot } from "@/lib/store";
 import { publishChatLive } from "@/lib/chat-live";
 import type { StoreData, UserRecord } from "@/lib/store";
 import type { Visibility, Visibility3 } from "@/lib/profile-types";
@@ -15,11 +15,13 @@ export function audienceAllows(
   contactIds: string[],
   allowIds: string[],
   viewerId?: string | null,
+  friendIds?: string[],
 ): boolean {
   if (viewerId && allowIds.includes(viewerId)) return true;
   if (visibility === "everyone") return true;
   if (visibility === "nobody") return false;
   if (!viewerId) return false;
+  if (visibility === "friends") return (friendIds ?? []).includes(viewerId);
   if (visibility === "contacts") return contactIds.includes(viewerId);
   return allowIds.includes(viewerId);
 }
@@ -53,7 +55,7 @@ export function canMessageUser(data: StoreData, fromId: string, toPeerKey: strin
   const target = data.users.find((u) => u.id === toPeerKey);
   if (!target) return true;
   if (!canInteractWith(data, fromId, toPeerKey)) return false;
-  return audienceAllows(target.privacyMessages, target.contactIds, target.messageAllowIds, fromId);
+  return audienceAllows(target.privacyMessages, target.contactIds, target.messageAllowIds, fromId, target.friendIds);
 }
 
 export function canAddToGroup(data: StoreData, actorId: string, targetId: string) {
@@ -61,7 +63,7 @@ export function canAddToGroup(data: StoreData, actorId: string, targetId: string
   const target = data.users.find((u) => u.id === targetId);
   if (!target) return false;
   if (!canInteractWith(data, actorId, targetId)) return false;
-  return audienceAllows(target.privacyGroups, target.contactIds, target.groupAllowIds, actorId);
+  return audienceAllows(target.privacyGroups, target.contactIds, target.groupAllowIds, actorId, target.friendIds);
 }
 
 export function canAddToCommunity(data: StoreData, actorId: string, targetId: string) {
@@ -69,7 +71,7 @@ export function canAddToCommunity(data: StoreData, actorId: string, targetId: st
   const target = data.users.find((u) => u.id === targetId);
   if (!target) return false;
   if (!canInteractWith(data, actorId, targetId)) return false;
-  return audienceAllows(target.privacyCommunities, target.contactIds, target.communityAllowIds, actorId);
+  return audienceAllows(target.privacyCommunities, target.contactIds, target.communityAllowIds, actorId, target.friendIds);
 }
 
 export function canChannelInvite(data: StoreData, actorId: string, targetId: string) {
@@ -77,7 +79,7 @@ export function canChannelInvite(data: StoreData, actorId: string, targetId: str
   const target = data.users.find((u) => u.id === targetId);
   if (!target) return false;
   if (!canInteractWith(data, actorId, targetId)) return false;
-  return audienceAllows(target.privacyChannels, target.contactIds, target.channelAllowIds, actorId);
+  return audienceAllows(target.privacyChannels, target.contactIds, target.channelAllowIds, actorId, target.friendIds);
 }
 
 export function snapshotPrivacy(user: UserRecord) {
@@ -122,6 +124,11 @@ export function snapshotPrivacy(user: UserRecord) {
     contactAutoSync: Boolean(user.contactAutoSync),
     contactSyncStatus: user.contactSyncStatus ?? "idle",
     contactLastSyncAt: user.contactLastSyncAt ?? 0,
+    privacyFollow: user.privacyFollow ?? "everyone",
+    hideFollowers: Boolean(user.hideFollowers),
+    hideFollowing: Boolean(user.hideFollowing),
+    friendCount: (user.friendIds ?? []).length,
+    mutedPeerKeys: user.mutedPeerKeys ?? [],
     privacyBirthday: user.privacyBirthday ?? "nobody",
     privacyMentions: user.privacyMentions ?? "everyone",
     privacyStoryMentions: user.privacyStoryMentions ?? "everyone",
@@ -146,7 +153,7 @@ export function privacyCheckup(user: UserRecord) {
     { id: "calls", label: "تماس", value: user.callPrivacy, warn: user.callPrivacy === "everyone" },
     { id: "groups", label: "افزودن به گروه", value: user.privacyGroups, warn: user.privacyGroups === "everyone" },
     { id: "mentions", label: "منشن", value: user.privacyMentions ?? "everyone", warn: (user.privacyMentions ?? "everyone") === "everyone" },
-    { id: "birthday", label: "تولد", value: user.privacyBirthday ?? "nobody", warn: user.privacyBirthday === "everyone" },
+    { id: "follow", label: "Follow", value: user.privacyFollow ?? "everyone", warn: (user.privacyFollow ?? "everyone") === "everyone" },
   ];
   return items;
 }
@@ -171,7 +178,7 @@ export async function getPrivacy(userId: string) {
 const vis3 = (v: unknown): Visibility3 | undefined =>
   v === "everyone" || v === "contacts" || v === "nobody" ? v : undefined;
 const vis4 = (v: unknown): Visibility | undefined =>
-  v === "everyone" || v === "contacts" || v === "nobody" || v === "selected" ? v : undefined;
+  v === "everyone" || v === "contacts" || v === "friends" || v === "nobody" || v === "selected" ? v : undefined;
 const ids = (v: unknown) => (Array.isArray(v) ? v.map(String).slice(0, 80) : undefined);
 
 export async function updatePrivacy(userId: string, patch: Record<string, unknown>) {
@@ -251,8 +258,31 @@ export async function updatePrivacy(userId: string, patch: Record<string, unknow
     if (bday) me.privacyBirthday = bday;
     const sm = vis4(patch.privacyStoryMentions);
     if (sm) me.privacyStoryMentions = sm;
+    const fol = vis4(patch.privacyFollow);
+    if (fol) me.privacyFollow = fol;
+    if (typeof patch.hideFollowers === "boolean") me.hideFollowers = patch.hideFollowers;
+    if (typeof patch.hideFollowing === "boolean") me.hideFollowing = patch.hideFollowing;
     if (typeof patch.locationEnabled === "boolean") me.locationEnabled = patch.locationEnabled;
+    if (typeof patch.statusExpiresAt === "number" || patch.statusExpiresAt === null) {
+      me.statusExpiresAt = typeof patch.statusExpiresAt === "number" ? patch.statusExpiresAt : null;
+    }
+    if (typeof patch.statusText === "string") me.statusText = patch.statusText.trim().slice(0, 80);
+    if (
+      patch.statusPreset === "" ||
+      patch.statusPreset === "available" ||
+      patch.statusPreset === "busy" ||
+      patch.statusPreset === "work" ||
+      patch.statusPreset === "away" ||
+      patch.statusPreset === "custom"
+    ) {
+      me.statusPreset = patch.statusPreset;
+    }
     me.lastSeenAt = Date.now();
+    bumpDiscoveryCaches(data);
+    data.audit = [
+      { id: `priv-${Date.now()}`, userId, kind: "suspicious" as const, createdAt: Date.now(), detail: "privacy-update" },
+      ...(data.audit ?? []),
+    ].slice(0, 400);
     return { ok: true as const, settings: snapshotPrivacy(me), checkup: privacyCheckup(me) };
   });
 }
@@ -265,11 +295,11 @@ export async function viewPresence(viewerId: string, targetId: string) {
     return { ok: false as const, error: "در دسترس نیست.", status: 404 };
   }
   const now = Date.now();
-  const lastSeen = audienceAllows(target.privacyLastSeen, target.contactIds, target.lastSeenAllowIds, viewerId)
+  const lastSeen = audienceAllows(target.privacyLastSeen, target.contactIds, target.lastSeenAllowIds, viewerId, target.friendIds)
     ? target.lastSeenAt
     : null;
   const online =
-    audienceAllows(target.privacyOnline, target.contactIds, target.onlineAllowIds, viewerId) &&
+    audienceAllows(target.privacyOnline, target.contactIds, target.onlineAllowIds, viewerId, target.friendIds) &&
     now - target.lastSeenAt < ONLINE_MS;
   const typing =
     target.showTyping &&
@@ -448,9 +478,35 @@ export async function setBlockedPeer(userId: string, peerKey: string, blocked: b
     if (!key || key === userId) return { ok: false as const, error: "کاربر نامعتبر است.", status: 400 };
     if (blocked) {
       if (!me.blockedPeerKeys.includes(key)) me.blockedPeerKeys.push(key);
+      me.friendIds = (me.friendIds ?? []).filter((id) => id !== key);
+      const peer = data.users.find((u) => u.id === key);
+      if (peer) peer.friendIds = (peer.friendIds ?? []).filter((id) => id !== userId);
+      data.follows = (data.follows ?? []).filter(
+        (f) => !((f.followerId === userId && f.followeeId === key) || (f.followerId === key && f.followeeId === userId)),
+      );
+      for (const r of data.contactRequests ?? []) {
+        if (r.status === "pending" && ((r.fromUserId === userId && r.toUserId === key) || (r.toUserId === userId && r.fromUserId === key))) {
+          r.status = "blocked";
+          r.updatedAt = Date.now();
+        }
+      }
+      const now = Date.now();
+      for (const c of data.calls ?? []) {
+        const pair = (c.ownerUserId === userId && c.peerKey === key) || (c.ownerUserId === key && c.peerKey === userId);
+        if (pair && (c.status === "ringing" || c.status === "active" || c.status === "queued")) {
+          c.status = "ended";
+          c.endedAt = now;
+          c.endReason = "declined";
+        }
+      }
     } else {
       me.blockedPeerKeys = me.blockedPeerKeys.filter((k) => k !== key);
     }
+    bumpDiscoveryCaches(data);
+    data.audit = [
+      { id: `blk-${Date.now()}`, userId, kind: "suspicious" as const, createdAt: Date.now(), detail: blocked ? "block" : "unblock" },
+      ...(data.audit ?? []),
+    ].slice(0, 400);
     return { ok: true as const, blockedPeerKeys: me.blockedPeerKeys };
   });
 }

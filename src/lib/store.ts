@@ -175,6 +175,12 @@ function hydrateUser(user: UserRecord): UserRecord {
     birthdayAllowIds: Array.isArray(user.birthdayAllowIds) ? user.birthdayAllowIds : [],
     privacyStoryMentions: user.privacyStoryMentions ?? "everyone",
     storyMentionAllowIds: Array.isArray(user.storyMentionAllowIds) ? user.storyMentionAllowIds : [],
+    friendIds: Array.isArray(user.friendIds) ? user.friendIds : [],
+    mutedPeerKeys: Array.isArray(user.mutedPeerKeys) ? user.mutedPeerKeys : [],
+    privacyFollow: user.privacyFollow ?? "everyone",
+    hideFollowers: Boolean(user.hideFollowers),
+    hideFollowing: Boolean(user.hideFollowing),
+    statusExpiresAt: typeof user.statusExpiresAt === "number" ? user.statusExpiresAt : null,
     accountStatus: user.accountStatus === "pending_deletion" || user.accountStatus === "closed" ? user.accountStatus : "active",
     deletionFinalizeAt: user.deletionFinalizeAt ?? null,
     backupPrefs: user.backupPrefs ?? {
@@ -578,6 +584,12 @@ export type UserRecord = {
   birthdayAllowIds: string[];
   privacyStoryMentions: Visibility;
   storyMentionAllowIds: string[];
+  friendIds: string[];
+  mutedPeerKeys: string[];
+  privacyFollow: Visibility;
+  hideFollowers: boolean;
+  hideFollowing: boolean;
+  statusExpiresAt: number | null;
   accountStatus?: "active" | "pending_deletion" | "closed";
   deletionFinalizeAt?: number | null;
   backupPrefs?: BackupPrefs;
@@ -792,9 +804,16 @@ export type ContactRequest = {
   id: string;
   fromUserId: string;
   toUserId: string;
-  status: "pending" | "accepted" | "declined" | "cancelled";
+  status: "pending" | "accepted" | "rejected" | "declined" | "cancelled" | "blocked";
   createdAt: number;
   updatedAt: number;
+};
+
+export type FollowRecord = {
+  id: string;
+  followerId: string;
+  followeeId: string;
+  createdAt: number;
 };
 
 export type ContactList = {
@@ -1812,6 +1831,7 @@ export type StoreData = {
   contactInvites: ContactInvite[];
   contactRequests: ContactRequest[];
   contactLists: ContactList[];
+  follows: FollowRecord[];
   usernameHolds: UsernameHold[];
   reservedUsernames: string[];
   inboxMetas: InboxMeta[];
@@ -1929,6 +1949,7 @@ const EMPTY: StoreData = {
   contactInvites: [],
   contactRequests: [],
   contactLists: [],
+  follows: [],
   usernameHolds: [],
   reservedUsernames: [],
   inboxMetas: [],
@@ -2109,6 +2130,7 @@ async function readStore(): Promise<StoreData> {
       contactInvites: Array.isArray(parsed.contactInvites) ? parsed.contactInvites : [],
       contactRequests: Array.isArray(parsed.contactRequests) ? parsed.contactRequests : [],
       contactLists: Array.isArray(parsed.contactLists) ? parsed.contactLists : [],
+      follows: Array.isArray(parsed.follows) ? parsed.follows : [],
       usernameHolds: Array.isArray(parsed.usernameHolds) ? parsed.usernameHolds : [],
       reservedUsernames: Array.isArray(parsed.reservedUsernames) ? parsed.reservedUsernames : [],
       inboxMetas: Array.isArray(parsed.inboxMetas) ? parsed.inboxMetas.map(hydrateInboxMeta) : [],
@@ -2164,6 +2186,11 @@ export function resetStoreForTests(): Promise<void> {
   return enqueue(async () => {
     await writeStore(structuredClone(EMPTY));
   });
+}
+
+export function bumpDiscoveryCaches(data: StoreData) {
+  data.searchIndex = { gen: (data.searchIndex?.gen ?? 0) + 1, rebuiltAt: Date.now() };
+  data.searchQueryCache = [];
 }
 
 export function mutateStore<T>(mutator: (data: StoreData) => T | Promise<T>): Promise<T> {
@@ -2316,6 +2343,12 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.contactInvites = (data.contactInvites ?? []).filter((i) => i.ownerUserId !== uid);
   data.contactRequests = (data.contactRequests ?? []).filter((r) => r.fromUserId !== uid && r.toUserId !== uid);
   data.contactLists = (data.contactLists ?? []).filter((l) => l.ownerUserId !== uid);
+  data.follows = (data.follows ?? []).filter((f) => f.followerId !== uid && f.followeeId !== uid);
+  for (const u of data.users) {
+    u.friendIds = (u.friendIds ?? []).filter((id) => id !== uid);
+    u.mutedPeerKeys = (u.mutedPeerKeys ?? []).filter((id) => id !== uid);
+    u.contactIds = (u.contactIds ?? []).filter((id) => id !== uid);
+  }
   data.inboxMetas = (data.inboxMetas ?? []).filter((m) => m.ownerUserId !== uid);
   data.chatFolders = (data.chatFolders ?? []).filter((f) => f.ownerUserId !== uid);
   data.stickerPrefs = (data.stickerPrefs ?? []).filter((p) => p.userId !== uid);

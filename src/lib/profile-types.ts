@@ -3,7 +3,7 @@ import { defaultAppearance } from "@/lib/appearance-types";
 import { defaultUserPrefs } from "@/lib/prefs-types";
 
 export type Visibility3 = "everyone" | "contacts" | "nobody";
-export type Visibility = "everyone" | "contacts" | "nobody" | "selected";
+export type Visibility = "everyone" | "contacts" | "friends" | "nobody" | "selected";
 
 export type PhotoKind = "default" | "upload" | "catalog";
 
@@ -121,6 +121,12 @@ export function defaultUserFields(): {
   birthdayAllowIds: string[];
   privacyStoryMentions: Visibility;
   storyMentionAllowIds: string[];
+  friendIds: string[];
+  mutedPeerKeys: string[];
+  privacyFollow: Visibility;
+  hideFollowers: boolean;
+  hideFollowing: boolean;
+  statusExpiresAt: number | null;
 } {
   return {
     usernameHistory: [],
@@ -208,5 +214,11 @@ export function defaultUserFields(): {
     birthdayAllowIds: [],
     privacyStoryMentions: "everyone",
     storyMentionAllowIds: [],
+    friendIds: [],
+    mutedPeerKeys: [],
+    privacyFollow: "everyone",
+    hideFollowers: false,
+    hideFollowing: false,
+    statusExpiresAt: null,
   };
 }

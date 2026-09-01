@@ -179,7 +179,7 @@ export function canReceiveCall(data: StoreData, userId: string, fromPeerKey: str
   if (!user) return false;
   const safety = blockState(data, userId, fromPeerKey);
   if (!safety.callsAllowed) return false;
-  return audienceAllows(user.callPrivacy ?? "everyone", user.contactIds, user.callAllowIds ?? [], fromPeerKey) ||
+  return audienceAllows(user.callPrivacy ?? "everyone", user.contactIds, user.callAllowIds ?? [], fromPeerKey, user.friendIds) ||
     ((user.callPrivacy ?? "everyone") === "contacts" && seedIsContact(fromPeerKey));
 }
 

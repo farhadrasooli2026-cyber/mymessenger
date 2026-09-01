@@ -25,7 +25,7 @@ export const DB_COLLECTIONS: DbCollection[] = [
   { name: "groupMessages", pk: "id", fks: [{ field: "groupId", collection: "groups", onDelete: "cascade-owner" }], service: "groups", owner: "shared-public", lifecycle: "soft-delete", notes: "ciphertext گروه." },
   { name: "pubChannels", pk: "id", unique: ["username"], service: "channels", owner: "shared-public", lifecycle: "soft-delete", notes: "پست کانال روی سرور برای مشترک‌ها." },
   { name: "channelPosts", pk: "id", fks: [{ field: "channelId", collection: "pubChannels", onDelete: "cascade-owner" }], service: "channels", owner: "shared-public", lifecycle: "hot", notes: "فایل کانال متادیتا؛ بایت در پست." },
-  { name: "contacts", pk: "id", ownerField: "ownerUserId", service: "contacts", owner: "user", lifecycle: "purge-on-account", notes: "دفترچه خصوصی." },
+  { name: "follows", pk: "id", service: "contacts", owner: "user", lifecycle: "purge-on-account", notes: "رابطه Follow؛ هر یال متعلق به follower است." },
   { name: "notifications", pk: "id", ownerField: "userId", service: "notify", owner: "user", lifecycle: "ttl", notes: "بدون متن E2EE؛ Deep Link سمت سرور." },
   { name: "pushTokens", pk: "id", ownerField: "userId", service: "notify", owner: "user", lifecycle: "purge-on-account", notes: "توکن Push؛ endpoint کامل در API عمومی نیست." },
   { name: "pushJobs", pk: "id", ownerField: "userId", service: "notify", owner: "user", lifecycle: "ttl", notes: "صف Push با Retry و Idempotency." },

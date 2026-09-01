@@ -5,13 +5,13 @@ import { randomId } from "@/lib/crypto-utils";
 import { DEFAULT_AVATAR_SVG, svgDataUri } from "@/lib/default-avatar";
 import { deleteUserPhoto, decodeDataUrl, saveUserPhoto } from "@/lib/photo-files";
 import { seedInbox } from "@/lib/chat";
-import { mutateStore, readStoreSnapshot } from "@/lib/store";
+import { bumpDiscoveryCaches, mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { UserRecord } from "@/lib/store";
 import { normalizeUsername, usernameIssue } from "@/lib/username";
 import { audienceAllows, canFindByUsername } from "@/lib/privacy";
 import { hitRateLimit } from "@/lib/rate-limit";
 
-export const visibilitySchema = z.enum(["everyone", "contacts", "nobody", "selected"]);
+export const visibilitySchema = z.enum(["everyone", "contacts", "friends", "nobody", "selected"]);
 
 export const profileInputSchema = z.object({
   firstName: z.string().trim().min(1).max(40),
@@ -40,16 +40,22 @@ function fullName(first: string, last?: string) {
 export function publicProfile(user: UserRecord, viewerId?: string | null) {
   const own = viewerId === user.id;
   const blocked = Boolean(viewerId && viewerId !== user.id && (user.blockedPeerKeys.includes(viewerId)));
-  const photoVisible = own || (!blocked && audienceAllows(user.privacyPhoto, user.contactIds, user.photoAllowIds, viewerId));
-  const bioVisible = own || (!blocked && audienceAllows(user.privacyBio, user.contactIds, user.bioAllowIds, viewerId));
+  const photoVisible = own || (!blocked && audienceAllows(user.privacyPhoto, user.contactIds, user.photoAllowIds, viewerId, user.friendIds));
+  const bioVisible = own || (!blocked && audienceAllows(user.privacyBio, user.contactIds, user.bioAllowIds, viewerId, user.friendIds));
   const phoneVisible =
-    own || (!blocked && user.channel === "phone" && audienceAllows(user.privacyPhone, user.contactIds, user.phoneAllowIds, viewerId));
+    own || (!blocked && user.channel === "phone" && audienceAllows(user.privacyPhone, user.contactIds, user.phoneAllowIds, viewerId, user.friendIds));
   const emailVisible =
-    own || (!blocked && user.channel === "email" && audienceAllows(user.privacyEmail, user.contactIds, user.emailAllowIds, viewerId));
+    own || (!blocked && user.channel === "email" && audienceAllows(user.privacyEmail, user.contactIds, user.emailAllowIds, viewerId, user.friendIds));
   const lastSeenVisible =
-    own || (!blocked && audienceAllows(user.privacyLastSeen, user.contactIds, user.lastSeenAllowIds, viewerId));
+    own || (!blocked && audienceAllows(user.privacyLastSeen, user.contactIds, user.lastSeenAllowIds, viewerId, user.friendIds));
   const onlineVisible =
-    own || (!blocked && audienceAllows(user.privacyOnline, user.contactIds, user.onlineAllowIds, viewerId));
+    own || (!blocked && audienceAllows(user.privacyOnline, user.contactIds, user.onlineAllowIds, viewerId, user.friendIds));
+  const statusLive = !user.statusExpiresAt || user.statusExpiresAt > Date.now();
+  const statusVisible =
+    own ||
+    (!blocked &&
+      statusLive &&
+      audienceAllows(user.statusPrivacy, user.contactIds, user.statusAllowIds, viewerId, user.friendIds));
   return {
     id: user.id,
     status: user.status,
@@ -80,6 +86,9 @@ export function publicProfile(user: UserRecord, viewerId?: string | null) {
     online: onlineVisible && user.lastSeenAt > 0 && Date.now() - user.lastSeenAt < 90_000,
     readReceipts: user.readReceipts,
     verified: Boolean(user.officialVerified),
+    statusPreset: statusVisible ? user.statusPreset : "",
+    statusText: statusVisible ? (user.statusText ?? "") : "",
+    statusExpiresAt: own ? user.statusExpiresAt : undefined,
     restrictForward: user.restrictForward,
     restrictSave: user.restrictSave,
     restrictShare: user.restrictShare,
@@ -224,6 +233,7 @@ export async function updateProfile(userId: string, input: Partial<ProfileInput>
       }
     }
     user.displayName = fullName(user.firstName ?? "", user.lastName);
+    bumpDiscoveryCaches(data);
     return { ok: true as const, status: 200, user: publicProfile(user, userId) };
   });
 }

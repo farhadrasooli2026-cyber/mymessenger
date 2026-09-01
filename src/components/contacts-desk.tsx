@@ -76,6 +76,10 @@ export function ContactsDesk() {
   const [recently, setRecently] = useState<Contact[]>([]);
   const [duplicates, setDuplicates] = useState<string[][]>([]);
   const [requestsIn, setRequestsIn] = useState<RequestRow[]>([]);
+  const [requestsOut, setRequestsOut] = useState<RequestRow[]>([]);
+  const [friends, setFriends] = useState<{ id: string; displayName: string; username: string | null }[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [cursor, setCursor] = useState<string | null>(null);
   const [permission, setPermission] = useState("unknown");
   const [syncEnabled, setSyncEnabled] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -101,6 +105,10 @@ export function ContactsDesk() {
     setRecently(data.recently ?? []);
     setDuplicates(data.duplicates ?? []);
     setRequestsIn(data.requestsIn ?? []);
+    setRequestsOut(data.requestsOut ?? []);
+    setFriends(data.friends ?? []);
+    setHasMore(Boolean(data.hasMore));
+    setCursor(data.nextCursor ?? null);
     setPermission(data.permission ?? "unknown");
     setSyncEnabled(Boolean(data.syncEnabled));
   }, [q, sort, group, tab]);
@@ -254,9 +262,39 @@ export function ContactsDesk() {
         </Link>
       </header>
 
+      {requestsOut.length > 0 && (
+        <section className="mb-4 rounded-2xl bg-white/5 p-3 text-sm">
+          <h2 className="font-medium">درخواست‌های ارسالی</h2>
+          {requestsOut.map((r) => (
+            <div key={r.id} className="mt-2 flex items-center justify-between text-xs">
+              <span>{r.peer?.displayName ?? "کاربر"}</span>
+              <Button size="sm" variant="secondary" className="h-7" onClick={() => void api("cancel-request", { id: r.id }).then(load)}>
+                لغو
+              </Button>
+            </div>
+          ))}
+        </section>
+      )}
+      {friends.length > 0 && (
+        <section className="mb-4 rounded-2xl bg-white/5 p-3 text-sm">
+          <h2 className="font-medium">دوستان</h2>
+          <ul className="mt-1 text-xs">
+            {friends.map((f) => (
+              <li key={f.id} className="mt-1 flex items-center justify-between">
+                <Link className="text-amber-200" href={f.username ? `/app/u/${f.username}` : "/app/contacts"}>
+                  {f.displayName}
+                </Link>
+                <button type="button" className="text-rose-200" onClick={() => void api("unfriend", { userId: f.id }).then(load)}>
+                  حذف دوست
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {requestsIn.length > 0 && (
         <section className="mb-4 rounded-2xl border border-amber-300/20 bg-amber-300/5 p-3 text-sm">
-          <h2 className="font-medium">درخواست‌های ارتباط</h2>
+          <h2 className="font-medium">درخواست‌های دوستی</h2>
           {requestsIn.map((r) => (
             <div key={r.id} className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
               <span>{r.peer?.displayName ?? "کاربر"} {r.peer?.username ? `@${r.peer.username}` : ""}</span>
@@ -558,6 +596,25 @@ export function ContactsDesk() {
           </li>
         ))}
       </ul>
+      {hasMore && (
+        <Button
+          type="button"
+          variant="secondary"
+          className="mt-3 w-full"
+          onClick={async () => {
+            const params = new URLSearchParams({ q, sort });
+            if (group) params.set("group", group);
+            if (cursor) params.set("cursor", cursor);
+            const res = await fetch(`/api/contacts?${params}`);
+            const data = await res.json();
+            setContacts((prev) => [...prev, ...(data.contacts ?? [])]);
+            setHasMore(Boolean(data.hasMore));
+            setCursor(data.nextCursor ?? null);
+          }}
+        >
+          مخاطبین بیشتر
+        </Button>
+      )}
 
       <section className="mt-6 rounded-2xl bg-white/5 p-4 text-xs leading-6 opacity-80">
         <h2 className="font-medium text-sm">ورود و خروج داده</h2>
@@ -576,6 +633,19 @@ export function ContactsDesk() {
             }}
           >
             Export دفترچهٔ من
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              if (!confirm("همهٔ مخاطبین دفترچهٔ تو پاک شود؟ حساب‌های نیکسو حذف نمی‌شوند.")) return;
+              void api("clear").then(() => {
+                toast.success("دفترچه پاک شد.");
+                void load();
+              });
+            }}
+          >
+            پاک کردن دفترچهٔ من
           </Button>
           <label className="inline-flex h-8 items-center rounded-lg bg-white/10 px-3">
             Import JSON

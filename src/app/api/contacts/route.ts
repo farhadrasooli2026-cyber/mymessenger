@@ -3,21 +3,28 @@ import { requireActiveUser } from "@/lib/auth";
 import {
   acceptInvite,
   blockPerson,
+  cancelRequest,
+  clearMyContacts,
   contactCard,
   createInvite,
   deleteContact,
   discover,
   exportMine,
   findUsername,
+  followUser,
   ingestPhoneBook,
   importMine,
   listContacts,
+  listSocialGraph,
   mergeContacts,
+  muteUser,
+  removeFriend,
   saveContact,
   sendRequest,
   setPermission,
   startChatFromContact,
   suggestions,
+  unfollowUser,
   viewPerson,
   resolveRequest,
 } from "@/lib/contacts";
@@ -57,12 +64,22 @@ export async function GET(request: Request) {
     const blocked = await listBlocked(user.id);
     return json({ ok: true, blocked });
   }
+  if (action === "graph") {
+    const which = url.searchParams.get("which") === "followers" || url.searchParams.get("which") === "following" ? url.searchParams.get("which") : "friends";
+    const target = url.searchParams.get("userId") || user.id;
+    const result = await listSocialGraph(user.id, target, which as "followers" | "following" | "friends");
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
   const result = await listContacts(user.id, {
     q: url.searchParams.get("q") ?? undefined,
     sort: url.searchParams.get("sort") ?? undefined,
     group: url.searchParams.get("group") ?? undefined,
     favorites: url.searchParams.get("favorites") === "1",
     recently: url.searchParams.get("recently") === "1",
+    offset: url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : undefined,
+    limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
+    cursor: url.searchParams.get("cursor") ?? undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json(result);
@@ -124,6 +141,41 @@ export async function POST(request: Request) {
   if (action === "resolve-request") {
     const act = body.resolve === "accept" || body.resolve === "decline" || body.resolve === "block" || body.resolve === "report" ? body.resolve : "decline";
     const result = await resolveRequest(user.id, String(body.id ?? ""), act);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (action === "cancel-request") {
+    const result = await cancelRequest(user.id, String(body.id ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (action === "unfriend") {
+    const result = await removeFriend(user.id, String(body.userId ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (action === "follow") {
+    const result = await followUser(user.id, String(body.userId ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (action === "unfollow") {
+    const result = await unfollowUser(user.id, String(body.userId ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (action === "mute") {
+    const result = await muteUser(user.id, String(body.peerKey ?? body.userId ?? ""), body.muted !== false);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (action === "unmute") {
+    const result = await muteUser(user.id, String(body.peerKey ?? body.userId ?? ""), false);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (action === "clear") {
+    const result = await clearMyContacts(user.id);
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
   }

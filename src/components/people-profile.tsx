@@ -31,6 +31,9 @@ export function PeopleProfile({ username }: { username: string }) {
   const [sharedMedia, setSharedMedia] = useState(0);
   const [qr, setQr] = useState("");
   const [reportCat, setReportCat] = useState("spam");
+  const [friend, setFriend] = useState(false);
+  const [following, setFollowing] = useState(false);
+  const [muted, setMuted] = useState(false);
 
   useEffect(() => {
     fetch(`/api/contacts?action=person&username=${encodeURIComponent(username)}`)
@@ -44,6 +47,9 @@ export function PeopleProfile({ username }: { username: string }) {
         setGroups(d.mutualGroups ?? []);
         setChannels(d.mutualChannels ?? []);
         setSharedMedia(d.sharedMedia ?? 0);
+        setFriend(Boolean(d.friend));
+        setFollowing(Boolean(d.following));
+        setMuted(Boolean(d.muted));
         try {
           const QR = await import("qrcode");
           const url = await QR.toDataURL(JSON.stringify(d.qrPayload), { margin: 1, width: 220 });
@@ -159,6 +165,59 @@ export function PeopleProfile({ username }: { username: string }) {
         </section>
       )}
       <section className="mt-4 flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() =>
+            void fetch("/api/contacts", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: friend ? "unfriend" : "request", userId: profile.id }),
+            }).then(() => {
+              setFriend(friend);
+              toast.success(friend ? "از دوستان حذف شد." : "درخواست دوستی ارسال شد.");
+              if (friend) setFriend(false);
+            })
+          }
+        >
+          {friend ? "حذف دوست" : "Friend Request"}
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() =>
+            void fetch("/api/contacts", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: following ? "unfollow" : "follow", userId: profile.id }),
+            }).then((res) => {
+              if (!res.ok) {
+                toast.error("Follow انجام نشد.");
+                return;
+              }
+              setFollowing(!following);
+              toast.success(following ? "Unfollow شد." : "Follow شد.");
+            })
+          }
+        >
+          {following ? "Unfollow" : "Follow"}
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() =>
+            void fetch("/api/contacts", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: muted ? "unmute" : "mute", peerKey: profile.id }),
+            }).then(() => {
+              setMuted(!muted);
+              toast.success(muted ? "صدا قطع نیست. Block جداست." : "Mute شد؛ پیام و تماس قطع نمی‌شود.");
+            })
+          }
+        >
+          {muted ? "Unmute" : "Mute"}
+        </Button>
         <Button
           size="sm"
           variant="secondary"
