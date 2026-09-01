@@ -20,6 +20,7 @@ const requiredMd = [
   "docs/PRODUCTION.md",
   "docs/AI.md",
   "docs/CLOUD.md",
+  "docs/EDGE.md",
   "docs/adr/0001-json-store.md",
   "CHANGELOG.md",
   "CONTRIBUTING.md",

@@ -51,6 +51,7 @@
 95. Final Integration & Production Readiness: امتیاز آمادگی از Health/Secret/Smoke/یکپارچگی، چک‌لیست Production، یخ‌زدگی انتشار که Promote را مسدود می‌کند، تأیید Release جدا از Deploy، Circuit برای وابستگی اختیاری، RTO/RPO مستند، حسابرسی امنیت/حریم/عملکرد بدون افشای Secret. جزئیات [`docs/PRODUCTION.md`](docs/PRODUCTION.md).
 96. AI & Intelligent Features: لایهٔ مستقل با Provider Abstraction (local/mock + Fallback)، مدل و پرامپت نسخه‌دار، صف درخواست سنگین، Rate/Token/Context Limit، اعتبار با Idempotency، Kill بدون قطع پیام، Sanitize Secret، Consent، جداسازی پیام/فایل/تماس/گروه/کانال، خلاصهٔ برچسب‌خورده، ترجمه/بازنویسی/پاسخ هوشمند، جستجوی مجاز، Moderation کمکی بدون Ban دائم، Memory قابل حذف، Eval/A-B/Rollback، زبانهٔ ادمین `/api/ai/ops`. جزئیات [`docs/AI.md`](docs/AI.md).
 97. Cloud Infrastructure & Auto-Scaling: سرویس Stateless، Scale افقی با Min/Max و Cooldown، Drain قبل از Terminate، LB سالم، Multi-Zone/Region، استخر اتصال DB، Object Storage/CDN، Worker جدا، IaC (`deploy/k8s-scale.yaml`, `deploy/iac/nixo.tf`)، هزینه و بودجه. جزئیات [`docs/CLOUD.md`](docs/CLOUD.md).
+98. Global CDN & Edge: PoP جهانی، Geo/Latency/Health routing، کش hashed برای استاتیک، ممنوعیت کش خصوصی، Signed URL منقضی، Origin Shield، WAF/Rate Limit لبه، HTTP/2–3، P50/P95/P99، RUM نمونه‌ای، Purge با مجوز. جزئیات [`docs/EDGE.md`](docs/EDGE.md).
 
 
 

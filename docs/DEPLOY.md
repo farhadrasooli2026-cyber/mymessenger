@@ -27,6 +27,7 @@ Staff → `/app/admin` → انتشار (`/api/deploy`) و آمادگی (`/api/p
 - `deploy/k8s-scale.yaml` HPA, PDB, worker Deployment, NetworkPolicy.
 - `deploy/iac/nixo.tf` Terraform contract (no secrets).
 - `deploy/nginx.conf.example` health-aware upstream.
+- `deploy/cdn/nixo-edge.conf` CDN cache for hashed static only; private APIs no-store.
 
 ## Runbooks
 

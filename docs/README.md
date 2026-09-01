@@ -18,6 +18,7 @@
 | آمادگی Production | `/docs/production` | [PRODUCTION.md](./PRODUCTION.md) |
 | هوش مصنوعی | `/docs/ai` | [AI.md](./AI.md) |
 | ابر و مقیاس | `/docs/cloud` | [CLOUD.md](./CLOUD.md) |
+| CDN و لبه | `/docs/edge` | [EDGE.md](./EDGE.md) |
 | زبان | `/docs/i18n` | [I18N.md](./I18N.md) |
 
 مالک کلی: platform. امنیت: safety. خودِ docs: platform.

@@ -59,6 +59,7 @@ export function runSmokeProbes(data: StoreData): SmokeProbe[] {
     probe("refund", "استرداد", Array.isArray(data.billing?.refunds), "استرداد فقط با billing.refund."),
     probe("ai", "هوش مصنوعی", Array.isArray(data.aiChats) && Boolean(data.aiSys?.policy), "AI جداست؛ خاموشی آن ورود و پیام را قطع نمی‌کند."),
     probe("cloud", "ابر", Boolean(data.cloud?.policy?.services?.api?.min >= 1), "Auto Scaling با min/max؛ Session روی Instance نیست."),
+    probe("edge", "لبه", Boolean(data.edge?.pops?.length), "CDN فقط Asset عمومی؛ API خصوصی no-store."),
   ];
 }
 
@@ -76,6 +77,7 @@ export function securityAudit(): ProdAuditSection {
       { name: "Least privilege finance", ok: roleHasPerm("finance", "billing.refund") && !roleHasPerm("analyst", "billing.refund"), note: "Analyst استرداد ندارد." },
       { name: "AI cannot ban", ok: roleHasPerm("moderator", "ai.view") && !roleHasPerm("finance", "ai.manage"), note: "AI حساب را حذف نمی‌کند؛ کنترل ops جداست." },
       { name: "Cloud least privilege", ok: roleHasPerm("analyst", "cloud.view") && !roleHasPerm("analyst", "cloud.manage"), note: "Analyst ابر را می‌بیند؛ Scale نمی‌کند." },
+      { name: "Edge purge gated", ok: roleHasPerm("analyst", "edge.view") && !roleHasPerm("analyst", "edge.manage"), note: "Purge CDN نیازمند edge.manage است." },
       { name: "Impersonate", ok: !permsForRole("admin").includes("impersonate"), note: "فقط ابرادمین Impersonate." },
     ],
   };

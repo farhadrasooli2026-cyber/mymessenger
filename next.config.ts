@@ -10,7 +10,10 @@ const nextConfig: NextConfig = {
       },
       {
         source: "/_next/static/:path*",
-        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+          { key: "Accept-CH", value: "Sec-CH-UA-Mobile, DPR, Width" },
+        ],
       },
       {
         source: "/:path*",

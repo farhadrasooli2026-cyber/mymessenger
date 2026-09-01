@@ -12,11 +12,12 @@
 - آمادگی Production (`/api/prod`, زبانهٔ آمادگی): امتیاز، Smoke داخلی، یخ‌زدگی انتشار
 - لایهٔ هوش مصنوعی (`/api/ai`, `/api/ai/ops`): Provider محلی، حریم، Kill بدون قطع پیام
 - ابر و Auto Scaling (`/api/cloud`, زبانهٔ ابر): min/max، Drain، Failover منطقه
+- CDN و Edge (`/api/edge`, زبانهٔ لبه): کش عمومی نسخه‌دار، Purge مجاز، RUM بدون نشت خصوصی
 - Dependency اصلی: Next 16.3، React 19، Zod 4، Vitest 4، Tailwind 4
 
 ### API
 
-- `GET /api/health`, `/api/status`, `/api/version`, `/api/docs`, `/api/i18n`, `/api/bi`, `/api/billing`, `/api/prod`, `/api/ai`, `/api/ai/ops`, `/api/cloud`
+- `GET /api/health`, `/api/status`, `/api/version`, `/api/docs`, `/api/i18n`, `/api/bi`, `/api/billing`, `/api/prod`, `/api/ai`, `/api/ai/ops`, `/api/cloud`, `/api/edge`
 - SSE `/api/chats/:id/live`
 
 ### Breaking

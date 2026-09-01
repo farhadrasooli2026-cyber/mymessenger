@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { Toaster } from "@/components/ui/sonner";
 import { MonitorBeacon } from "@/components/monitor-beacon";
 import { BiBeacon } from "@/components/bi-beacon";
+import { EdgeBeacon } from "@/components/edge-beacon";
 import { I18nHtmlSync, I18nProvider } from "@/components/i18n-provider";
 import { A11yProvider } from "@/components/a11y-provider";
 import { ShortcutHelp } from "@/components/shortcut-help";
@@ -69,6 +70,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             <ShortcutHelp />
             <MonitorBeacon />
             <BiBeacon />
+            <EdgeBeacon />
             <Toaster position="top-center" dir={dir} />
           </A11yProvider>
         </I18nProvider>

@@ -79,6 +79,7 @@ export const DOC_API_PATHS = [
   "/api/ai",
   "/api/ai/ops",
   "/api/cloud",
+  "/api/edge",
 ] as const;
 
 function page(p: Omit<DocPage, "headings">): DocPage {
@@ -271,6 +272,9 @@ POST /api/chats/:id  body: { ciphertext, nonce, enc, clientNonce }
 ## ابر
 \`GET/POST /api/cloud\` با \`cloud.view\` / \`cloud.manage\`. Auto Scaling با min/max و cooldown. Secret و connection string در پاسخ نیست.
 
+## لبه و CDN
+\`GET/POST /api/edge\` با \`edge.view\` / \`edge.manage\`. RUM نمونه‌ای بدون URL خصوصی. Purge فقط Asset عمومی.
+
 ## Deprecation
 فعلاً Breaking Change عمومی اعلام‌شده نیست. حذف فیلد فقط با bump API_VERSION و یادداشت در CHANGELOG.md.
 
@@ -278,7 +282,8 @@ POST /api/chats/:id  body: { ciphertext, nonce, enc, clientNonce }
 - افزودن \`/api/version\`، \`/api/deploy\`، \`/api/docs\`، \`/api/i18n\`
 - \`X-NIXO-App-Version\`
 - \`/api/ai\` و \`/api/ai/ops\`
-- \`/api/cloud\``,
+- \`/api/cloud\`
+- \`/api/edge\``,
   }),
   page({
     slug: "realtime",
@@ -717,6 +722,24 @@ Database و Storage خصوصی. WAF/DDoS در لبه. Secret از env.
 
 ## بازیابی
 Failover منطقه نشست را باطل نمی‌کند. RTO/RPO در پنل. Chaos فقط خارج از Production.`,
+  }),
+  page({
+    slug: "edge",
+    title: "CDN و لبه",
+    group: "عملیات",
+    owner: DOCS_OWNERS.platform,
+    summary: "Edge جهانی، کش نسخه‌دار عمومی، Signed URL، Failover و Latency بدون نشت Cache خصوصی.",
+    tags: ["cdn", "edge", "cache", "latency", "http3", "signed-url"],
+    body: `مرکز: \`/app/admin\` زبانهٔ لبه. فایل: \`docs/EDGE.md\`. API \`/api/edge\`.
+
+## کش
+فقط \`/_next/static\` و Asset عمومی. API و رسانهٔ خصوصی \`private, no-store\`. Purge با مجوز.
+
+## مسیریابی
+PoP بر اساس سلامت و Latency. Host نامعتبر رد می‌شود. Origin داخلی است.
+
+## حریم
+RUM بدون query و توکن. Authorization در Core می‌ماند.`,
   }),
   page({
     slug: "changelog",
