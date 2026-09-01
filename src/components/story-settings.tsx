@@ -94,11 +94,30 @@ export function StorySettings() {
             ))}
           </div>
           <Input value={settings.statusText} onChange={(e) => setSettings({ ...settings, statusText: e.target.value })} placeholder="مثلاً 🎮 Gaming" className="mt-2 bg-black/20" onBlur={() => void save({ statusText: settings.statusText, statusPreset: "custom" })} />
+          <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
+            {[
+              { h: 1, label: "۱ ساعت" },
+              { h: 8, label: "۸ ساعت" },
+              { h: 24, label: "۲۴ ساعت" },
+            ].map((t) => (
+              <button
+                key={t.h}
+                type="button"
+                className="rounded bg-black/30 px-2 py-1"
+                onClick={() => void save({ statusExpiresAt: Date.now() + t.h * 3600_000 })}
+              >
+                انقضا {t.label}
+              </button>
+            ))}
+            <button type="button" className="rounded bg-black/30 px-2 py-1" onClick={() => void save({ statusExpiresAt: null, statusPreset: "", statusText: "" })}>
+              حذف وضعیت
+            </button>
+          </div>
           <p className="mt-2 text-xs">چه کسانی وضعیت را ببینند</p>
-          {(["everyone", "contacts", "nobody", "selected"] as const).map((id) => (
+          {(["everyone", "contacts", "friends", "nobody", "selected"] as const).map((id) => (
             <label key={id} className="mt-1 flex items-center gap-2 text-xs">
               <input type="radio" checked={settings.statusPrivacy === id} onChange={() => void save({ statusPrivacy: id })} />
-              {id === "everyone" ? "همه" : id === "contacts" ? "مخاطبین" : id === "nobody" ? "هیچ‌کس" : "انتخاب‌شده"}
+              {id === "everyone" ? "همه" : id === "contacts" ? "مخاطبین" : id === "friends" ? "دوستان" : id === "nobody" ? "هیچ‌کس" : "انتخاب‌شده"}
             </label>
           ))}
           {settings.statusPrivacy === "selected" && settings.people.map((p) => (
@@ -114,10 +133,20 @@ export function StorySettings() {
         </section>
         <section className="rounded-2xl bg-white/5 p-4 text-sm">
           <h2 className="font-medium">حریم پیش‌فرض استوری</h2>
-          {(["everyone", "contacts", "closeFriends", "selected"] as const).map((id) => (
+          {(["everyone", "contacts", "friends", "closeFriends", "selected", "nobody"] as const).map((id) => (
             <label key={id} className="mt-1 flex items-center gap-2 text-xs">
               <input type="radio" checked={settings.defaultStoryPrivacy === id} onChange={() => void save({ defaultStoryPrivacy: id })} />
-              {id === "everyone" ? "همه" : id === "contacts" ? "مخاطبین" : id === "closeFriends" ? "دوستان نزدیک" : "افراد انتخاب‌شده"}
+              {id === "everyone"
+                ? "همه"
+                : id === "contacts"
+                  ? "مخاطبین"
+                  : id === "friends"
+                    ? "دوستان"
+                    : id === "closeFriends"
+                      ? "دوستان نزدیک"
+                      : id === "nobody"
+                        ? "هیچ‌کس"
+                        : "افراد انتخاب‌شده"}
             </label>
           ))}
           <p className="mt-3 text-xs">دوستان نزدیک</p>
@@ -212,9 +241,31 @@ export function StorySettings() {
           <p className="text-xs text-emerald-100/60">فقط برای تو. پس از ۲۴ ساعت از فید عمومی خارج می‌شود.</p>
           <div className="mt-2 space-y-1">
             {archive.map((s) => (
-              <button key={s.id} type="button" className="block w-full rounded-xl bg-black/20 px-3 py-2 text-right text-xs" onClick={() => setView([s])}>
-                {s.kind} · {new Date(s.createdAt).toLocaleString("fa-IR")} {s.expired ? "· بایگانی" : ""}
-              </button>
+              <div key={s.id} className="flex items-center gap-2">
+                <button type="button" className="flex-1 rounded-xl bg-black/20 px-3 py-2 text-right text-xs" onClick={() => setView([s])}>
+                  {s.kind} · {new Date(s.createdAt).toLocaleString("fa-IR")} {s.expired ? "· بایگانی" : ""}
+                </button>
+                <button
+                  type="button"
+                  className="text-[11px] text-rose-200"
+                  onClick={() => void fetch(`/api/stories/${s.id}`, { method: "DELETE" }).then(() => load())}
+                >
+                  حذف
+                </button>
+                <button
+                  type="button"
+                  className="text-[11px] text-amber-200"
+                  onClick={() =>
+                    void fetch("/api/stories", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "highlight", name: "هایلایت", storyIds: [s.id] }),
+                    }).then(() => toast.success("به هایلایت اضافه شد."))
+                  }
+                >
+                  Highlight
+                </button>
+              </div>
             ))}
           </div>
         </section>

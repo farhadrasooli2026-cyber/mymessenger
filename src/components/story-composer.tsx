@@ -114,6 +114,8 @@ export function StoryComposer({ onClose, onPublished }: { onClose: () => void; o
       purpose,
       draft,
       videoDurationMs,
+      cropX: 50,
+      cropY: 50,
     };
   }
 
@@ -325,8 +327,10 @@ export function StoryComposer({ onClose, onPublished }: { onClose: () => void; o
             <select className="mt-2 w-full rounded-lg bg-black/30 p-2 text-xs" value={visibility} onChange={(e) => setVisibility(e.target.value)}>
               <option value="everyone">Everyone</option>
               <option value="contacts">My Contacts</option>
+              <option value="friends">Friends</option>
               <option value="closeFriends">Close Friends</option>
               <option value="selected">Selected Users</option>
+              <option value="nobody">Nobody (only me)</option>
             </select>
             {visibility === "selected" && (
               <div className="mt-2 max-h-24 overflow-auto text-[11px]">

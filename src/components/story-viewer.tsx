@@ -36,6 +36,9 @@ export type StoryItem = {
   expiresAt: number;
   expired?: boolean;
   viewed?: boolean;
+  cropX?: number;
+  cropY?: number;
+  processStatus?: string;
 };
 
 const REACTS = ["❤️", "👍", "😂", "😮", "😢", "🔥"];
@@ -161,6 +164,10 @@ export function StoryViewer({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black select-none">
+      {items[index + 1]?.mediaUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={items[index + 1]!.mediaUrl} alt="" className="hidden" />
+      ) : null}
       <StoryProgress
         key={story.id}
         kind={story.kind}
@@ -215,7 +222,11 @@ export function StoryViewer({
               src={src}
               alt=""
               className="h-full w-full object-cover"
-              style={{ filter: `${filterCss} blur(${story.blur ?? 0}px)`, transform: `rotate(${story.rotate}deg) scale(${story.zoom})` }}
+              style={{
+                filter: `${filterCss} blur(${story.blur ?? 0}px)`,
+                transform: `rotate(${story.rotate}deg) scale(${story.zoom})`,
+                objectPosition: `${story.cropX ?? 50}% ${story.cropY ?? 50}%`,
+              }}
             />
           )}
           {story.kind === "video" && src && (

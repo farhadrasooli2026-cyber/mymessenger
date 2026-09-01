@@ -4,7 +4,8 @@ export const STORY_VIDEO_MAX_MS = 15_000;
 export const STORY_MEDIA_TOKEN_MS = 10 * 60 * 1000;
 
 export type StoryKind = "text" | "photo" | "video" | "gif" | "sticker" | "location";
-export type StoryVisibility = "everyone" | "contacts" | "closeFriends" | "selected";
+export type StoryVisibility = "everyone" | "contacts" | "friends" | "closeFriends" | "selected" | "nobody";
+export type StoryProcessStatus = "ready" | "processing" | "failed";
 export type StoryPurpose = "general" | "product" | "discount" | "announcement" | "service";
 
 export const STORY_MUSIC = [

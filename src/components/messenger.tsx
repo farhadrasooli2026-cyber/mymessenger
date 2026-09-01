@@ -2449,6 +2449,9 @@ export function Messenger({
             <Link href="/app/settings/media" className="block text-sm text-amber-200">
               تنظیمات → Data & Storage → Media
             </Link>
+            <Link href="/app/stories" className="block text-sm text-amber-200">
+              استوری و وضعیت
+            </Link>
             <Link href="/app/settings/story" className="block text-sm text-amber-200">
               تنظیمات → حریم خصوصی → استوری
             </Link>

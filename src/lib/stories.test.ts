@@ -112,6 +112,63 @@ describe("NIXO stories", () => {
     expect(peek.ok).toBe(false);
   });
 
+  it("enforces friends and nobody audiences and highlight IDOR", async () => {
+    const owner = await activeUser("st_fr");
+    const pal = await activeUser("st_frp");
+    const stranger = await activeUser("st_frs");
+    await mutateStore((data) => {
+      const me = data.users.find((u) => u.id === owner);
+      if (me) me.friendIds = [pal];
+    });
+    const friendsOnly = await createStory(owner, { kind: "text", body: "فقط دوستان", visibility: "friends" });
+    expect(friendsOnly.ok).toBe(true);
+    if (!friendsOnly.ok) return;
+    const palFeed = await listStoryFeed(pal);
+    expect(palFeed.rings.some((r) => r.items.some((s) => s.id === friendsOnly.story.id))).toBe(true);
+    const strangerFeed = await listStoryFeed(stranger);
+    expect(strangerFeed.rings.some((r) => r.items.some((s) => s.id === friendsOnly.story.id))).toBe(false);
+    const hidden = await createStory(owner, { kind: "text", body: "فقط خودم", visibility: "nobody" });
+    expect(hidden.ok).toBe(true);
+    if (!hidden.ok) return;
+    expect((await listStoryFeed(pal)).rings.some((r) => r.items.some((s) => s.id === hidden.story.id))).toBe(false);
+    const { upsertHighlight, listHighlights, deleteHighlight } = await import("./stories");
+    const hl = await upsertHighlight(owner, { name: "سفر", storyIds: [friendsOnly.story.id], visibility: "nobody" });
+    expect(hl.ok).toBe(true);
+    if (!hl.ok) return;
+    const stolen = await listHighlights(stranger, owner);
+    expect(stolen.some((h) => h.id === hl.highlight.id)).toBe(false);
+    const del = await deleteHighlight(stranger, hl.highlight.id);
+    expect(del.ok).toBe(false);
+  });
+
+  it("does not count the owner as a viewer and toggles story reactions", async () => {
+    const owner = await activeUser("st_vw");
+    const viewer = await activeUser("st_vwv");
+    const created = await createStory(owner, { kind: "text", body: "بازدید" });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    await viewUserStory(owner, created.story.id);
+    const { listViewers, reactStory } = await import("./stories");
+    const mine = await listViewers(owner, created.story.id);
+    expect(mine.ok && mine.viewers.length).toBe(0);
+    const seen = await viewUserStory(viewer, created.story.id);
+    expect(seen.ok).toBe(true);
+    const again = await viewUserStory(viewer, created.story.id);
+    expect(again.ok).toBe(true);
+    const listed = await listViewers(owner, created.story.id);
+    expect(listed.ok && listed.viewers.length).toBe(1);
+    const add = await reactStory(viewer, created.story.id, "🔥");
+    expect(add.ok).toBe(true);
+    const rm = await reactStory(viewer, created.story.id, "🔥");
+    expect(rm.ok && rm.action).toBe("remove");
+  });
+
+  it("rejects javascript story links", async () => {
+    const owner = await activeUser("st_js");
+    const bad = await createStory(owner, { kind: "text", body: "لینک", linkUrl: "javascript:alert(1)" });
+    expect(bad.ok).toBe(false);
+  });
+
   it("lets only the owner delete a live story", async () => {
     const owner = await activeUser("st_del");
     const other = await activeUser("st_delo");

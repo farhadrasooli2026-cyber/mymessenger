@@ -5,10 +5,14 @@ import {
   getStorySettings,
   listArchive,
   listDrafts,
+  listHighlights,
   listStoryFeed,
   muteAuthor,
   publishDraft,
+  retryStoryProcess,
   updateStorySettings,
+  upsertHighlight,
+  deleteHighlight,
 } from "@/lib/stories";
 import type { StoryKind } from "@/lib/story-types";
 
@@ -31,7 +35,13 @@ export async function GET(request: Request) {
     if (!settings) return jsonError("نشست فعال نیست.", 401);
     return json({ ok: true, settings });
   }
-  const feed = await listStoryFeed(user.id);
+  if (url.searchParams.get("highlights") === "1") {
+    const owner = url.searchParams.get("owner") || user.id;
+    const highlights = await listHighlights(user.id, owner);
+    return json({ ok: true, highlights });
+  }
+  const cursor = url.searchParams.get("cursor") ?? undefined;
+  const feed = await listStoryFeed(user.id, cursor || undefined);
   return json({ ok: true, ...feed });
 }
 
@@ -68,6 +78,7 @@ export async function POST(request: Request) {
       statusPrivacy:
         body.statusPrivacy === "everyone" ||
         body.statusPrivacy === "contacts" ||
+        body.statusPrivacy === "friends" ||
         body.statusPrivacy === "nobody" ||
         body.statusPrivacy === "selected"
           ? body.statusPrivacy
@@ -76,16 +87,51 @@ export async function POST(request: Request) {
       defaultStoryPrivacy:
         body.defaultStoryPrivacy === "everyone" ||
         body.defaultStoryPrivacy === "contacts" ||
+        body.defaultStoryPrivacy === "friends" ||
         body.defaultStoryPrivacy === "closeFriends" ||
-        body.defaultStoryPrivacy === "selected"
+        body.defaultStoryPrivacy === "selected" ||
+        body.defaultStoryPrivacy === "nobody"
           ? body.defaultStoryPrivacy
           : undefined,
       storyAllowReplies: typeof body.storyAllowReplies === "boolean" ? body.storyAllowReplies : undefined,
       storyAllowShare: typeof body.storyAllowShare === "boolean" ? body.storyAllowShare : undefined,
       storyArchiveEnabled: typeof body.storyArchiveEnabled === "boolean" ? body.storyArchiveEnabled : undefined,
+      statusExpiresAt:
+        body.statusExpiresAt === null ? null : typeof body.statusExpiresAt === "number" ? body.statusExpiresAt : undefined,
     });
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true });
+  }
+  if (body.action === "highlight") {
+    const result = await upsertHighlight(user.id, {
+      id: typeof body.id === "string" ? body.id : undefined,
+      name: String(body.name ?? ""),
+      storyIds: Array.isArray(body.storyIds) ? body.storyIds.map(String) : [],
+      coverStoryId: typeof body.coverStoryId === "string" ? body.coverStoryId : null,
+      visibility:
+        body.visibility === "contacts" ||
+        body.visibility === "friends" ||
+        body.visibility === "closeFriends" ||
+        body.visibility === "selected" ||
+        body.visibility === "nobody" ||
+        body.visibility === "everyone"
+          ? body.visibility
+          : "everyone",
+      allowIds: Array.isArray(body.allowIds) ? body.allowIds.map(String) : undefined,
+      hideFromIds: Array.isArray(body.hideFromIds) ? body.hideFromIds.map(String) : undefined,
+    });
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true, highlight: result.highlight });
+  }
+  if (body.action === "delete-highlight") {
+    const result = await deleteHighlight(user.id, String(body.id ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true });
+  }
+  if (body.action === "retry-process") {
+    const result = await retryStoryProcess(user.id, String(body.storyId ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
   }
   const kind = KINDS.includes(body.kind as StoryKind) ? (body.kind as StoryKind) : "text";
   const result = await createStory(user.id, {
@@ -113,7 +159,12 @@ export async function POST(request: Request) {
     allowShare: body.allowShare !== false,
     allowReplies: body.allowReplies !== false,
     visibility:
-      body.visibility === "contacts" || body.visibility === "closeFriends" || body.visibility === "selected" || body.visibility === "everyone"
+      body.visibility === "contacts" ||
+      body.visibility === "friends" ||
+      body.visibility === "closeFriends" ||
+      body.visibility === "selected" ||
+      body.visibility === "nobody" ||
+      body.visibility === "everyone"
         ? body.visibility
         : undefined,
     allowIds: Array.isArray(body.allowIds) ? body.allowIds.map(String) : [],
@@ -125,6 +176,8 @@ export async function POST(request: Request) {
     source: body.source === "business" ? "business" : "user",
     draft: Boolean(body.draft),
     videoDurationMs: typeof body.videoDurationMs === "number" ? body.videoDurationMs : undefined,
+    cropX: typeof body.cropX === "number" ? body.cropX : undefined,
+    cropY: typeof body.cropY === "number" ? body.cropY : undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, story: result.story });

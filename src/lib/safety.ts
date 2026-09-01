@@ -4,6 +4,7 @@ import { randomId } from "@/lib/crypto-utils";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { StoreData } from "@/lib/store";
+import { canViewStory } from "@/lib/stories";
 import type { ReportCategory } from "@/lib/chat-copy";
 
 export const reportCategorySchema = z.enum(["spam", "abuse", "fake", "harassment", "other"]);
@@ -127,7 +128,9 @@ export async function fileReport(
     }
     if (input.targetKind === "story") {
       const story = data.userStories.find((s) => s.id === input.targetKey && !s.deletedAt);
-      if (!story) return { ok: false as const, error: "استوری یافت نشد.", status: 404 };
+      if (!story || !canViewStory(data, story, reporterId, Date.now(), { archive: story.ownerUserId === reporterId })) {
+        return { ok: false as const, error: "استوری یافت نشد.", status: 404 };
+      }
     }
     if (input.targetKind === "bot") {
       const bot = (data.bots ?? []).find((b) => b.id === input.targetKey);

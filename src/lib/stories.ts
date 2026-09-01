@@ -4,8 +4,11 @@ import { randomId } from "@/lib/crypto-utils";
 import { config } from "@/lib/config";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
-import type { StoreData, UserStory } from "@/lib/store";
+import type { StoreData, StoryHighlight, UserStory } from "@/lib/store";
 import { emitNotification } from "@/lib/notify";
+import { inspectLink, inspectTextLinks } from "@/lib/link-safety";
+import { audienceAllows } from "@/lib/privacy";
+import { isLikelyEmoji } from "@/lib/emoji-data";
 import {
   STORY_MAX_MEDIA,
   STORY_MEDIA_TOKEN_MS,
@@ -39,8 +42,13 @@ export function canViewStory(data: StoreData, story: UserStory, viewerId: string
   if (now > story.expiresAt) return false;
   if (blocked(data, story.ownerUserId, viewerId)) return false;
   if (story.hideFromIds.includes(viewerId)) return false;
+  if (story.visibility === "nobody") return false;
   if (story.visibility === "everyone") return true;
   if (story.visibility === "contacts") return isContact(data, story.ownerUserId, viewerId);
+  if (story.visibility === "friends") {
+    const owner = data.users.find((u) => u.id === story.ownerUserId);
+    return Boolean(owner?.friendIds?.includes(viewerId));
+  }
   if (story.visibility === "closeFriends") {
     const owner = data.users.find((u) => u.id === story.ownerUserId);
     return Boolean(owner?.closeFriendIds.includes(viewerId));
@@ -52,11 +60,61 @@ function canSeeStatus(data: StoreData, ownerId: string, viewerId: string) {
   const owner = data.users.find((u) => u.id === ownerId);
   if (!owner) return false;
   if (ownerId === viewerId) return true;
+  if (owner.statusExpiresAt && owner.statusExpiresAt < Date.now()) return false;
   if (blocked(data, ownerId, viewerId)) return false;
   if (owner.statusPrivacy === "nobody") return false;
   if (owner.statusPrivacy === "everyone") return true;
+  if (owner.statusPrivacy === "friends") return Boolean(owner.friendIds?.includes(viewerId));
   if (owner.statusPrivacy === "contacts") return isContact(data, ownerId, viewerId);
   return owner.statusAllowIds.includes(viewerId);
+}
+
+function bumpStoryCache(data: StoreData) {
+  data.storyCacheGen = (data.storyCacheGen ?? 0) + 1;
+}
+
+function sweepStories(data: StoreData) {
+  const now = Date.now();
+  data.userStories ??= [];
+  data.storyJobs ??= [];
+  for (const story of data.userStories) {
+    if (story.deletedAt && now - story.deletedAt > 14 * 24 * 60 * 60_000) {
+      story.media = "";
+      story.thumbnail = "";
+    }
+    if (!story.deletedAt && now > story.expiresAt) {
+      const owner = data.users.find((u) => u.id === story.ownerUserId);
+      if (owner && owner.storyArchiveEnabled === false) {
+        story.deletedAt = now;
+        story.media = "";
+        story.thumbnail = "";
+        bumpStoryCache(data);
+      }
+    }
+  }
+  for (const job of data.storyJobs) {
+    if (job.status !== "pending") continue;
+    const story = data.userStories.find((s) => s.id === job.storyId);
+    if (!story || story.deletedAt) {
+      job.status = "failed";
+      job.error = "استوری نیست.";
+      continue;
+    }
+    if (!story.media && (story.kind === "photo" || story.kind === "video" || story.kind === "gif")) {
+      job.retries += 1;
+      if (job.retries > 3) {
+        job.status = "failed";
+        job.error = "پردازش رسانه ناموفق بود.";
+        story.processStatus = "failed";
+        story.processError = job.error;
+      }
+      continue;
+    }
+    story.processStatus = "ready";
+    story.processError = "";
+    if (story.kind === "photo" || story.kind === "gif") story.thumbnail = story.media;
+    job.status = "done";
+  }
 }
 
 export function signStoryMedia(storyId: string, viewerId: string, exp = Date.now() + STORY_MEDIA_TOKEN_MS) {
@@ -114,14 +172,20 @@ function publicStory(
     draft: story.draft,
     createdAt: story.createdAt,
     expiresAt: story.expiresAt,
+    processStatus: story.processStatus ?? "ready",
+    processError: story.processError ?? "",
+    thumbnailUrl: story.thumbnail && story.media ? `/api/stories/${story.id}/media?t=${token}&thumb=1` : "",
+    cropX: story.cropX ?? 50,
+    cropY: story.cropY ?? 50,
     ...extra,
   };
 }
 
-export async function listStoryFeed(userId: string) {
-  const data = await readStoreSnapshot();
-  const now = Date.now();
-  const me = data.users.find((u) => u.id === userId);
+export async function listStoryFeed(userId: string, cursor?: string) {
+  return mutateStore((data) => {
+    sweepStories(data);
+    const now = Date.now();
+    const me = data.users.find((u) => u.id === userId);
   const muted = new Set(me?.mutedStoryUserIds ?? []);
   const rings: {
     ownerId: string;
@@ -213,6 +277,11 @@ export async function listStoryFeed(userId: string) {
         draft: false,
         createdAt: s.createdAt,
         expiresAt: s.expiresAt,
+        processStatus: "ready" as const,
+        processError: "",
+        thumbnailUrl: "",
+        cropX: 50,
+        cropY: 50,
         viewed: s.views.includes(userId),
         reactions: [],
       })),
@@ -227,7 +296,26 @@ export async function listStoryFeed(userId: string) {
     return (b.items.at(-1)?.createdAt ?? 0) - (a.items.at(-1)?.createdAt ?? 0);
   });
 
-  return { rings, myStatus: { preset: me?.statusPreset ?? "", text: me?.statusText ?? "" } };
+  const PAGE = 32;
+  let page = rings;
+  if (cursor) {
+    const idx = rings.findIndex((r) => r.ownerId === cursor);
+    page = idx >= 0 ? rings.slice(idx + 1) : rings;
+  }
+  const more = page.length > PAGE;
+  const slice = page.slice(0, PAGE);
+  const statusLive = !me?.statusExpiresAt || me.statusExpiresAt > now;
+  return {
+    rings: slice,
+    nextCursor: more ? slice.at(-1)?.ownerId ?? null : null,
+    cacheGen: data.storyCacheGen ?? 0,
+    myStatus: {
+      preset: me?.statusPreset ?? "",
+      text: statusLive || me?.id === userId ? (me?.statusText ?? "") : "",
+      expiresAt: me?.statusExpiresAt ?? null,
+    },
+  };
+  });
 }
 
 function countReactions(data: StoreData, storyId: string) {
@@ -257,12 +345,22 @@ export async function listDrafts(userId: string) {
     .map((s) => publicStory(s, userId, { viewed: true }));
 }
 
-function resolveMentions(data: StoreData, raw: string[]) {
+function resolveMentions(data: StoreData, actorId: string, raw: string[]) {
   const ids: string[] = [];
   for (const item of raw.slice(0, 8)) {
     const needle = item.replace(/^@/, "").toLowerCase();
     const user = data.users.find((u) => u.id === item || u.username === needle);
-    if (user) ids.push(user.id);
+    if (!user || user.id === actorId) continue;
+    if (blocked(data, actorId, user.id)) continue;
+    const ok = audienceAllows(
+      user.privacyStoryMentions ?? user.privacyMentions ?? "everyone",
+      user.contactIds,
+      user.storyMentionAllowIds ?? [],
+      actorId,
+      user.friendIds,
+    );
+    if (!ok) continue;
+    ids.push(user.id);
   }
   return [...new Set(ids)];
 }
@@ -290,6 +388,25 @@ export async function createStory(userId: string, input: Partial<UserStory> & { 
     if (kind === "text" && !(input.body ?? "").trim() && !(input.overlay ?? "").trim()) {
       return { ok: false as const, error: "متن استوری خالی است.", status: 400 };
     }
+    const linkRaw = (input.linkUrl ?? "").trim();
+    if (linkRaw) {
+      const unsafe = inspectLink(linkRaw);
+      if (unsafe.warn || !/^https:\/\//i.test(linkRaw)) {
+        return { ok: false as const, error: unsafe.reason ?? "لینک استوری مجاز نیست.", status: 400 };
+      }
+    }
+    const textUnsafe = inspectTextLinks(`${input.body ?? ""} ${input.caption ?? ""} ${input.overlay ?? ""}`);
+    if (textUnsafe.warn) return { ok: false as const, error: textUnsafe.reason ?? "لینک متن ناامن است.", status: 400 };
+    const visRaw = input.visibility ?? user.defaultStoryPrivacy ?? "everyone";
+    const visibility: StoryVisibility =
+      visRaw === "contacts" ||
+      visRaw === "friends" ||
+      visRaw === "closeFriends" ||
+      visRaw === "selected" ||
+      visRaw === "nobody" ||
+      visRaw === "everyone"
+        ? visRaw
+        : "everyone";
     if (kind === "location" && !(input.location ?? input.body ?? "").trim()) {
       return { ok: false as const, error: "موقعیت خالی است.", status: 400 };
     }
@@ -299,7 +416,6 @@ export async function createStory(userId: string, input: Partial<UserStory> & { 
     if (needsMedia && media.length < 20) {
       return { ok: false as const, error: "رسانه ناقص است.", status: 400 };
     }
-    const visibility = (input.visibility ?? user.defaultStoryPrivacy ?? "everyone") as StoryVisibility;
     const hideFrom = [
       ...(Array.isArray(input.hideFromIds) ? input.hideFromIds : []),
       ...(user.defaultHideFromIds ?? []),
@@ -326,8 +442,11 @@ export async function createStory(userId: string, input: Partial<UserStory> & { 
       location: (input.location ?? "").slice(0, 80),
       media,
       musicId: input.musicId ?? null,
-      linkUrl: /^https?:\/\//i.test(input.linkUrl ?? "") ? (input.linkUrl ?? "").slice(0, 300) : "",
-      mentions: resolveMentions(data, Array.isArray(input.mentions) ? input.mentions.map(String) : []),
+      linkUrl: linkRaw.slice(0, 300),
+      mentions: resolveMentions(data, userId, [
+        ...(Array.isArray(input.mentions) ? input.mentions.map(String) : []),
+        ...((input.body ?? "").match(/@([A-Za-z0-9_]{3,24})/g) ?? []),
+      ]),
       allowShare: input.allowShare !== false && user.storyAllowShare !== false,
       allowReplies: input.allowReplies !== false && user.storyAllowReplies !== false,
       visibility,
@@ -341,8 +460,27 @@ export async function createStory(userId: string, input: Partial<UserStory> & { 
       createdAt: now,
       expiresAt: now + STORY_TTL_MS,
       deletedAt: null,
+      processStatus: needsMedia ? "processing" : "ready",
+      processError: "",
+      thumbnail: kind === "photo" || kind === "gif" ? media : "",
+      cropX: Math.min(100, Math.max(0, Number(input.cropX) || 50)),
+      cropY: Math.min(100, Math.max(0, Number(input.cropY) || 50)),
     };
     data.userStories.push(story);
+    if (needsMedia) {
+      data.storyJobs ??= [];
+      data.storyJobs.push({
+        id: randomId(),
+        storyId: story.id,
+        ownerUserId: userId,
+        status: "pending",
+        retries: 0,
+        error: "",
+        at: now,
+      });
+      sweepStories(data);
+    }
+    bumpStoryCache(data);
     if (!story.draft) notifyStory(data, story, userId, now);
     return { ok: true as const, story: publicStory(story, userId) };
   });
@@ -382,6 +520,7 @@ export async function publishDraft(userId: string, storyId: string) {
     story.draft = false;
     story.createdAt = now;
     story.expiresAt = now + STORY_TTL_MS;
+    bumpStoryCache(data);
     notifyStory(data, story, userId, now);
     return { ok: true as const, story: publicStory(story, userId) };
   });
@@ -394,6 +533,8 @@ export async function deleteStory(userId: string, storyId: string) {
     if (story.ownerUserId !== userId) return { ok: false as const, error: "فقط صاحب می‌تواند حذف کند.", status: 403 };
     story.deletedAt = Date.now();
     story.media = "";
+    story.thumbnail = "";
+    bumpStoryCache(data);
     return { ok: true as const };
   });
 }
@@ -401,35 +542,39 @@ export async function deleteStory(userId: string, storyId: string) {
 export async function viewUserStory(userId: string, storyId: string) {
   return mutateStore((data) => {
     const now = Date.now();
+    const flood = hitRateLimit(data, `storyview:${userId}`, 10_000, 40, now);
+    if (!flood.allowed) return { ok: false as const, error: "بازدید محدود شد.", status: 429 };
     const story = data.userStories.find((s) => s.id === storyId);
     if (!story || !canViewStory(data, story, userId, now, { archive: story.ownerUserId === userId })) {
       return { ok: false as const, error: "استوری در دسترس نیست.", status: 404 };
     }
-    const user = data.users.find((u) => u.id === userId);
-    if (!data.storyWatches.some((w) => w.storyId === storyId && w.viewerId === userId)) {
-      data.storyWatches.push({
-        storyId,
-        viewerId: userId,
-        viewerName: user?.displayName || user?.username || "بیننده",
-        viewedAt: now,
-      });
+    if (story.ownerUserId === userId) return { ok: true as const };
+    if (data.storyWatches.some((w) => w.storyId === storyId && w.viewerId === userId)) {
+      return { ok: true as const };
     }
+    const user = data.users.find((u) => u.id === userId);
+    data.storyWatches.push({
+      storyId,
+      viewerId: userId,
+      viewerName: user?.displayName || user?.username || "بیننده",
+      viewedAt: now,
+    });
     return { ok: true as const };
   });
 }
 
-export async function getStoryMedia(userId: string, storyId: string, token: string) {
+export async function getStoryMedia(userId: string, storyId: string, token: string, thumb?: boolean) {
   const data = await readStoreSnapshot();
   const now = Date.now();
   const story = data.userStories.find((s) => s.id === storyId);
-  if (!story || !story.media) return { ok: false as const, error: "رسانه نیست.", status: 404 };
+  if (!story || !(thumb ? story.thumbnail || story.media : story.media)) return { ok: false as const, error: "رسانه نیست.", status: 404 };
   if (!canViewStory(data, story, userId, now, { archive: story.ownerUserId === userId })) {
     return { ok: false as const, error: "اجازه نداری.", status: 403 };
   }
   if (!verifyStoryMedia(storyId, userId, token)) {
     return { ok: false as const, error: "لینک رسانه منقضی یا نامعتبر است.", status: 403 };
   }
-  return { ok: true as const, media: story.media };
+  return { ok: true as const, media: thumb && story.thumbnail ? story.thumbnail : story.media };
 }
 
 export async function listViewers(userId: string, storyId: string) {
@@ -455,16 +600,38 @@ export async function listViewers(userId: string, storyId: string) {
 }
 
 export async function reactStory(userId: string, storyId: string, emoji: string) {
-  const safe = emoji.slice(0, 8);
+  const safe = emoji.trim();
   return mutateStore((data) => {
     const now = Date.now();
+    const flood = hitRateLimit(data, `storyreact:${userId}`, 60_000, 40, now);
+    if (!flood.allowed) return { ok: false as const, error: "واکنش محدود شد.", status: 429 };
     const story = data.userStories.find((s) => s.id === storyId);
     if (!story || !canViewStory(data, story, userId, now)) {
       return { ok: false as const, error: "استوری در دسترس نیست.", status: 404 };
     }
+    const existing = data.storyReactions.find((r) => r.storyId === storyId && r.userId === userId);
+    if (!safe || existing?.emoji === safe) {
+      data.storyReactions = data.storyReactions.filter((r) => !(r.storyId === storyId && r.userId === userId));
+      return { ok: true as const, action: "remove" as const };
+    }
+    if (!isLikelyEmoji(safe)) return { ok: false as const, error: "ایموجی نامعتبر است.", status: 400 };
     data.storyReactions = data.storyReactions.filter((r) => !(r.storyId === storyId && r.userId === userId));
-    data.storyReactions.push({ storyId, userId, emoji: safe, at: now });
-    return { ok: true as const };
+    data.storyReactions.push({ id: randomId(), storyId, userId, emoji: safe.slice(0, 24), at: now });
+    if (story.ownerUserId !== userId) {
+      emitNotification(data, {
+        userId: story.ownerUserId,
+        category: "stories",
+        kind: "reaction",
+        title: "واکنش به استوری",
+        senderName: data.users.find((u) => u.id === userId)?.displayName || "کاربر",
+        body: "واکنش جدید",
+        sourceId: `sreact:${storyId}`,
+        muteType: "user",
+        muteId: userId,
+        target: { type: "story", id: storyId },
+      });
+    }
+    return { ok: true as const, action: "add" as const };
   });
 }
 
@@ -487,6 +654,7 @@ export async function replyStory(userId: string, storyId: string, body: string) 
       body: text,
       createdAt: now,
     });
+    const ownerThread = data.threads.find((t) => t.ownerUserId === story.ownerUserId && t.peerKey === userId);
     emitNotification(data, {
       userId: story.ownerUserId,
       category: "messages",
@@ -497,9 +665,9 @@ export async function replyStory(userId: string, storyId: string, body: string) 
       sourceId: `story-reply:${storyId}`,
       muteType: "user",
       muteId: userId,
-      target: { type: "story", id: storyId },
+      target: ownerThread ? { type: "chat", id: ownerThread.id } : { type: "story", id: storyId },
     });
-    return { ok: true as const };
+    return { ok: true as const, routedChat: Boolean(ownerThread) };
   });
 }
 
@@ -533,6 +701,8 @@ export async function getStorySettings(userId: string) {
     storyAllowReplies: me.storyAllowReplies !== false,
     storyAllowShare: me.storyAllowShare !== false,
     storyArchiveEnabled: me.storyArchiveEnabled !== false,
+    statusExpiresAt: me.statusExpiresAt,
+    statusHistory: (me.statusHistory ?? []).slice(-12),
     people,
   };
 }
@@ -545,12 +715,13 @@ export async function updateStorySettings(
     defaultHideFromIds: string[];
     statusPreset: "" | "available" | "busy" | "work" | "away" | "custom";
     statusText: string;
-    statusPrivacy: "everyone" | "contacts" | "nobody" | "selected";
+    statusPrivacy: "everyone" | "contacts" | "friends" | "nobody" | "selected";
     statusAllowIds: string[];
     defaultStoryPrivacy: StoryVisibility;
     storyAllowReplies: boolean;
     storyAllowShare: boolean;
     storyArchiveEnabled: boolean;
+    statusExpiresAt: number | null;
   }>,
 ) {
   return mutateStore((data) => {
@@ -559,6 +730,12 @@ export async function updateStorySettings(
     if (Array.isArray(patch.closeFriendIds)) me.closeFriendIds = patch.closeFriendIds.slice(0, 80);
     if (Array.isArray(patch.storyNotifyOffIds)) me.storyNotifyOffIds = patch.storyNotifyOffIds.slice(0, 80);
     if (Array.isArray(patch.defaultHideFromIds)) me.defaultHideFromIds = patch.defaultHideFromIds.slice(0, 80);
+    if (patch.statusPreset !== undefined || typeof patch.statusText === "string") {
+      me.statusHistory = [
+        ...(me.statusHistory ?? []),
+        { at: Date.now(), preset: me.statusPreset, text: me.statusText },
+      ].slice(-20);
+    }
     if (patch.statusPreset !== undefined) me.statusPreset = patch.statusPreset;
     if (typeof patch.statusText === "string") me.statusText = patch.statusText.slice(0, 40);
     if (patch.statusPrivacy) me.statusPrivacy = patch.statusPrivacy;
@@ -567,6 +744,126 @@ export async function updateStorySettings(
     if (typeof patch.storyAllowReplies === "boolean") me.storyAllowReplies = patch.storyAllowReplies;
     if (typeof patch.storyAllowShare === "boolean") me.storyAllowShare = patch.storyAllowShare;
     if (typeof patch.storyArchiveEnabled === "boolean") me.storyArchiveEnabled = patch.storyArchiveEnabled;
+    if (patch.statusExpiresAt === null) me.statusExpiresAt = null;
+    if (typeof patch.statusExpiresAt === "number") {
+      me.statusExpiresAt = patch.statusExpiresAt > Date.now() ? patch.statusExpiresAt : Date.now() + 60_000;
+    }
     return { ok: true as const };
+  });
+}
+
+function canViewHighlight(data: StoreData, hl: StoryHighlight, viewerId: string) {
+  if (hl.ownerUserId === viewerId) return true;
+  if (blocked(data, hl.ownerUserId, viewerId)) return false;
+  if (hl.hideFromIds.includes(viewerId)) return false;
+  if (hl.visibility === "nobody") return false;
+  if (hl.visibility === "everyone") return true;
+  if (hl.visibility === "contacts") return isContact(data, hl.ownerUserId, viewerId);
+  if (hl.visibility === "friends") {
+    return Boolean(data.users.find((u) => u.id === hl.ownerUserId)?.friendIds?.includes(viewerId));
+  }
+  if (hl.visibility === "closeFriends") {
+    return Boolean(data.users.find((u) => u.id === hl.ownerUserId)?.closeFriendIds.includes(viewerId));
+  }
+  return hl.allowIds.includes(viewerId);
+}
+
+export async function listHighlights(viewerId: string, ownerId: string) {
+  const data = await readStoreSnapshot();
+  return (data.storyHighlights ?? [])
+    .filter((h) => h.ownerUserId === ownerId && canViewHighlight(data, h, viewerId))
+    .map((h) => ({
+      id: h.id,
+      name: h.name,
+      coverStoryId: h.coverStoryId,
+      storyIds: h.storyIds.filter((id) => {
+        const s = data.userStories.find((x) => x.id === id && x.ownerUserId === ownerId && !x.deletedAt);
+        if (!s) return false;
+        if (h.ownerUserId === viewerId) return true;
+        return !s.hideFromIds.includes(viewerId);
+      }),
+      visibility: h.visibility,
+      owner: h.ownerUserId === viewerId,
+    }));
+}
+
+export async function upsertHighlight(
+  userId: string,
+  input: { id?: string; name: string; storyIds: string[]; coverStoryId?: string | null; visibility?: StoryVisibility; allowIds?: string[]; hideFromIds?: string[] },
+) {
+  return mutateStore((data) => {
+    const name = input.name.trim().slice(0, 40);
+    if (name.length < 1) return { ok: false as const, error: "نام هایلایت لازم است.", status: 400 };
+    const owned = data.userStories.filter((s) => s.ownerUserId === userId && !s.deletedAt).map((s) => s.id);
+    const storyIds = input.storyIds.filter((id) => owned.includes(id)).slice(0, 40);
+    const vis = input.visibility ?? "everyone";
+    const visibility: StoryVisibility =
+      vis === "contacts" || vis === "friends" || vis === "closeFriends" || vis === "selected" || vis === "nobody" || vis === "everyone"
+        ? vis
+        : "everyone";
+    if (input.id) {
+      const hl = (data.storyHighlights ?? []).find((h) => h.id === input.id);
+      if (!hl || hl.ownerUserId !== userId) return { ok: false as const, error: "هایلایت یافت نشد.", status: 404 };
+      hl.name = name;
+      hl.storyIds = storyIds;
+      hl.coverStoryId = input.coverStoryId && storyIds.includes(input.coverStoryId) ? input.coverStoryId : storyIds[0] ?? null;
+      hl.visibility = visibility;
+      if (Array.isArray(input.allowIds)) hl.allowIds = input.allowIds.slice(0, 40);
+      if (Array.isArray(input.hideFromIds)) hl.hideFromIds = input.hideFromIds.slice(0, 40);
+      hl.updatedAt = Date.now();
+      bumpStoryCache(data);
+      return { ok: true as const, highlight: hl };
+    }
+    const hl: StoryHighlight = {
+      id: randomId(),
+      ownerUserId: userId,
+      name,
+      coverStoryId: input.coverStoryId && storyIds.includes(input.coverStoryId) ? input.coverStoryId : storyIds[0] ?? null,
+      storyIds,
+      visibility,
+      allowIds: (input.allowIds ?? []).slice(0, 40),
+      hideFromIds: (input.hideFromIds ?? []).slice(0, 40),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    data.storyHighlights ??= [];
+    if (data.storyHighlights.filter((h) => h.ownerUserId === userId).length >= 20) {
+      return { ok: false as const, error: "سقف هایلایت پر است.", status: 413 };
+    }
+    data.storyHighlights.push(hl);
+    bumpStoryCache(data);
+    return { ok: true as const, highlight: hl };
+  });
+}
+
+export async function deleteHighlight(userId: string, highlightId: string) {
+  return mutateStore((data) => {
+    const hl = (data.storyHighlights ?? []).find((h) => h.id === highlightId);
+    if (!hl) return { ok: false as const, error: "هایلایت یافت نشد.", status: 404 };
+    if (hl.ownerUserId !== userId) return { ok: false as const, error: "اجازه نداری.", status: 403 };
+    data.storyHighlights = data.storyHighlights.filter((h) => h.id !== highlightId);
+    bumpStoryCache(data);
+    return { ok: true as const };
+  });
+}
+
+export async function retryStoryProcess(userId: string, storyId: string) {
+  return mutateStore((data) => {
+    const story = data.userStories.find((s) => s.id === storyId && s.ownerUserId === userId && !s.deletedAt);
+    if (!story) return { ok: false as const, error: "استوری یافت نشد.", status: 404 };
+    data.storyJobs ??= [];
+    data.storyJobs.push({
+      id: randomId(),
+      storyId,
+      ownerUserId: userId,
+      status: "pending",
+      retries: 0,
+      error: "",
+      at: Date.now(),
+    });
+    story.processStatus = "processing";
+    story.processError = "";
+    sweepStories(data);
+    return { ok: true as const, processStatus: story.processStatus, processError: story.processError };
   });
 }

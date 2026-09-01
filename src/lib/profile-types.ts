@@ -57,7 +57,7 @@ export function defaultUserFields(): {
   statusText: string;
   statusPrivacy: Visibility;
   statusAllowIds: string[];
-  defaultStoryPrivacy: "everyone" | "contacts" | "closeFriends" | "selected";
+  defaultStoryPrivacy: "everyone" | "contacts" | "friends" | "closeFriends" | "selected" | "nobody";
   defaultHideFromIds: string[];
   storyAllowReplies: boolean;
   storyAllowShare: boolean;
@@ -127,6 +127,7 @@ export function defaultUserFields(): {
   hideFollowers: boolean;
   hideFollowing: boolean;
   statusExpiresAt: number | null;
+  statusHistory: { at: number; preset: string; text: string }[];
 } {
   return {
     usernameHistory: [],
@@ -220,5 +221,6 @@ export function defaultUserFields(): {
     hideFollowers: false,
     hideFollowing: false,
     statusExpiresAt: null,
+    statusHistory: [],
   };
 }
