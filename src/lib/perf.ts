@@ -330,7 +330,7 @@ export async function drainPerfWorkers() {
     drainPushJobs(data);
     const conc = Math.max(1, Math.min(4, data.perf.policy.workerConcurrency));
     const queued = data.perf.jobs
-      .filter((j) => (j.status === "queued" || j.status === "failed") && j.runAfter <= now() && j.status !== "dead")
+      .filter((j) => (j.status === "queued" || j.status === "failed") && j.runAfter <= now())
       .sort((a, b) => b.priority - a.priority || a.createdAt - b.createdAt)
       .slice(0, conc);
     let ran = 0;
@@ -456,7 +456,8 @@ export async function setPerfPolicy(patch: Partial<PerfPersist["policy"]> & { sh
       data.perf.shed = patch.shed;
       setShedLevel(patch.shed);
     }
-    const { shed: _s, ...rest } = patch;
+    const rest: Partial<PerfPersist["policy"]> = { ...patch };
+    delete (rest as { shed?: ShedLevel }).shed;
     data.perf.policy = { ...data.perf.policy, ...rest };
     return { ok: true as const, policy: data.perf.policy, shed: data.perf.shed };
   });
