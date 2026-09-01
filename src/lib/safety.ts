@@ -102,8 +102,13 @@ export async function fileReport(
       const inCommunity = data.communities.some(
         (c) => !c.deletedAt && c.channels.some((ch) => ch.id === input.targetKey),
       );
-      const inPub = data.pubChannels.some((c) => c.id === input.targetKey && !c.deletedAt);
-      if (!inCommunity && !inPub) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
+      const pub = data.pubChannels.find((c) => c.id === input.targetKey && !c.deletedAt);
+      if (!inCommunity && !pub) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
+      if (pub && pub.visibility === "private") {
+        const staff = pub.staff.some((s) => s.userId === reporterId);
+        const sub = pub.subscribers.some((s) => s.userId === reporterId && !s.leftAt);
+        if (!staff && !sub) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
+      }
     }
     if (input.targetKind === "sticker") {
       const [packId] = input.targetKey.split(":");

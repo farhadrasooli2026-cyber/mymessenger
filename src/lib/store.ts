@@ -391,6 +391,7 @@ function hydratePubChannel(channel: PubChannelRecord): PubChannelRecord {
     businessId: channel.businessId ?? null,
     verified: Boolean(channel.verified),
     commentsEnabled: Boolean(channel.commentsEnabled),
+    commentWho: channel.commentWho === "staff" ? "staff" : "subscribers",
     reactionsEnabled: channel.reactionsEnabled !== false,
     allowedReactions: Array.isArray(channel.allowedReactions)
       ? channel.allowedReactions
@@ -405,8 +406,21 @@ function hydratePubChannel(channel: PubChannelRecord): PubChannelRecord {
     inviteUses: channel.inviteUses ?? 0,
     inviteExpiresAt: channel.inviteExpiresAt ?? null,
     adminPerms: { ...DEFAULT_CHANNEL_ADMIN_PERMS, ...(channel.adminPerms ?? {}) },
-    staff: Array.isArray(channel.staff) ? channel.staff : [],
-    subscribers: Array.isArray(channel.subscribers) ? channel.subscribers : [],
+    staff: Array.isArray(channel.staff)
+      ? channel.staff.map((s) => ({
+          ...s,
+          id: s.id || `cst_${s.userId}`,
+          customRoleId: s.customRoleId ?? null,
+        }))
+      : [],
+    customRoles: Array.isArray(channel.customRoles) ? channel.customRoles : [],
+    subscribers: Array.isArray(channel.subscribers)
+      ? channel.subscribers.map((s) => ({
+          ...s,
+          id: s.id || `csub_${s.userId}_${s.subscribedAt}`,
+          mutedUntil: s.mutedUntil ?? null,
+        }))
+      : [],
     requests: Array.isArray(channel.requests) ? channel.requests : [],
     bans: Array.isArray(channel.bans) ? channel.bans : [],
     pinIds: Array.isArray(channel.pinIds) ? channel.pinIds : [],
@@ -1259,17 +1273,21 @@ export type CommunityRecord = {
 };
 
 export type ChannelStaff = {
+  id: string;
   userId: string;
   role: ChannelStaffRole;
+  customRoleId?: string | null;
   name: string;
 };
 
 export type ChannelSubscriber = {
+  id: string;
   userId: string;
   name: string;
   username: string | null;
   subscribedAt: number;
   notify: ChannelNotify;
+  mutedUntil?: number | null;
   leftAt: number | null;
 };
 
@@ -1280,6 +1298,7 @@ export type ChannelComment = {
   body: string;
   createdAt: number;
   parentId?: string | null;
+  deleted?: boolean;
 };
 
 export type ChannelJoinRequest = {
@@ -1287,7 +1306,7 @@ export type ChannelJoinRequest = {
   userId: string;
   name: string;
   createdAt: number;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "cancelled";
 };
 
 export type ChannelBroadcastJob = {
@@ -1295,8 +1314,11 @@ export type ChannelBroadcastJob = {
   channelId: string;
   postId: string;
   offset: number;
-  status: "queued" | "running" | "done";
+  status: "queued" | "running" | "done" | "failed";
   createdAt: number;
+  attempts?: number;
+  nextAt?: number;
+  lastError?: string;
 };
 
 export type ChannelPoll = {
@@ -1414,6 +1436,8 @@ export type ChannelPost = {
   cancelled?: boolean;
   sourcePostId?: string | null;
   fileName?: string;
+  clientNonce?: string;
+  linkPreview?: { url: string; host: string } | null;
 };
 
 export type PubChannelRecord = {
@@ -1433,6 +1457,7 @@ export type PubChannelRecord = {
   ownerUserId: string;
   verified: boolean;
   commentsEnabled: boolean;
+  commentWho: import("@/lib/channel-types").ChannelCommentWho;
   reactionsEnabled: boolean;
   allowedReactions?: string[] | null;
   allowForward: boolean;
@@ -1444,6 +1469,7 @@ export type PubChannelRecord = {
   inviteExpiresAt: number | null;
   adminPerms: ChannelAdminPerms;
   staff: ChannelStaff[];
+  customRoles: import("@/lib/channel-types").CustomChannelRole[];
   subscribers: ChannelSubscriber[];
   requests: ChannelJoinRequest[];
   bans: { key: string; at: number }[];
@@ -1959,6 +1985,8 @@ async function readStore(): Promise<StoreData> {
             cancelled: Boolean(p.cancelled),
             sourcePostId: p.sourcePostId ?? null,
             fileName: typeof p.fileName === "string" ? p.fileName : "",
+            clientNonce: typeof p.clientNonce === "string" ? p.clientNonce : undefined,
+            linkPreview: p.linkPreview ?? null,
           }))
         : [],
       channelBroadcasts: Array.isArray(parsed.channelBroadcasts) ? parsed.channelBroadcasts : [],

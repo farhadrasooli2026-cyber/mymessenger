@@ -9,8 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { AiComposerTools } from "@/components/ai-composer-tools";
 import { ReactionBar } from "@/components/reaction-bar";
-import { CHANNEL_PERM_FA, formatSubscribers, type ChannelAdminPerms } from "@/lib/channel-types";
-import { ROLE_FA } from "@/lib/group-types";
+import { CHANNEL_PERM_FA, CHANNEL_ROLE_FA, formatSubscribers, type ChannelAdminPerms } from "@/lib/channel-types";
 import { blobMatches } from "@/lib/search-match";
 import { ChannelVoicePlayer } from "@/components/voice-player";
 import { previewMode } from "@/lib/files";
@@ -46,6 +45,7 @@ type Ch = {
   purpose?: string;
   verified: boolean;
   commentsEnabled: boolean;
+  commentWho?: "subscribers" | "staff";
   reactionsEnabled?: boolean;
   allowedReactions?: string[] | null;
   allowForward: boolean;
@@ -53,7 +53,7 @@ type Ch = {
   discussionGroupId: string | null;
   subscriberCount: number;
   ownerName?: string;
-  myRole: "owner" | "admin" | "moderator" | null;
+  myRole: "owner" | "admin" | "editor" | "moderator" | null;
   subscribed: boolean;
   notify: "on" | "off" | "important";
   inviteToken: string | null;
@@ -135,9 +135,16 @@ export function ChannelPane({
   }, [channelId]);
 
   useEffect(() => {
-    const t = window.setInterval(() => void load(), 5000);
-    return () => window.clearInterval(t);
-  }, [load]);
+    const es = new EventSource(`/api/channels/${channelId}/live`);
+    es.onmessage = () => {
+      void load();
+    };
+    const t = window.setInterval(() => void load(), 20_000);
+    return () => {
+      es.close();
+      window.clearInterval(t);
+    };
+  }, [load, channelId]);
 
   const inviteUrl =
     channel?.inviteToken && typeof window !== "undefined" ? `${window.location.origin}/join/ch/${channel.inviteToken}` : "";
@@ -534,10 +541,11 @@ export function ChannelPane({
               <Search className="mt-2 size-4 opacity-50" />
             </div>
             {(["on", "off", "important"] as const).map((mode) => (
-              <Button key={mode} type="button" size="sm" variant={channel.notify === mode ? "default" : "secondary"} onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "notify", notify: mode }) }).then(load)}>
+              <Button key={mode} type="button" size="sm" variant={channel.notify === mode ? "default" : "secondary"} onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "notify", notify: mode, ms: null }) }).then(load)}>
                 اعلان {mode === "on" ? "روشن" : mode === "off" ? "خاموش" : "مهم"}
               </Button>
             ))}
+            <Button type="button" size="sm" variant="secondary" onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "notify", notify: "on", ms: 3600_000 }) }).then(load)}>Mute ۱ساعت</Button>
             {channel.discussionGroupId && (
               <Button type="button" variant="secondary" onClick={() => onOpenGroup(channel.discussionGroupId!)}>گروه بحث</Button>
             )}
@@ -568,6 +576,19 @@ export function ChannelPane({
                   نظرات
                   <input type="checkbox" checked={channel.commentsEnabled} onChange={(e) => void fetch(`/api/channels/${channelId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ commentsEnabled: e.target.checked }) }).then(load)} />
                 </label>
+                {channel.commentsEnabled && (
+                  <label className="flex items-center justify-between gap-2">
+                    چه کسانی نظر بگذارند
+                    <select
+                      className="rounded bg-black/30 px-2 py-1"
+                      value={channel.commentWho}
+                      onChange={(e) => void fetch(`/api/channels/${channelId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ commentWho: e.target.value }) }).then(load)}
+                    >
+                      <option value="subscribers">مشترک‌ها</option>
+                      <option value="staff">فقط عوامل</option>
+                    </select>
+                  </label>
+                )}
                 <label className="flex items-center justify-between">
                   اجازهٔ هدایت
                   <input type="checkbox" checked={channel.allowForward} onChange={(e) => void fetch(`/api/channels/${channelId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ allowForward: e.target.checked }) }).then(load)} />
@@ -629,6 +650,7 @@ export function ChannelPane({
                     {s.userId !== userIdHint && (
                       <span className="flex gap-1">
                         <button type="button" onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "staff", targetId: s.userId, role: "admin" }) }).then(load)}>ادمین</button>
+                        <button type="button" onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "staff", targetId: s.userId, role: "editor" }) }).then(load)}>ویراستار</button>
                         <button type="button" onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "staff", targetId: s.userId, role: "moderator" }) }).then(load)}>ناظم</button>
                         <button type="button" onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "remove", targetId: s.userId }) }).then(load)}>حذف</button>
                         <button type="button" className="text-rose-200" onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ban", targetId: s.userId }) }).then(load)}>بن</button>
@@ -637,7 +659,7 @@ export function ChannelPane({
                   </div>
                 ))}
                 {channel.staff.map((s) => (
-                  <p key={s.userId}>{s.name} · {ROLE_FA[s.role as "owner"] ?? s.role}</p>
+                  <p key={s.userId}>{s.name} · {CHANNEL_ROLE_FA[s.role as keyof typeof CHANNEL_ROLE_FA] ?? s.role}</p>
                 ))}
               </>
             )}
@@ -675,7 +697,7 @@ export function ChannelPane({
                     setDeleteStep((s) => s + 1);
                     return;
                   }
-                  await fetch(`/api/channels/${channelId}`, { method: "DELETE" });
+                  await fetch(`/api/channels/${channelId}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: "DELETE" }) });
                   onLeft();
                 }}>
                   {deleteStep === 0 ? "هشدار: برگشت‌ناپذیر است" : deleteStep === 1 ? "تأیید می‌کنم" : "تأیید نهایی و حذف"}

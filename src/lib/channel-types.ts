@@ -1,12 +1,18 @@
-import type { GroupRole } from "@/lib/group-types";
-
 export const CHANNEL_FLOOD_WINDOW_MS = 20_000;
 export const CHANNEL_FLOOD_MAX = 8;
 export const CHANNEL_SUBSCRIBE_WINDOW_MS = 60_000;
 export const CHANNEL_SUBSCRIBE_MAX = 12;
 export const CHANNEL_MAX_PINS = 5;
+export const CHANNEL_OWNED_MAX = 20;
+export const CHANNEL_CREATE_WINDOW_MS = 60 * 60 * 1000;
+export const CHANNEL_CREATE_MAX = 8;
+export const CHANNEL_POST_PAGE = 40;
+export const CHANNEL_SUB_PAGE = 40;
+export const CHANNEL_BROADCAST_RETRY_MAX = 5;
+export const CHANNEL_SCHEDULE_MAX_MS = 30 * 24 * 60 * 60_000;
 
-export type ChannelStaffRole = Extract<GroupRole, "owner" | "admin" | "moderator">;
+export type ChannelStaffRole = "owner" | "admin" | "editor" | "moderator";
+export type ChannelCommentWho = "subscribers" | "staff";
 export type ChannelNotify = "on" | "off" | "important";
 export type ChannelPostKind = "text" | "photo" | "video" | "voice" | "audio" | "file" | "link" | "poll" | "album" | "gif" | "quiz";
 export type ChannelPostStatus = "draft" | "scheduled" | "published";
@@ -28,6 +34,28 @@ export type ChannelAdminPerms = {
   manageAI: boolean;
   viewAnalytics: boolean;
 };
+
+export type CustomChannelRole = {
+  id: string;
+  name: string;
+  perms: Partial<ChannelAdminPerms>;
+};
+
+export const CHANNEL_ROLE_FA: Record<ChannelStaffRole | "subscriber", string> = {
+  owner: "مالک",
+  admin: "ادمین",
+  editor: "ویراستار",
+  moderator: "ناظم",
+  subscriber: "مشترک",
+};
+
+export function rankChannelRole(role: string): number {
+  if (role === "owner") return 5;
+  if (role === "admin") return 4;
+  if (role === "editor") return 3;
+  if (role === "moderator") return 2;
+  return 1;
+}
 
 export const DEFAULT_CHANNEL_ADMIN_PERMS: ChannelAdminPerms = {
   postMessages: true,

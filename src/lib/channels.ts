@@ -9,21 +9,31 @@ import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf } fr
 import { canChannelInvite } from "@/lib/privacy";
 import { emitNotification } from "@/lib/notify";
 import { insertLive } from "@/lib/live";
-import { rankRole } from "@/lib/group-types";
+import { inspectTextLinks } from "@/lib/link-safety";
+import { publishChannelLive } from "@/lib/channel-live";
 import {
+  CHANNEL_BROADCAST_RETRY_MAX,
+  CHANNEL_CREATE_MAX,
+  CHANNEL_CREATE_WINDOW_MS,
   CHANNEL_FLOOD_MAX,
   CHANNEL_FLOOD_WINDOW_MS,
   CHANNEL_MAX_PINS,
+  CHANNEL_OWNED_MAX,
+  CHANNEL_POST_PAGE,
+  CHANNEL_SCHEDULE_MAX_MS,
+  CHANNEL_SUB_PAGE,
   CHANNEL_SUBSCRIBE_MAX,
   CHANNEL_SUBSCRIBE_WINDOW_MS,
   DEFAULT_CHANNEL_ADMIN_PERMS,
   type ChannelAdminPerms,
+  type ChannelCommentWho,
   type ChannelJoinMode,
   type ChannelLifecycle,
   type ChannelNotify,
   type ChannelPostKind,
   type ChannelPurpose,
   type ChannelStaffRole,
+  type CustomChannelRole,
 } from "@/lib/channel-types";
 
 const COLORS = ["#fbbf24", "#34d399", "#7dd3fc", "#c4b5fd", "#fda4af", "#67e8f9"];
@@ -72,11 +82,38 @@ function inviteOk(channel: PubChannelRecord, now: number) {
 function canAdmin(staff: ChannelStaff | undefined, perm: keyof ChannelAdminPerms, channel: PubChannelRecord) {
   if (!staff) return false;
   if (staff.role === "owner") return true;
+  if (staff.customRoleId) {
+    const custom = (channel.customRoles ?? []).find((r) => r.id === staff.customRoleId);
+    if (custom?.perms[perm]) return true;
+  }
   if (staff.role === "admin") return channel.adminPerms[perm];
+  if (staff.role === "editor") {
+    return perm === "postMessages" || perm === "editPosts" || perm === "pinPosts";
+  }
   if (staff.role === "moderator") {
     return perm === "deletePosts" || perm === "manageComments" || perm === "pinPosts";
   }
   return false;
+}
+
+function sanitizeText(text: string) {
+  return text
+    .replace(/<\s*script[\s\S]*?>[\s\S]*?<\s*\/\s*script\s*>/gi, "")
+    .replace(/on\w+\s*=/gi, "")
+    .replace(/javascript:/gi, "")
+    .replace(/data:text\/html/gi, "");
+}
+
+function linkPreviewOf(text: string): { url: string; host: string } | null {
+  const m = text.match(/https?:\/\/[^\s<>]+/i);
+  if (!m) return null;
+  try {
+    const u = new URL(m[0]!.replace(/[),.]+$/, ""));
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    return { url: u.toString().slice(0, 500), host: u.hostname.slice(0, 120) };
+  } catch {
+    return null;
+  }
 }
 
 function pushAudit(channel: PubChannelRecord, actor: ChannelStaff, kind: string, detail: string) {
@@ -93,6 +130,7 @@ function publishDue(data: StoreData, now: number) {
       post.status = "published";
       post.publishedAt = now;
       enqueueBroadcast(data, post.channelId, post.id);
+      publishChannelLive(post.channelId, "post", post.id);
     }
   }
   drainBroadcasts(data, now);
@@ -100,7 +138,7 @@ function publishDue(data: StoreData, now: number) {
 
 function enqueueBroadcast(data: StoreData, channelId: string, postId: string) {
   data.channelBroadcasts ??= [];
-  if (data.channelBroadcasts.some((j) => j.postId === postId && j.status !== "done")) return;
+  if (data.channelBroadcasts.some((j) => j.postId === postId && j.status !== "failed")) return;
   data.channelBroadcasts.push({
     id: randomId(),
     channelId,
@@ -108,13 +146,15 @@ function enqueueBroadcast(data: StoreData, channelId: string, postId: string) {
     offset: 0,
     status: "queued",
     createdAt: Date.now(),
+    attempts: 0,
   });
 }
 
 function drainBroadcasts(data: StoreData, now: number) {
   data.channelBroadcasts ??= [];
   for (const job of data.channelBroadcasts) {
-    if (job.status === "done") continue;
+    if (job.status === "done" || job.status === "failed") continue;
+    if (job.nextAt && job.nextAt > now) continue;
     const channel = data.pubChannels.find((c) => c.id === job.channelId);
     const post = data.channelPosts.find((p) => p.id === job.postId);
     if (!channel || !post || post.deleted || post.cancelled || lifecycleOf(channel) === "deleted") {
@@ -122,35 +162,47 @@ function drainBroadcasts(data: StoreData, now: number) {
       continue;
     }
     job.status = "running";
-    const staff = channel.staff.find((s) => s.userId === post.authorKey);
-    const subs = channel.subscribers.filter((s) => liveSub(s) && s.userId !== post.authorKey);
-    const slice = subs.slice(job.offset, job.offset + BROADCAST_BATCH);
-    const mentionNeedle = /@([a-z][a-z0-9_]{2,23})/gi;
-    const mentioned = new Set<string>();
-    let m: RegExpExecArray | null;
-    const blob = `${post.body} ${post.caption}`;
-    while ((m = mentionNeedle.exec(blob))) mentioned.add(m[1]!.toLowerCase());
-    for (const s of slice) {
-      if (s.notify === "off") continue;
-      const user = data.users.find((u) => u.id === s.userId);
-      const isMention = Boolean(user?.username && mentioned.has(user.username));
-      if (s.notify === "important" && !isMention) continue;
-      emitNotification(data, {
-        userId: s.userId,
-        category: "channels",
-        kind: isMention ? "mention" : "channel_post",
-        title: channel.name,
-        senderName: staff?.name ?? post.authorName,
-        body: (post.kind === "voice" || post.kind === "audio" ? "رسانهٔ صوتی جدید" : post.caption || post.body || post.kind).slice(0, 120),
-        mention: isMention,
-        sourceId: `channel:${channel.id}`,
-        muteType: "channel",
-        muteId: channel.id,
-        target: { type: "channel", id: channel.id },
-      });
+    try {
+      const staff = channel.staff.find((s) => s.userId === post.authorKey);
+      const subs = channel.subscribers.filter((s) => liveSub(s) && s.userId !== post.authorKey);
+      const slice = subs.slice(job.offset, job.offset + BROADCAST_BATCH);
+      const mentionNeedle = /@([a-z][a-z0-9_]{2,23})/gi;
+      const mentioned = new Set<string>();
+      let m: RegExpExecArray | null;
+      const blob = `${post.body} ${post.caption}`;
+      while ((m = mentionNeedle.exec(blob))) mentioned.add(m[1]!.toLowerCase());
+      for (const s of slice) {
+        if (s.notify === "off") continue;
+        if (s.mutedUntil && s.mutedUntil > now) continue;
+        const user = data.users.find((u) => u.id === s.userId);
+        const isMention = Boolean(user?.username && mentioned.has(user.username));
+        if (s.notify === "important" && !isMention) continue;
+        emitNotification(data, {
+          userId: s.userId,
+          category: "channels",
+          kind: isMention ? "mention" : "channel_post",
+          title: channel.name,
+          senderName: staff?.name ?? post.authorName,
+          body: (post.kind === "voice" || post.kind === "audio" ? "رسانهٔ صوتی جدید" : post.caption || post.body || post.kind).slice(0, 120),
+          mention: isMention,
+          sourceId: `channel:${channel.id}`,
+          muteType: "channel",
+          muteId: channel.id,
+          target: { type: "channel", id: channel.id },
+        });
+      }
+      job.offset += slice.length;
+      if (job.offset >= subs.length) job.status = "done";
+      else job.status = "queued";
+    } catch (err) {
+      job.attempts = (job.attempts ?? 0) + 1;
+      job.lastError = err instanceof Error ? err.message : "broadcast";
+      if (job.attempts >= CHANNEL_BROADCAST_RETRY_MAX) job.status = "failed";
+      else {
+        job.status = "queued";
+        job.nextAt = now + Math.min(60_000, 1000 * 2 ** job.attempts);
+      }
     }
-    job.offset += slice.length;
-    if (job.offset >= subs.length) job.status = "done";
   }
   data.channelBroadcasts = data.channelBroadcasts
     .filter((j) => j.status !== "done" || now - j.createdAt < 24 * 60 * 60_000)
@@ -198,6 +250,7 @@ function publicChannel(channel: PubChannelRecord, viewerId: string | null, data:
     purpose: channel.purpose ?? "general",
     verified: channel.verified,
     commentsEnabled: channel.commentsEnabled,
+    commentWho: channel.commentWho === "staff" ? "staff" : "subscribers",
     reactionsEnabled: channel.reactionsEnabled !== false,
     allowedReactions: channel.allowedReactions ?? null,
     allowForward: channel.allowForward,
@@ -205,8 +258,11 @@ function publicChannel(channel: PubChannelRecord, viewerId: string | null, data:
     discussionGroupId: channel.discussionGroupId,
     subscriberCount: showCount ? subCount : 0,
     myRole: staff?.role ?? null,
+    myStaffId: staff?.id ?? null,
     subscribed: Boolean(sub),
+    mySubscriberId: sub?.id ?? null,
     notify: sub?.notify ?? "on",
+    mutedUntil: sub?.mutedUntil ?? null,
     inviteToken: staff && (canAdmin(staff, "manageInvites", channel) || canAdmin(staff, "manageSubscribers", channel)) ? channel.inviteToken : null,
     inviteMaxUses: staff ? channel.inviteMaxUses : null,
     inviteUses: staff ? channel.inviteUses : null,
@@ -248,7 +304,8 @@ function publicChannel(channel: PubChannelRecord, viewerId: string | null, data:
     })),
     analytics,
     audit: staff?.role === "owner" || staff?.role === "admin" ? (channel.audit ?? []).slice(0, 40) : [],
-    staff: staff ? channel.staff.map((s) => ({ userId: s.userId, role: s.role, name: s.name })) : [],
+    staff: staff ? channel.staff.map((s) => ({ id: s.id, userId: s.userId, role: s.role, customRoleId: s.customRoleId ?? null, name: s.name })) : [],
+    customRoles: staff?.role === "owner" ? channel.customRoles ?? [] : [],
     joinRequests:
       staff && canAdmin(staff, "manageSubscribers", channel)
         ? (channel.requests ?? []).filter((r) => r.status === "pending").map((r) => ({ id: r.id, userId: r.userId, name: r.name, createdAt: r.createdAt }))
@@ -256,14 +313,15 @@ function publicChannel(channel: PubChannelRecord, viewerId: string | null, data:
     pendingJoin: Boolean(viewerId && (channel.requests ?? []).some((r) => r.userId === viewerId && r.status === "pending")),
     subscribers:
       staff && canAdmin(staff, "manageSubscribers", channel)
-        ? channel.subscribers.filter(liveSub).map((s) => ({
+        ? channel.subscribers.filter(liveSub).slice(0, CHANNEL_SUB_PAGE).map((s) => ({
+            id: s.id,
             userId: s.userId,
             name: s.name,
             username: s.username,
             subscribedAt: s.subscribedAt,
           }))
         : [],
-    posts: posts.map((p) => ({
+    posts: posts.slice(0, CHANNEL_POST_PAGE).map((p) => ({
       id: p.id,
       channelId: p.channelId,
       authorName: p.authorName,
@@ -284,8 +342,8 @@ function publicChannel(channel: PubChannelRecord, viewerId: string | null, data:
       views: p.views?.length ?? 0,
       viewHits: staff ? p.viewHits ?? p.views?.length ?? 0 : undefined,
       forwards: p.forwards ?? 0,
-      comments: channel.commentsEnabled
-        ? p.comments.map((c) => ({
+          comments: channel.commentsEnabled
+        ? p.comments.filter((c) => !c.deleted).map((c) => ({
             id: c.id,
             authorName: c.authorName,
             body: c.body,
@@ -294,6 +352,7 @@ function publicChannel(channel: PubChannelRecord, viewerId: string | null, data:
           }))
         : [],
       durationMs: p.durationMs,
+      linkPreview: p.linkPreview ?? null,
       poll: p.poll
         ? {
             ...p.poll,
@@ -377,6 +436,15 @@ export async function createChannel(
   const user = data0.users.find((u) => u.id === userId);
   if (!user) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
   return mutateStore((data) => {
+    const now = Date.now();
+    const createLimit = hitRateLimit(data, `cchcreate:${userId}`, CHANNEL_CREATE_WINDOW_MS, CHANNEL_CREATE_MAX, now);
+    if (!createLimit.allowed) {
+      return { ok: false as const, error: "ساخت کانال در این ساعت به سقف رسیده است.", status: 429 };
+    }
+    const owned = data.pubChannels.filter((c) => !c.deletedAt && c.ownerUserId === userId).length;
+    if (owned >= CHANNEL_OWNED_MAX) {
+      return { ok: false as const, error: "تعداد کانال‌های قابل ساخت به سقف رسیده است.", status: 429 };
+    }
     const username = input.username?.trim().replace(/^@/, "").toLowerCase() || null;
     const visibility = input.visibility === "private" ? "private" : "public";
     if (visibility === "public") {
@@ -390,7 +458,6 @@ export async function createChannel(
         return { ok: false as const, error: "این نام کاربری کانال گرفته شده است.", status: 409 };
       }
     }
-    const now = Date.now();
     const channel: PubChannelRecord = {
       id: randomId(),
       name,
@@ -411,6 +478,7 @@ export async function createChannel(
       ownerUserId: userId,
       verified: false,
       commentsEnabled: true,
+      commentWho: "subscribers",
       reactionsEnabled: true,
       allowForward: true,
       allowCopy: true,
@@ -420,14 +488,17 @@ export async function createChannel(
       inviteUses: 0,
       inviteExpiresAt: null,
       adminPerms: { ...DEFAULT_CHANNEL_ADMIN_PERMS },
-      staff: [{ userId, role: "owner", name: user.displayName || user.firstName || "مالک" }],
+      staff: [{ id: randomId(), userId, role: "owner", name: user.displayName || user.firstName || "مالک", customRoleId: null }],
+      customRoles: [],
       subscribers: [
         {
+          id: randomId(),
           userId,
           name: user.displayName || user.username || "مالک",
           username: user.username ?? null,
           subscribedAt: now,
           notify: "on",
+          mutedUntil: null,
           leftAt: null,
         },
       ],
@@ -470,6 +541,8 @@ export async function updateChannel(
     purpose: ChannelPurpose;
     joinMode: ChannelJoinMode;
     showSubscriberCount: boolean;
+    commentWho: ChannelCommentWho;
+    customRoles: CustomChannelRole[];
   }>,
 ) {
   return mutateStore((data) => {
@@ -489,6 +562,7 @@ export async function updateChannel(
     if (typeof patch.description === "string") channel.description = patch.description.trim().slice(0, 800);
     if (patch.color && COLORS.includes(patch.color)) channel.color = patch.color;
     if (typeof patch.commentsEnabled === "boolean") channel.commentsEnabled = patch.commentsEnabled;
+    if (patch.commentWho === "staff" || patch.commentWho === "subscribers") channel.commentWho = patch.commentWho;
     if (typeof patch.reactionsEnabled === "boolean") channel.reactionsEnabled = patch.reactionsEnabled;
     if (patch.allowedReactions !== undefined) {
       channel.allowedReactions = patch.allowedReactions === null ? null : allowedReactionSet(patch.allowedReactions);
@@ -538,6 +612,15 @@ export async function updateChannel(
     if (patch.adminPerms) {
       channel.adminPerms = { ...DEFAULT_CHANNEL_ADMIN_PERMS, ...patch.adminPerms };
       if (me) pushAudit(channel, me, "permission", "مجوز ادمین تغییر کرد");
+    }
+    if (patch.customRoles) {
+      if (me?.role !== "owner") return { ok: false as const, error: "فقط مالک نقش سفارشی می‌سازد.", status: 403 };
+      channel.customRoles = patch.customRoles.slice(0, 8).map((r) => ({
+        id: r.id?.trim() || randomId(),
+        name: String(r.name ?? "").trim().slice(0, 32) || "نقش",
+        perms: r.perms ?? {},
+      }));
+      if (me) pushAudit(channel, me, "roles", "نقش سفارشی");
     }
     channel.updatedAt = Date.now();
     return { ok: true as const, channel: publicChannel(channel, userId, data) };
@@ -599,18 +682,22 @@ export async function previewInvite(token: string) {
 function addSubscriber(channel: PubChannelRecord, user: { id: string; displayName?: string; username?: string }, now: number) {
   const existing = channel.subscribers.find((s) => s.userId === user.id);
   if (existing) {
+    if (liveSub(existing)) return;
     existing.leftAt = null;
     existing.subscribedAt = now;
     existing.name = user.displayName || user.username || existing.name;
     existing.username = user.username ?? existing.username;
+    existing.id = existing.id || randomId();
     return;
   }
   channel.subscribers.push({
+    id: randomId(),
     userId: user.id,
     name: user.displayName || user.username || "دنبال‌کننده",
     username: user.username ?? null,
     subscribedAt: now,
     notify: "on",
+    mutedUntil: null,
     leftAt: null,
   });
 }
@@ -695,6 +782,8 @@ export async function inviteDirect(userId: string, channelId: string, keys: stri
       return { ok: false as const, error: "اجازهٔ دعوت نداری.", status: 403 };
     }
     const now = Date.now();
+    const flood = hitRateLimit(data, `cinv:${userId}`, 10 * 60_000, 40, now);
+    if (!flood.allowed) return { ok: false as const, error: "دعوت در این بازه به سقف رسیده است.", status: 429 };
     for (const raw of keys.slice(0, 20)) {
       const other = data.users.find((u) => u.id === raw || u.username === raw.replace(/^@/, "").toLowerCase());
       if (!other || isBanned(channel, other.id)) continue;
@@ -706,18 +795,25 @@ export async function inviteDirect(userId: string, channelId: string, keys: stri
   });
 }
 
-export async function setNotify(userId: string, channelId: string, notify: ChannelNotify) {
+export async function setNotify(userId: string, channelId: string, notify: ChannelNotify, mutedUntil?: number | null) {
   return mutateStore((data) => {
     const channel = data.pubChannels.find((c) => c.id === channelId && channelListed(c));
     if (!channel) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
     const sub = channel.subscribers.find((s) => s.userId === userId && liveSub(s));
     if (!sub) return { ok: false as const, error: "دنبال نمی‌کنی.", status: 403 };
     sub.notify = notify;
-    return { ok: true as const, notify: sub.notify };
+    if (mutedUntil !== undefined) sub.mutedUntil = mutedUntil;
+    return { ok: true as const, notify: sub.notify, mutedUntil: sub.mutedUntil ?? null };
   });
 }
 
-export async function setStaff(userId: string, channelId: string, targetId: string, role: ChannelStaffRole | "none") {
+export async function setStaff(
+  userId: string,
+  channelId: string,
+  targetId: string,
+  role: ChannelStaffRole | "none",
+  extra?: { staffId?: string; customRoleId?: string | null },
+) {
   return mutateStore((data) => {
     const channel = data.pubChannels.find((c) => c.id === channelId && channelListed(c));
     if (!channel) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
@@ -726,18 +822,32 @@ export async function setStaff(userId: string, channelId: string, targetId: stri
       return { ok: false as const, error: "اجازهٔ تغییر ادمین نداری.", status: 403 };
     }
     if (targetId === channel.ownerUserId) return { ok: false as const, error: "مالک قابل تغییر از این مسیر نیست.", status: 400 };
+    const existingStaff = channel.staff.find((s) => s.userId === targetId);
+    if (extra?.staffId && existingStaff && existingStaff.id !== extra.staffId) {
+      if (me) pushAudit(channel, me, "security", "Staff IDOR blocked");
+      return { ok: false as const, error: "نقش نامعتبر است.", status: 403 };
+    }
     const targetUser = data.users.find((u) => u.id === targetId);
     const sub = channel.subscribers.find((s) => s.userId === targetId && liveSub(s));
     if (!sub && !targetUser) return { ok: false as const, error: "کاربر یافت نشد.", status: 404 };
     channel.staff = channel.staff.filter((s) => s.userId !== targetId);
     if (role !== "none") {
       if (role === "owner") return { ok: false as const, error: "نقش مالک از اینجا ست نمی‌شود.", status: 400 };
-      if (me?.role !== "owner" && rankRole(role) >= 3) {
+      if (role === "admin" && me?.role !== "owner") {
         return { ok: false as const, error: "فقط مالک ادمین تعیین می‌کند.", status: 403 };
       }
+      if (role === "editor" && me?.role !== "owner" && me?.role !== "admin") {
+        return { ok: false as const, error: "اجازهٔ تعیین ویراستار نداری.", status: 403 };
+      }
+      const customRoleId: string | null = extra?.customRoleId ?? null;
+      if (customRoleId && !(channel.customRoles ?? []).some((r) => r.id === customRoleId)) {
+        return { ok: false as const, error: "نقش سفارشی این کانال نیست.", status: 403 };
+      }
       channel.staff.push({
+        id: existingStaff?.id ?? randomId(),
         userId: targetId,
         role,
+        customRoleId,
         name: targetUser?.displayName || sub?.name || "ادمین",
       });
     }
@@ -777,12 +887,15 @@ export async function moderateSubscriber(
   });
 }
 
-export async function deleteChannel(userId: string, channelId: string) {
+export async function deleteChannel(userId: string, channelId: string, extra?: { confirm?: string }) {
   return mutateStore((data) => {
     const channel = data.pubChannels.find((c) => c.id === channelId && channelListed(c));
     if (!channel) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
     if (staffOf(channel, userId)?.role !== "owner") {
       return { ok: false as const, error: "فقط مالک می‌تواند کانال را حذف کند.", status: 403 };
+    }
+    if (extra?.confirm !== "DELETE") {
+      return { ok: false as const, error: "برای حذف کانال باید تأیید DELETE ارسال شود.", status: 400 };
     }
     channel.deletedAt = Date.now();
     channel.status = "deleted";
@@ -807,6 +920,7 @@ export async function createPost(
     voiceDataUrl?: string;
     fileDataUrl?: string;
     fileName?: string;
+    clientNonce?: string;
   },
 ) {
   return mutateStore((data) => {
@@ -824,9 +938,14 @@ export async function createPost(
     const now = Date.now();
     const flood = hitRateLimit(data, `cpost:${channelId}:${userId}`, CHANNEL_FLOOD_WINDOW_MS, CHANNEL_FLOOD_MAX, now);
     if (!flood.allowed) return { ok: false as const, error: "انتشار پیاپی محدود شد.", status: 429 };
+    const nonce = typeof input.clientNonce === "string" ? input.clientNonce.slice(0, 80) : "";
+    if (nonce) {
+      const dup = data.channelPosts.find((p) => p.channelId === channelId && p.authorKey === userId && p.clientNonce === nonce && !p.deleted);
+      if (dup) return { ok: true as const, post: dup, channel: publicChannel(channel, userId, data) };
+    }
     const kind = input.kind && POST_KINDS.includes(input.kind) ? input.kind : "text";
-    let body = (input.body ?? "").trim().slice(0, 4000);
-    let caption = (input.caption ?? "").trim().slice(0, 1000);
+    let body = sanitizeText((input.body ?? "").trim().slice(0, 4000));
+    let caption = sanitizeText((input.caption ?? "").trim().slice(0, 1000));
     if (kind === "poll" || kind === "quiz") {
       const question = input.poll?.question?.trim() ?? "";
       const options = (input.poll?.options ?? []).map((o) => o.trim()).filter(Boolean).slice(0, 8);
@@ -879,8 +998,15 @@ export async function createPost(
       const links = hitRateLimit(data, `clink:${channelId}:${userId}`, 60_000, 8, now);
       if (!links.allowed) return { ok: false as const, error: "لینک پیاپی محدود شد.", status: 429 };
     }
+    const unsafe = inspectTextLinks(`${body} ${caption}`);
+    if (unsafe.warn) return { ok: false as const, error: unsafe.reason ?? "لینک ناامن است.", status: 400 };
     let status: ChannelPost["status"] = input.status === "draft" || input.status === "scheduled" ? input.status : "published";
-    if (status === "scheduled" && (!input.scheduledAt || input.scheduledAt <= now)) status = "published";
+    if (status === "scheduled") {
+      if (!input.scheduledAt || input.scheduledAt <= now) status = "published";
+      else if (input.scheduledAt - now > CHANNEL_SCHEDULE_MAX_MS) {
+        return { ok: false as const, error: "زمان انتشار بیش از سقف ۳۰ روز است.", status: 400 };
+      }
+    }
     const post: ChannelPost = {
       id: randomId(),
       channelId,
@@ -916,12 +1042,15 @@ export async function createPost(
       durationMs: kind === "voice" || kind === "audio" ? input.durationMs : undefined,
       sourcePostId: null,
       fileName: kind === "file" || kind === "audio" || kind === "photo" || kind === "video" || kind === "gif" ? sanitizeFileName(String(input.fileName ?? caption)).slice(0, 120) : undefined,
+      clientNonce: nonce || undefined,
+      linkPreview: linkPreviewOf(`${body} ${caption}`),
     };
     data.channelPosts.push(post);
     channel.updatedAt = now;
     if (status === "published") {
       enqueueBroadcast(data, channel.id, post.id);
       drainBroadcasts(data, now);
+      publishChannelLive(channel.id, "post", post.id);
     }
     return { ok: true as const, post, channel: publicChannel(channel, userId, data) };
   });
@@ -932,13 +1061,20 @@ export async function editPost(userId: string, channelId: string, postId: string
     const channel = data.pubChannels.find((c) => c.id === channelId && channelListed(c));
     if (!channel) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
     const me = staffOf(channel, userId);
-    if (!canAdmin(me, "editPosts", channel)) return { ok: false as const, error: "اجازهٔ ویرایش نداری.", status: 403 };
     const post = data.channelPosts.find((p) => p.id === postId && p.channelId === channelId && !p.deleted);
     if (!post) return { ok: false as const, error: "پست یافت نشد.", status: 404 };
-    if (typeof patch.body === "string") post.body = patch.body.trim().slice(0, 4000);
-    if (typeof patch.caption === "string") post.caption = patch.caption.trim().slice(0, 1000);
+    const allowed = canAdmin(me, "editPosts", channel) || post.authorKey === userId;
+    if (!allowed) return { ok: false as const, error: "اجازهٔ ویرایش نداری.", status: 403 };
+    const editLimit = hitRateLimit(data, `cedit:${userId}`, 60_000, 20);
+    if (!editLimit.allowed) return { ok: false as const, error: "ویرایش پیاپی محدود شد.", status: 429 };
+    if (typeof patch.body === "string") post.body = sanitizeText(patch.body.trim().slice(0, 4000));
+    if (typeof patch.caption === "string") post.caption = sanitizeText(patch.caption.trim().slice(0, 1000));
+    const unsafe = inspectTextLinks(`${post.body} ${post.caption}`);
+    if (unsafe.warn) return { ok: false as const, error: unsafe.reason ?? "لینک ناامن است.", status: 400 };
+    post.linkPreview = linkPreviewOf(`${post.body} ${post.caption}`);
     post.editedAt = Date.now();
     channel.updatedAt = Date.now();
+    publishChannelLive(channel.id, "edit", post.id);
     return { ok: true as const, post };
   });
 }
@@ -948,12 +1084,17 @@ export async function deletePost(userId: string, channelId: string, postId: stri
     const channel = data.pubChannels.find((c) => c.id === channelId && channelListed(c));
     if (!channel) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
     const me = staffOf(channel, userId);
-    if (!canAdmin(me, "deletePosts", channel)) return { ok: false as const, error: "اجازهٔ حذف نداری.", status: 403 };
     const post = data.channelPosts.find((p) => p.id === postId && p.channelId === channelId);
     if (!post) return { ok: false as const, error: "پست یافت نشد.", status: 404 };
+    if (post.authorKey !== userId && !canAdmin(me, "deletePosts", channel)) {
+      return { ok: false as const, error: "اجازهٔ حذف نداری.", status: 403 };
+    }
+    const delLimit = hitRateLimit(data, `cdel:${userId}`, 60_000, 20);
+    if (!delLimit.allowed) return { ok: false as const, error: "حذف پیاپی محدود شد.", status: 429 };
     post.deleted = true;
     channel.pinIds = channel.pinIds.filter((id) => id !== postId);
     if (me) pushAudit(channel, me, "post_deleted", postId);
+    publishChannelLive(channelId, "delete", postId);
     return { ok: true as const };
   });
 }
@@ -972,6 +1113,7 @@ export async function pinPost(userId: string, channelId: string, postId: string,
         channel.pinIds.push(postId);
       }
     } else channel.pinIds = channel.pinIds.filter((id) => id !== postId);
+    publishChannelLive(channelId, "pin", postId);
     return { ok: true as const, pinIds: channel.pinIds };
   });
 }
@@ -1019,23 +1161,28 @@ export async function commentPost(userId: string, channelId: string, postId: str
     if (!channel) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
     if (!channel.commentsEnabled) return { ok: false as const, error: "نظر برای این کانال خاموش است.", status: 403 };
     const user = data.users.find((u) => u.id === userId);
-    const allowed = staffOf(channel, userId) || channel.subscribers.some((s) => s.userId === userId && liveSub(s));
+    const isStaff = Boolean(staffOf(channel, userId));
+    const isSub = channel.subscribers.some((s) => s.userId === userId && liveSub(s));
+    if (channel.commentWho === "staff" && !isStaff) return { ok: false as const, error: "فقط عوامل کانال می‌توانند نظر بگذارند.", status: 403 };
+    const allowed = isStaff || isSub;
     if (!allowed) return { ok: false as const, error: "ابتدا دنبال کن.", status: 403 };
     const post = data.channelPosts.find((p) => p.id === postId && p.channelId === channelId && !p.deleted);
     if (!post) return { ok: false as const, error: "پست یافت نشد.", status: 404 };
-    const parent = parentId ? post.comments.find((c) => c.id === parentId) : null;
+    const parent = parentId ? post.comments.find((c) => c.id === parentId && !c.deleted) : null;
     if (parentId && !parent) return { ok: false as const, error: "نظر والد یافت نشد.", status: 404 };
     const flood = hitRateLimit(data, `cmt:${channelId}:${userId}`, CHANNEL_FLOOD_WINDOW_MS, CHANNEL_FLOOD_MAX);
     if (!flood.allowed) return { ok: false as const, error: "نظر پیاپی محدود شد.", status: 429 };
+    const clean = sanitizeText(text);
     post.comments.push({
       id: randomId(),
       authorKey: userId,
       authorName: user?.displayName || "کاربر",
-      body: text,
+      body: clean,
       createdAt: Date.now(),
       parentId: parent ? parent.id : null,
     });
-    return { ok: true as const, comments: post.comments };
+    publishChannelLive(channelId, "comment", postId);
+    return { ok: true as const, comments: post.comments.filter((c) => !c.deleted) };
   });
 }
 
@@ -1051,7 +1198,8 @@ export async function deleteComment(userId: string, channelId: string, postId: s
     if (comment.authorKey !== userId && !canAdmin(me, "manageComments", channel)) {
       return { ok: false as const, error: "اجازهٔ حذف نظر نداری.", status: 403 };
     }
-    post.comments = post.comments.filter((c) => c.id !== commentId);
+    comment.deleted = true;
+    publishChannelLive(channelId, "comment", postId);
     return { ok: true as const };
   });
 }
@@ -1114,6 +1262,7 @@ export async function recordForward(userId: string, channelId: string, postId: s
   return mutateStore((data) => {
     const channel = data.pubChannels.find((c) => c.id === channelId && channelListed(c));
     if (!channel) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
+    if (!viewerCanAccessChannel(channel, userId)) return { ok: false as const, error: "اجازه نداری.", status: 403 };
     if (!channel.allowForward) return { ok: false as const, error: "هدایت این کانال محدود شده است.", status: 403 };
     const post = data.channelPosts.find((p) => p.id === postId && p.channelId === channelId && !p.deleted);
     if (!post) return { ok: false as const, error: "پست یافت نشد.", status: 404 };
@@ -1133,7 +1282,7 @@ export async function transferChannelOwner(userId: string, channelId: string, ta
     if (!target) return { ok: false as const, error: "فقط مشترک واردشده قابل انتقال است.", status: 400 };
     me.role = "admin";
     channel.staff = channel.staff.filter((s) => s.userId !== targetId);
-    channel.staff.push({ userId: targetId, role: "owner", name: target.name });
+    channel.staff.push({ id: randomId(), userId: targetId, role: "owner", name: target.name, customRoleId: null });
     channel.ownerUserId = targetId;
     pushAudit(channel, me, "owner", `مالکیت به ${target.name}`);
     channel.updatedAt = Date.now();
@@ -1379,7 +1528,7 @@ export async function exportChannelData(userId: string, channelId: string) {
         uniqueViews: p.views?.length ?? 0,
         viewHits: p.viewHits ?? 0,
         forwards: p.forwards ?? 0,
-        comments: p.comments.length,
+        comments: p.comments.filter((c) => !c.deleted).length,
       }));
     return {
       ok: true as const,
@@ -1396,4 +1545,89 @@ export async function exportChannelData(userId: string, channelId: string) {
       },
     };
   });
+}
+
+export function viewerCanAccessChannel(channel: PubChannelRecord, userId: string) {
+  if (!channelListed(channel)) return false;
+  if (lifecycleOf(channel) === "suspended" && !staffOf(channel, userId)) return false;
+  if (staffOf(channel, userId)) return true;
+  if (channel.subscribers.some((s) => s.userId === userId && liveSub(s))) return true;
+  return channel.visibility === "public";
+}
+
+export async function listChannelPosts(userId: string, channelId: string, cursor = "", limit = CHANNEL_POST_PAGE) {
+  return mutateStore((data) => {
+    publishDue(data, Date.now());
+    const channel = data.pubChannels.find((c) => c.id === channelId && channelListed(c));
+    if (!channel || !viewerCanAccessChannel(channel, userId)) return null;
+    const staff = staffOf(channel, userId);
+    const rows = data.channelPosts
+      .filter((p) => p.channelId === channelId && !p.deleted)
+      .filter((p) => p.status === "published" || Boolean(staff))
+      .sort((a, b) => (b.publishedAt ?? b.createdAt) - (a.publishedAt ?? a.createdAt));
+    const start = cursor ? Math.max(0, rows.findIndex((p) => p.id === cursor) + 1) : 0;
+    const pageSize = Math.min(80, Math.max(1, limit));
+    const page = rows.slice(start, start + pageSize);
+    const last = page[page.length - 1];
+    return {
+      posts: page.map((p) => ({
+        id: p.id,
+        kind: p.kind,
+        caption: p.caption,
+        body: p.kind === "voice" || p.kind === "file" ? "" : p.body.slice(0, 4000),
+        status: p.status,
+        publishedAt: p.publishedAt,
+        createdAt: p.createdAt,
+        linkPreview: p.linkPreview ?? null,
+      })),
+      nextCursor: page.length === pageSize && last ? last.id : null,
+      total: rows.length,
+    };
+  });
+}
+
+export async function listChannelMedia(userId: string, channelId: string, kind = "", cursor = "") {
+  const listed = await listChannelPosts(userId, channelId, cursor, CHANNEL_POST_PAGE);
+  if (!listed) return null;
+  const types = kind ? [kind] : ["photo", "video", "audio", "file", "gif", "voice"];
+  return {
+    items: listed.posts.filter((p) => types.includes(p.kind)),
+    nextCursor: listed.nextCursor,
+  };
+}
+
+export async function listChannelSubscribers(userId: string, channelId: string, q = "", cursor = "") {
+  const data = await readStoreSnapshot();
+  const channel = data.pubChannels.find((c) => c.id === channelId && channelListed(c));
+  if (!channel) return null;
+  const me = staffOf(channel, userId);
+  if (!canAdmin(me, "manageSubscribers", channel)) return { ok: false as const, error: "اجازه نداری.", status: 403 as const };
+  const needle = q.trim().toLowerCase();
+  const live = channel.subscribers.filter(liveSub).sort((a, b) => a.subscribedAt - b.subscribedAt);
+  const filtered = needle ? live.filter((s) => s.name.toLowerCase().includes(needle) || (s.username ?? "").includes(needle)) : live;
+  const start = cursor ? Math.max(0, filtered.findIndex((s) => s.id === cursor) + 1) : 0;
+  const page = filtered.slice(start, start + CHANNEL_SUB_PAGE);
+  const last = page[page.length - 1];
+  return {
+    ok: true as const,
+    subscribers: page.map((s) => ({
+      id: s.id,
+      userId: s.userId,
+      name: s.name,
+      username: s.username,
+      subscribedAt: s.subscribedAt,
+    })),
+    nextCursor: page.length === CHANNEL_SUB_PAGE && last ? last.id : null,
+    total: filtered.length,
+  };
+}
+
+export async function syncChannel(userId: string, channelId: string, since: number) {
+  const listed = await getChannel(userId, channelId);
+  if (!listed) return null;
+  const data = await readStoreSnapshot();
+  const posts = data.channelPosts.filter(
+    (p) => p.channelId === channelId && !p.deleted && p.status === "published" && (p.publishedAt ?? p.createdAt) > since,
+  );
+  return { channel: listed.channel, posts: posts.map((p) => ({ id: p.id, publishedAt: p.publishedAt, kind: p.kind })), since: Date.now() };
 }

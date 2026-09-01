@@ -1,8 +1,19 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
-import { inviteDirect, liveChat, moderateSubscriber, publishChannelStory, setLive, setNotify, setStaff, subscribe, transferChannelOwner, unsubscribe, moderateJoinRequest, exportChannelData, adminChannelLifecycle } from "@/lib/channels";
+import { inviteDirect, liveChat, listChannelSubscribers, moderateSubscriber, publishChannelStory, setLive, setNotify, setStaff, subscribe, transferChannelOwner, unsubscribe, moderateJoinRequest, exportChannelData, adminChannelLifecycle } from "@/lib/channels";
 
 type Ctx = { params: Promise<{ id: string }> };
+
+export async function GET(request: Request, ctx: Ctx) {
+  const user = await requireActiveUser();
+  if (!user) return jsonError("نشست فعال نیست.", 401);
+  const { id } = await ctx.params;
+  const url = new URL(request.url);
+  const result = await listChannelSubscribers(user.id, id, url.searchParams.get("q") ?? "", url.searchParams.get("cursor") ?? "");
+  if (!result) return jsonError("کانال یافت نشد.", 404);
+  if (result.ok === false) return jsonError(result.error, result.status);
+  return json(result);
+}
 
 export async function POST(request: Request, ctx: Ctx) {
   const user = await requireActiveUser();
@@ -42,7 +53,12 @@ export async function POST(request: Request, ctx: Ctx) {
   if (body.action === "notify") {
     const notify = body.notify;
     if (notify !== "on" && notify !== "off" && notify !== "important") return jsonError("حالت اعلان نامعتبر است.");
-    const result = await setNotify(user.id, id, notify);
+    const result = await setNotify(
+      user.id,
+      id,
+      notify,
+      typeof body.ms === "number" ? Date.now() + body.ms : body.ms === null ? null : undefined,
+    );
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true, notify: result.notify });
   }
@@ -53,8 +69,11 @@ export async function POST(request: Request, ctx: Ctx) {
     return json({ ok: true, channel: result.channel });
   }
   if (body.action === "staff") {
-    const role = body.role === "admin" || body.role === "moderator" || body.role === "none" ? body.role : "none";
-    const result = await setStaff(user.id, id, String(body.targetId ?? ""), role);
+    const role = body.role === "admin" || body.role === "editor" || body.role === "moderator" || body.role === "none" ? body.role : "none";
+    const result = await setStaff(user.id, id, String(body.targetId ?? ""), role, {
+      staffId: typeof body.staffId === "string" ? body.staffId : undefined,
+      customRoleId: body.customRoleId === null || typeof body.customRoleId === "string" ? (body.customRoleId as string | null) : undefined,
+    });
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true, channel: result.channel });
   }

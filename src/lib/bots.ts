@@ -996,8 +996,10 @@ export async function addBotToChannel(
     const sid = `bot:${bot.id}`;
     if (!channel.staff.some((s) => s.userId === sid)) {
       channel.staff.push({
+        id: randomId(),
         userId: sid,
         role: perms.canPost ? "admin" : "moderator",
+        customRoleId: null,
         name: bot.name,
       });
     }

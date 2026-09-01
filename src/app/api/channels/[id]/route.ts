@@ -27,6 +27,8 @@ export async function PATCH(request: Request, ctx: Ctx) {
     username: body.username === null || typeof body.username === "string" ? (body.username as string | null) : undefined,
     visibility: body.visibility === "private" || body.visibility === "public" ? body.visibility : undefined,
     commentsEnabled: typeof body.commentsEnabled === "boolean" ? body.commentsEnabled : undefined,
+    commentWho: body.commentWho === "staff" || body.commentWho === "subscribers" ? body.commentWho : undefined,
+    customRoles: Array.isArray(body.customRoles) ? (body.customRoles as import("@/lib/channel-types").CustomChannelRole[]) : undefined,
     allowedReactions: Array.isArray(body.allowedReactions) ? body.allowedReactions.map(String) : body.allowedReactions === null ? null : undefined,
     reactionsEnabled: typeof body.reactionsEnabled === "boolean" ? body.reactionsEnabled : undefined,
     allowForward: typeof body.allowForward === "boolean" ? body.allowForward : undefined,
@@ -50,11 +52,12 @@ export async function PATCH(request: Request, ctx: Ctx) {
   return json({ ok: true, channel: result.channel });
 }
 
-export async function DELETE(_req: Request, ctx: Ctx) {
+export async function DELETE(request: Request, ctx: Ctx) {
   const user = await requireActiveUser();
   if (!user) return jsonError("نشست فعال نیست.", 401);
   const { id } = await ctx.params;
-  const result = await deleteChannel(user.id, id);
+  const body = (await request.json().catch(() => null)) as { confirm?: string } | null;
+  const result = await deleteChannel(user.id, id, { confirm: body?.confirm });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true });
 }

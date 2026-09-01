@@ -1,8 +1,23 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
-import { commentPost, createPost, deleteComment, deletePost, editPost, pinPost, reactPost, recordForward, recordPostView, votePoll, cancelScheduledPost, repostPost } from "@/lib/channels";
+import { commentPost, createPost, deleteComment, deletePost, editPost, listChannelMedia, listChannelPosts, pinPost, reactPost, recordForward, recordPostView, votePoll, cancelScheduledPost, repostPost } from "@/lib/channels";
 
 type Ctx = { params: Promise<{ id: string }> };
+
+export async function GET(request: Request, ctx: Ctx) {
+  const user = await requireActiveUser();
+  if (!user) return jsonError("نشست فعال نیست.", 401);
+  const { id } = await ctx.params;
+  const url = new URL(request.url);
+  if (url.searchParams.get("media") === "1") {
+    const result = await listChannelMedia(user.id, id, url.searchParams.get("kind") ?? "", url.searchParams.get("cursor") ?? "");
+    if (!result) return jsonError("کانال یافت نشد.", 404);
+    return json({ ok: true, ...result });
+  }
+  const result = await listChannelPosts(user.id, id, url.searchParams.get("cursor") ?? "");
+  if (!result) return jsonError("کانال یافت نشد.", 404);
+  return json({ ok: true, ...result });
+}
 
 export async function POST(request: Request, ctx: Ctx) {
   const user = await requireActiveUser();
@@ -81,6 +96,7 @@ export async function POST(request: Request, ctx: Ctx) {
     voiceDataUrl: typeof body.voiceDataUrl === "string" ? body.voiceDataUrl : undefined,
     fileDataUrl: typeof body.fileDataUrl === "string" ? body.fileDataUrl : undefined,
     fileName: typeof body.fileName === "string" ? body.fileName : undefined,
+    clientNonce: typeof body.clientNonce === "string" ? body.clientNonce : undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, post: result.post, channel: result.channel });

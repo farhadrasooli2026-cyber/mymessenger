@@ -114,9 +114,11 @@ describe("NIXO channels", () => {
     const created = await createChannel(owner, { name: "موقت", username: "nixo_tmp", visibility: "public" });
     expect(created.ok).toBe(true);
     if (!created.ok) return;
-    const blocked = await deleteChannel(other, created.channel.id);
+    const blocked = await deleteChannel(other, created.channel.id, { confirm: "DELETE" });
     expect(blocked.ok).toBe(false);
-    const ok = await deleteChannel(owner, created.channel.id);
+    const missing = await deleteChannel(owner, created.channel.id);
+    expect(missing.ok).toBe(false);
+    const ok = await deleteChannel(owner, created.channel.id, { confirm: "DELETE" });
     expect(ok.ok).toBe(true);
   });
 
@@ -200,7 +202,7 @@ describe("NIXO channels", () => {
     const mine = await exportChannelData(owner, pub.channel.id);
     expect(mine.ok).toBe(true);
 
-    await deleteChannel(owner, pub.channel.id);
+    await deleteChannel(owner, pub.channel.id, { confirm: "DELETE" });
     expect(await getChannel(fan, pub.channel.id)).toBeNull();
     expect((await searchPublicChannels("کشف", fan)).some((c) => c.id === pub.channel.id)).toBe(false);
   });
@@ -222,5 +224,39 @@ describe("NIXO channels", () => {
     expect(blocked.ok).toBe(false);
     const frozen = await adminChannelLifecycle(ops, created.channel.id, "suspended");
     expect(frozen.ok).toBe(true);
+  });
+
+  it("lets editors post, rejects script payloads, and paginates subscribers for staff only", async () => {
+    const owner = await activeUser("ch_ed_o");
+    const editor = await activeUser("ch_ed_e");
+    const stranger = await activeUser("ch_ed_s");
+    const created = await createChannel(owner, { name: "سردبیر", username: "nixo_edch", visibility: "public" });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    await subscribe(editor, created.channel.id);
+    const asEd = await setStaff(owner, created.channel.id, editor, "editor");
+    expect(asEd.ok).toBe(true);
+    const posted = await createPost(editor, created.channel.id, { body: "پیش‌نویس سردبیر", kind: "text", clientNonce: "n1" });
+    expect(posted.ok).toBe(true);
+    const dup = await createPost(editor, created.channel.id, { body: "دیگر", kind: "text", clientNonce: "n1" });
+    expect(dup.ok).toBe(true);
+    if (posted.ok && dup.ok) expect(dup.post.id).toBe(posted.post.id);
+    const xss = await createPost(owner, created.channel.id, { body: '<script>alert(1)</script>سلام', kind: "text" });
+    expect(xss.ok).toBe(true);
+    if (xss.ok) expect(xss.post.body.toLowerCase()).not.toContain("<script");
+    const stealRole = await setStaff(stranger, created.channel.id, editor, "admin");
+    expect(stealRole.ok).toBe(false);
+    const { listChannelSubscribers, listChannelPosts } = await import("./channels");
+    const subs = await listChannelSubscribers(stranger, created.channel.id);
+    expect(subs && "ok" in subs && subs.ok === false).toBe(true);
+    const ownerSubs = await listChannelSubscribers(owner, created.channel.id);
+    expect(ownerSubs && "ok" in ownerSubs && ownerSubs.ok && ownerSubs.subscribers.some((s) => s.id)).toBe(true);
+    const page = await listChannelPosts(stranger, created.channel.id);
+    expect(page?.posts.some((p) => p.id === (posted.ok ? posted.post.id : ""))).toBe(true);
+    const priv = await createChannel(owner, { name: "خصوصی دوم", visibility: "private" });
+    expect(priv.ok).toBe(true);
+    if (!priv.ok) return;
+    const hidden = await listChannelPosts(stranger, priv.channel.id);
+    expect(hidden).toBeNull();
   });
 });
