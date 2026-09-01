@@ -58,7 +58,7 @@ import type {
   UserAddress,
   WalletRecord,
 } from "@/lib/shop-types";
-import type { NotifyAudit, NotifyPrefs, NotifyRecord, PushJob, PushToken } from "@/lib/notify-types";
+import type { NotifyAudit, NotifyDeadLetter, NotifyPrefs, NotifyRecord, PushJob, PushToken } from "@/lib/notify-types";
 import type { SearchDoc, SearchIndexJob, SearchMetrics, SearchQueryCache } from "@/lib/search-types";
 import type { VaultJob, VaultObject, VaultSession, StorageMetrics } from "@/lib/storage-types";
 import { applyMigrations, hydrateSchemaMeta } from "@/lib/db/migrate";
@@ -1916,6 +1916,7 @@ export type StoreData = {
   notifyPrefs: NotifyPrefs[];
   pushTokens: PushToken[];
   pushJobs: PushJob[];
+  notifyDeadLetters: NotifyDeadLetter[];
   notifyAudit: NotifyAudit[];
   groupCalls: GroupCallRoom[];
   callSignals: CallSignal[];
@@ -2047,6 +2048,7 @@ const EMPTY: StoreData = {
   notifyPrefs: [],
   pushTokens: [],
   pushJobs: [],
+  notifyDeadLetters: [],
   notifyAudit: [],
   groupCalls: [],
   callSignals: [],
@@ -2245,6 +2247,7 @@ async function readStore(): Promise<StoreData> {
       notifyPrefs: Array.isArray(parsed.notifyPrefs) ? parsed.notifyPrefs : [],
       pushTokens: Array.isArray(parsed.pushTokens) ? parsed.pushTokens : [],
       pushJobs: Array.isArray(parsed.pushJobs) ? parsed.pushJobs : [],
+      notifyDeadLetters: Array.isArray(parsed.notifyDeadLetters) ? parsed.notifyDeadLetters : [],
       notifyAudit: Array.isArray(parsed.notifyAudit) ? parsed.notifyAudit : [],
       groupCalls: Array.isArray(parsed.groupCalls) ? parsed.groupCalls : [],
       callSignals: Array.isArray(parsed.callSignals) ? parsed.callSignals : [],
@@ -2514,6 +2517,7 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.notifyPrefs = (data.notifyPrefs ?? []).filter((p) => p.userId !== uid);
   data.pushTokens = (data.pushTokens ?? []).filter((t) => t.userId !== uid);
   data.pushJobs = (data.pushJobs ?? []).filter((j) => j.userId !== uid);
+  data.notifyDeadLetters = (data.notifyDeadLetters ?? []).filter((d) => d.userId !== uid);
   data.notifyAudit = (data.notifyAudit ?? []).filter((a) => a.userId !== uid);
   data.contacts = (data.contacts ?? []).filter((c) => c.ownerUserId !== uid);
   data.contactInvites = (data.contactInvites ?? []).filter((i) => i.ownerUserId !== uid);

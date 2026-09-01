@@ -610,6 +610,7 @@ export async function sendRequest(userId: string, targetId: string) {
       title: "درخواست دوستی",
       body: "یک کاربر نیکسو درخواست دوستی فرستاده است.",
       sourceId: `req:${row.id}`,
+      eventId: `friend-request:${row.id}`,
       actorUserId: userId,
       target: { type: "system", id: row.id, href: "/app/contacts" },
     });
@@ -666,6 +667,7 @@ export async function resolveRequest(userId: string, requestId: string, action: 
       title: "درخواست دوستی پذیرفته شد",
       body: "حالا در فهرست دوستان هستید.",
       sourceId: `reqok:${req.id}`,
+      eventId: `friend-accepted:${req.id}`,
       actorUserId: userId,
       target: { type: "system", id: req.id, href: "/app/contacts" },
     });
@@ -731,6 +733,7 @@ export async function followUser(userId: string, peerId: string) {
       title: "دنبال‌کننده جدید",
       body: "یک کاربر نیکسو تو را Follow کرد.",
       sourceId: `fol:${row.id}`,
+      eventId: `follow:${row.id}`,
       actorUserId: userId,
       target: { type: "system", id: row.id, href: "/app/contacts" },
     });

@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Bell } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { CATEGORY_FA, NOTIFY_CATEGORIES, type NotifyCategory } from "@/lib/notify-types";
 
@@ -29,22 +30,37 @@ export function NotifyBell({ onOpen }: { onOpen?: (href: string, target?: { type
   const [items, setItems] = useState<Item[]>([]);
   const [counts, setCounts] = useState({ total: 0, messages: 0, mentions: 0, calls: 0, security: 0 });
   const [category, setCategory] = useState<NotifyCategory>("all");
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [mentionsOnly, setMentionsOnly] = useState(false);
+  const [securityOnly, setSecurityOnly] = useState(false);
   const [note, setNote] = useState("");
   const [q, setQ] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
   const [perm, setPerm] = useState("");
+  const seenRef = useRef<Set<string>>(new Set());
+  const primedRef = useRef(false);
+  const prefsRef = useRef<{ sound?: boolean; vibration?: boolean; vibrationPattern?: number[] }>({});
 
   const load = useCallback(async (nextCursor?: string | null) => {
     const params = new URLSearchParams({ category });
     if (q.trim()) params.set("q", q.trim());
     if (nextCursor) params.set("cursor", nextCursor);
+    if (unreadOnly) params.set("unread", "1");
+    if (mentionsOnly) params.set("mentions", "1");
+    if (securityOnly) params.set("security", "1");
     const res = await fetch(`/api/notify?${params.toString()}`, { cache: "no-store" });
     const data = await res.json();
     if (!res.ok) return;
-    setItems((prev) => (nextCursor ? [...prev, ...(data.items ?? [])] : (data.items ?? [])));
+    const incoming: Item[] = data.items ?? [];
+    setItems((prev) => (nextCursor ? [...prev, ...incoming] : incoming));
     setCursor(data.nextCursor ?? null);
     setCounts(data.counts ?? { total: 0, messages: 0, mentions: 0, calls: 0, security: 0 });
     setNote(data.note ?? "");
+    prefsRef.current = {
+      sound: data.prefs?.soundEnabled !== false,
+      vibration: data.prefs?.vibration !== false,
+      vibrationPattern: data.vibrationPattern,
+    };
     const n = data.counts?.total ?? 0;
     if (data.prefs?.badge !== false && typeof document !== "undefined") {
       document.title = n > 0 ? `NIXO (${n})` : "NIXO نیکسو — اتصال. تبادل. فراتر از مرزها.";
@@ -58,7 +74,30 @@ export function NotifyBell({ onOpen }: { onOpen?: (href: string, target?: { type
     } catch {
       /* badge API optional */
     }
-  }, [category, q]);
+    if (primedRef.current && typeof document !== "undefined" && document.visibilityState === "visible") {
+      for (const item of incoming) {
+        if (item.read || item.suppressed || seenRef.current.has(item.id)) continue;
+        seenRef.current.add(item.id);
+        toast.message(item.title, { description: item.body || item.senderName });
+        if (prefsRef.current.vibration && navigator.vibrate && prefsRef.current.vibrationPattern?.length) {
+          navigator.vibrate(prefsRef.current.vibrationPattern);
+        }
+      }
+    } else if (primedRef.current && typeof Notification !== "undefined" && Notification.permission === "granted") {
+      for (const item of incoming) {
+        if (item.read || item.suppressed || seenRef.current.has(item.id)) continue;
+        seenRef.current.add(item.id);
+        try {
+          new Notification(item.title, { body: item.body, tag: item.id });
+        } catch {
+          /* Notification ctor optional */
+        }
+      }
+    } else {
+      for (const item of incoming) seenRef.current.add(item.id);
+    }
+    primedRef.current = true;
+  }, [category, q, unreadOnly, mentionsOnly, securityOnly]);
 
   useEffect(() => {
     const t0 = window.setTimeout(() => void load(), 0);
@@ -106,7 +145,7 @@ export function NotifyBell({ onOpen }: { onOpen?: (href: string, target?: { type
               {counts.security ? ` · ${counts.security} امنیت` : ""}
             </p>
             <div className="mt-2 flex flex-wrap gap-1">
-              {NOTIFY_CATEGORIES.filter((c) => !["stories", "bots", "ai"].includes(c)).map((c) => (
+              {NOTIFY_CATEGORIES.map((c) => (
                 <button
                   key={c}
                   type="button"
@@ -116,6 +155,17 @@ export function NotifyBell({ onOpen }: { onOpen?: (href: string, target?: { type
                   {CATEGORY_FA[c]}
                 </button>
               ))}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
+              <button type="button" className={`rounded-full px-2 py-0.5 ${unreadOnly ? "bg-amber-300 text-[#102824]" : "bg-white/10"}`} onClick={() => setUnreadOnly((v) => !v)}>
+                فقط خوانده‌نشده
+              </button>
+              <button type="button" className={`rounded-full px-2 py-0.5 ${mentionsOnly ? "bg-amber-300 text-[#102824]" : "bg-white/10"}`} onClick={() => setMentionsOnly((v) => !v)}>
+                منشن
+              </button>
+              <button type="button" className={`rounded-full px-2 py-0.5 ${securityOnly ? "bg-amber-300 text-[#102824]" : "bg-white/10"}`} onClick={() => setSecurityOnly((v) => !v)}>
+                امنیت
+              </button>
             </div>
             <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
               <Button type="button" size="xs" variant="secondary" onClick={() => void act("read", { all: true })}>
@@ -189,7 +239,7 @@ export function NotifyBell({ onOpen }: { onOpen?: (href: string, target?: { type
                     }}
                   >
                     <p className="text-sm font-medium">
-                      {n.priority === "high" ? "⚠ " : ""}
+                      {n.priority === "critical" ? "✦ " : n.priority === "high" ? "⚠ " : ""}
                       {n.title}
                       {n.e2ee ? " · E2EE" : ""}
                       {(n.collapsedCount ?? 1) > 1 ? ` · ${n.collapsedCount}` : ""}
@@ -203,6 +253,9 @@ export function NotifyBell({ onOpen }: { onOpen?: (href: string, target?: { type
                   <div className="mt-1 flex gap-2 text-[10px]">
                     <button type="button" className="text-amber-200" onClick={() => void act("read", { id: n.id })}>
                       Mark as Read
+                    </button>
+                    <button type="button" className="text-emerald-100/70" onClick={() => void act("unread", { id: n.id })}>
+                      Mark as Unread
                     </button>
                     <button type="button" className="text-emerald-100/70" onClick={() => void act("dismiss", { id: n.id })}>
                       پنهان

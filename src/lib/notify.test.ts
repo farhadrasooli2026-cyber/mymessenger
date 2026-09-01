@@ -4,7 +4,7 @@ import { completeProfile } from "./profile";
 import { ackHumanChallenge, issueHumanChallenge, startRegistration, verifyOtp } from "./registration";
 import { getOutbox } from "./outbox";
 import { mutateStore, resetStoreForTests } from "./store";
-import { emitNotification, listNotifications, markNotify, muteTarget, updateNotifyPrefs } from "./notify";
+import { emitNotification, invalidateNotifyPrefsCache, listNotifications, markNotify, muteTarget, updateNotifyPrefs } from "./notify";
 import { appendAudit } from "./security";
 import { createChannel, createPost, subscribe } from "./channels";
 import { createGroup, sendGroupMessage } from "./groups";
@@ -37,6 +37,7 @@ async function activeUser(username: string) {
 
 describe("NIXO notifications", () => {
   afterEach(async () => {
+    invalidateNotifyPrefsCache();
     await resetStoreForTests();
   });
 
@@ -80,7 +81,7 @@ describe("NIXO notifications", () => {
     const sec = list.items.find((i) => i.category === "security");
     expect(msg?.suppressed).toBe(true);
     expect(sec).toBeTruthy();
-    expect(sec?.priority).toBe("high");
+    expect(sec?.priority).toBe("critical");
     expect(sec?.suppressed).toBe(false);
     expect(list.counts.security).toBeGreaterThan(0);
   });
@@ -278,5 +279,68 @@ describe("NIXO notifications", () => {
     expect(after.items[0]?.pushState === "delivered" || after.items[0]?.state === "delivered").toBe(true);
     const page = await listNotifications(user, "all", 0, 2);
     expect(page.nextCursor === null || typeof page.nextCursor === "string").toBe(true);
+  });
+
+  it("deduplicates by event id, filters unread, and refuses silent security disable", async () => {
+    const user = await activeUser("nt_idemp");
+    let first = "";
+    await mutateStore((data) => {
+      const a = emitNotification(data, {
+        userId: user,
+        category: "messages",
+        kind: "message",
+        title: "Ali",
+        body: "one",
+        sourceId: "chat:idemp",
+        eventId: "evt-same-1",
+        target: { type: "chat", id: "tid" },
+      });
+      const b = emitNotification(data, {
+        userId: user,
+        category: "messages",
+        kind: "message",
+        title: "Ali",
+        body: "two",
+        sourceId: "chat:idemp",
+        eventId: "evt-same-1",
+        target: { type: "chat", id: "tid" },
+      });
+      first = a?.id ?? "";
+      expect(b?.id).toBe(first);
+    });
+    const unread = await listNotifications(user, "all", 0, 40, { unread: true });
+    expect(unread.items.length).toBeGreaterThan(0);
+    expect(unread.items.every((i) => !i.read)).toBe(true);
+    const silent = await updateNotifyPrefs(user, { enabled: { ...unread.prefs.enabled, security: false } });
+    expect(silent.prefs.enabled.security).toBe(true);
+    const acked = await updateNotifyPrefs(user, {
+      enabled: { ...silent.prefs.enabled, security: false },
+      securityDisableAck: true,
+    });
+    expect(acked.prefs.enabled.security).toBe(false);
+    const { securePushPayload } = await import("./notify");
+    const payload = securePushPayload({
+      id: "n1",
+      eventId: "e1",
+      userId: user,
+      category: "messages",
+      kind: "message",
+      title: "hi",
+      body: "preview",
+      senderName: "Ali",
+      photoUrl: null,
+      priority: "normal",
+      e2ee: false,
+      suppressed: false,
+      readAt: null,
+      deletedAt: null,
+      createdAt: Date.now(),
+      sourceId: "s",
+      target: { type: "chat", id: "t" },
+      pushState: "pending",
+      groupKey: "g",
+      collapsedCount: 1,
+    });
+    expect(JSON.stringify(payload)).not.toMatch(/password|token|session|secret/i);
   });
 });

@@ -25,7 +25,7 @@ export function NotifySettings() {
     load();
   }, []);
 
-  async function patch(next: Partial<NotifyPrefs>) {
+  async function patch(next: Partial<NotifyPrefs> & { securityDisableAck?: boolean }) {
     const res = await fetch("/api/notify", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -114,6 +114,7 @@ export function NotifySettings() {
               ["payments", "Payments"],
               ["security", "Security"],
               ["lives", "Live"],
+              ["friends", "Friends / Follow"],
             ] as const
           ).map(([k, label]) => (
             <label key={k} className="flex items-center justify-between text-xs">
@@ -121,7 +122,17 @@ export function NotifySettings() {
               <input
                 type="checkbox"
                 checked={en[k]}
-                onChange={(e) => void patch({ enabled: { ...en, [k]: e.target.checked } })}
+                onChange={(e) => {
+                  if (k === "security" && !e.target.checked) {
+                    const ok = window.confirm(
+                      "خاموش کردن اعلان امنیتی فقط Push را کم می‌کند. رویدادهای حیاتی همچنان در مرکز اعلان ثبت می‌شوند. ادامه می‌دهی؟",
+                    );
+                    if (!ok) return;
+                    void patch({ enabled: { ...en, security: false }, securityDisableAck: true });
+                    return;
+                  }
+                  void patch({ enabled: { ...en, [k]: e.target.checked } });
+                }}
               />
             </label>
           ))}
@@ -138,8 +149,8 @@ export function NotifySettings() {
             <input type="checkbox" checked={prefs.reactions !== false} onChange={(e) => void patch({ reactions: e.target.checked })} />
           </label>
           <label className="flex items-center justify-between text-xs">
-            Group Admin Action
-            <input type="checkbox" checked={prefs.groupAdmin} onChange={(e) => void patch({ groupAdmin: e.target.checked })} />
+            Friend Request / Follow
+            <input type="checkbox" checked={prefs.friends !== false} onChange={(e) => void patch({ friends: e.target.checked, enabled: { ...en, friends: e.target.checked } })} />
           </label>
             <Link href="/app/settings/notifications" className="block text-sm text-amber-200">Settings → Notifications → Live</Link>
         </section>
@@ -147,8 +158,25 @@ export function NotifySettings() {
         <section className="space-y-2 rounded-2xl bg-white/5 p-4 text-sm">
           <h2 className="font-medium">Sound / Vibration / Badge</h2>
           <label className="flex items-center justify-between text-xs">
+            Sound
+            <input type="checkbox" checked={prefs.soundEnabled !== false} onChange={(e) => void patch({ soundEnabled: e.target.checked })} />
+          </label>
+          <label className="flex items-center justify-between text-xs">
             Vibration
             <input type="checkbox" checked={prefs.vibration} onChange={(e) => void patch({ vibration: e.target.checked })} />
+          </label>
+          <label className="flex items-center justify-between text-xs">
+            Vibration Pattern
+            <select
+              className="rounded bg-black/30 px-2 py-1"
+              value={prefs.vibrationPattern ?? "nixo"}
+              onChange={(e) => void patch({ vibrationPattern: e.target.value as NotifyPrefs["vibrationPattern"] })}
+            >
+              <option value="nixo">nixo</option>
+              <option value="pulse">pulse</option>
+              <option value="call">call</option>
+              <option value="silent">silent</option>
+            </select>
           </label>
           <label className="flex items-center justify-between text-xs">
             Badge
@@ -192,7 +220,16 @@ export function NotifySettings() {
               <Input type="time" value={prefs.dndEnd} onChange={(e) => void patch({ dndEnd: e.target.value })} className="mt-1 h-8 bg-black/20" />
             </label>
           </div>
-          <p className="text-[11px] text-emerald-100/55">زمان به‌وقت UTC روی سرور اعمال می‌شود. مخاطب مهم را مستثنی کن.</p>
+          <p className="text-[11px] text-emerald-100/55">ساعت سکوت با منطقهٔ زمانی حساب اعمال می‌شود.</p>
+          <label className="flex items-center justify-between text-xs">
+            Time Zone
+            <select className="rounded bg-black/30 px-2 py-1" value={prefs.timeZone || "Asia/Tehran"} onChange={(e) => void patch({ timeZone: e.target.value })}>
+              <option value="Asia/Tehran">Asia/Tehran</option>
+              <option value="UTC">UTC</option>
+              <option value="Europe/Istanbul">Europe/Istanbul</option>
+              <option value="America/New_York">America/New_York</option>
+            </select>
+          </label>
           <div className="flex gap-2">
             <Input value={allowId} onChange={(e) => setAllowId(e.target.value)} placeholder="شناسه مخاطب مهم" className="h-8 bg-black/20" />
             <Button
@@ -239,7 +276,9 @@ export function NotifySettings() {
 }
 
 function PushDevices() {
-  const [tokens, setTokens] = useState<{ id: string; platform: string; permission: string; endpointTail: string; invalid: boolean }[]>([]);
+  const [tokens, setTokens] = useState<
+    { id: string; platform: string; permission: string; endpointTail: string; invalid: boolean; current?: boolean }[]
+  >([]);
 
   function load() {
     fetch("/api/notify/push", { cache: "no-store" })
@@ -261,6 +300,7 @@ function PushDevices() {
         <div key={t.id} className="flex items-center justify-between text-xs">
           <span>
             {t.platform} · …{t.endpointTail} · {t.permission}
+            {t.current ? " · این دستگاه" : ""}
             {t.invalid ? " · نامعتبر" : ""}
           </span>
           <Button

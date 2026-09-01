@@ -1240,6 +1240,14 @@ export function Messenger({
                   setTab("calls");
                   return;
                 }
+                if (target?.type === "story") {
+                  router.push("/app/stories");
+                  return;
+                }
+                if (target?.type === "security") {
+                  router.push("/app/settings/security");
+                  return;
+                }
                 router.push(href);
               }}
             />

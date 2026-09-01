@@ -157,6 +157,23 @@ function pushSystem(data: StoreData, group: GroupRecord, text: string, now: numb
   group.updatedAt = now;
 }
 
+function notifyOwnerJoin(data: StoreData, group: GroupRecord, joinerId: string, now: number) {
+  const owner = group.members.find((m) => m.role === "owner" && !m.leftAt);
+  if (!owner || owner.key === joinerId) return;
+  emitNotification(data, {
+    userId: owner.key,
+    category: "groups",
+    kind: "group_join",
+    title: group.name,
+    body: "عضو جدید به گروه پیوست.",
+    sourceId: `gjoin:${group.id}:${joinerId}`,
+    eventId: `gjoin:${group.id}:${joinerId}:${now}`,
+    muteType: "group",
+    muteId: group.id,
+    target: { type: "group", id: group.id },
+  });
+}
+
 function publicGroup(group: GroupRecord, viewerKey: string) {
   const me = findMember(group, viewerKey);
   const staff = Boolean(me && rankRole(me.role) >= 3);
@@ -642,6 +659,7 @@ export async function joinByToken(userId: string, token: string, extra?: { accep
     group.inviteUses = (group.inviteUses ?? 0) + 1;
     pushSystem(data, group, `${user.displayName || "یک کاربر"} به گروه پیوست.`, now);
     if (group.welcome) pushSystem(data, group, group.welcome, now + 1);
+    notifyOwnerJoin(data, group, userId, now);
     return { ok: true as const, group: publicGroup(group, userId) };
   });
 }
@@ -695,6 +713,7 @@ export async function joinGroup(userId: string, groupId: string, extra?: { accep
     );
     pushSystem(data, group, `${user.displayName || "یک کاربر"} به گروه پیوست.`, now);
     if (group.welcome) pushSystem(data, group, group.welcome, now + 1);
+    notifyOwnerJoin(data, group, userId, now);
     return { ok: true as const, group: publicGroup(group, userId) };
   });
 }
@@ -815,6 +834,19 @@ export async function addMembers(userId: string, groupId: string, keys: string[]
         }),
       );
       pushSystem(data, group, `${other.displayName || "یک کاربر"} به گروه اضافه شد.`, now);
+      emitNotification(data, {
+        userId: other.id,
+        category: "groups",
+        kind: "group_invite",
+        title: group.name,
+        body: "به گروه دعوت شدی.",
+        senderName: me.name,
+        sourceId: `ginvite:${group.id}:${other.id}`,
+        eventId: `ginvite:${group.id}:${other.id}:${now}`,
+        muteType: "group",
+        muteId: group.id,
+        target: { type: "group", id: group.id },
+      });
     }
     return { ok: true as const, group: publicGroup(group, userId) };
   });

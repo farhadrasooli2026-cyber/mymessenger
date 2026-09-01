@@ -5,7 +5,7 @@ import { listPushTokens, registerPushToken, revokePushToken } from "@/lib/notify
 export async function GET() {
   const session = await requireActiveSession();
   if (!session) return jsonError("نشست فعال نیست.", 401);
-  return json(await listPushTokens(session.user.id));
+  return json(await listPushTokens(session.user.id, session.session.sid));
 }
 
 export async function POST(request: Request) {
