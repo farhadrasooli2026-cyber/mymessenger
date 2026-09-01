@@ -163,8 +163,9 @@ export function AccountSettings() {
     setBusy(true);
     try {
       const prefs = backup?.prefs;
+      const saved = await fetch("/api/saved?export=1", { cache: "no-store" }).then((r) => r.json()).catch(() => null);
       const vault = await collectDeviceVault({ appearance: defaultAppearance() });
-      const wrapped = await wrapBackup(backupPass, JSON.stringify(vault));
+      const wrapped = await wrapBackup(backupPass, JSON.stringify({ ...vault, savedBundle: saved?.bundle ?? null }));
       const data = await postBackup({
         action: "upload",
         ...wrapped,
@@ -208,8 +209,15 @@ export function AccountSettings() {
       const data = await postBackup({ action: "restore", secret: restoreSecret });
       if (!data?.wrapped) return;
       const json = await unwrapBackup(restoreSecret, data.wrapped);
-      const vault = JSON.parse(json) as Parameters<typeof applyDeviceVault>[0];
+      const vault = JSON.parse(json) as Parameters<typeof applyDeviceVault>[0] & { savedBundle?: { items?: unknown[] } };
       if (restoreChats) await applyDeviceVault(vault, { chats: true });
+      if (vault.savedBundle) {
+        await fetch("/api/saved", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "restore-backup", bundle: vault.savedBundle }),
+        });
+      }
       toast.success("بازیابی روی این دستگاه انجام شد. گروه و کانال با ورود همگام هستند.");
       void restoreSettings;
       void restorePhotos;

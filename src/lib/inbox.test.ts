@@ -155,7 +155,7 @@ describe("NIXO folders and chat organization", () => {
     expect(created.ok).toBe(true);
     if (!created.ok) return;
     await saveFolder(a, { id: created.folder.id, name: "دوم", force: true });
-    const stale = await saveFolder(a, { id: created.folder.id, name: "سوم", updatedAt: created.folder.updatedAt });
+    const stale = await saveFolder(a, { id: created.folder.id, name: "سوم", updatedAt: created.folder.updatedAt - 1 });
     expect(stale.ok).toBe(false);
     if (!stale.ok) expect(stale.status).toBe(409);
   });

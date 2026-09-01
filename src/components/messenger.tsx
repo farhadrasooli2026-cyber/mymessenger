@@ -868,7 +868,7 @@ export function Messenger({
   async function logout() {
     try {
       Object.keys(sessionStorage)
-        .filter((k) => k.startsWith("nixo-inbox") || k === "nixo.notices")
+        .filter((k) => k.startsWith("nixo-inbox") || k.startsWith("nixo-saved") || k === "nixo.notices")
         .forEach((k) => sessionStorage.removeItem(k));
     } catch {
       /* ignore */
@@ -1607,7 +1607,27 @@ export function Messenger({
                           className="block w-full px-3 pb-2 text-left text-[10px] opacity-70"
                           onClick={() => void saveToVault(msg, active)}
                         >
-                          Save to Saved Messages
+                          Save Message
+                        </button>
+                        <button
+                          type="button"
+                          className="block w-full px-3 pb-1 text-left text-[10px] opacity-70"
+                          onClick={async () => {
+                            await fetch("/api/saved", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                kind: msg.kind === "photo" || msg.kind === "video" || msg.kind === "voice" || msg.kind === "file" ? msg.kind : "message",
+                                body: msg.text,
+                                bookmark: true,
+                                tag: "Important",
+                                source: { type: "chat", id: active.id, name: active.peerName, messageId: msg.id },
+                              }),
+                            });
+                            toast.success("Bookmark شد.");
+                          }}
+                        >
+                          Bookmark
                         </button>
                         {msg.text && !msg.expired && (
                           <div className="flex flex-wrap gap-1 px-3 pb-2">

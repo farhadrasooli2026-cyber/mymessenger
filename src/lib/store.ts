@@ -1237,14 +1237,21 @@ export type GalleryAlbum = {
 export type SavedItem = {
   id: string;
   ownerUserId: string;
-  kind: "text" | "photo" | "video" | "voice" | "file" | "link" | "message";
+  kind: import("@/lib/saved-types").SavedKind;
   body: string;
+  bodyCipher: string;
+  notesCipher: string;
   linkUrl: string;
   fileName: string;
   fileType: string;
   fileSize: number;
   media: string;
+  mediaCipher: string;
   tag: string;
+  tags: string[];
+  folderId: string | null;
+  bookmarked: boolean;
+  favorite: boolean;
   pinned: boolean;
   source: {
     type: "chat" | "group" | "channel" | "community" | "manual";
@@ -1253,8 +1260,76 @@ export type SavedItem = {
     messageId?: string;
   } | null;
   createdAt: number;
+  updatedAt: number;
+  deviceStamp: string;
   deletedAt: number | null;
+  purgedAt: number | null;
 };
+
+export type SavedFolder = {
+  id: string;
+  ownerUserId: string;
+  name: string;
+  icon: string;
+  sort: number;
+  updatedAt: number;
+  deviceStamp: string;
+};
+
+function hydrateSavedItem(s: SavedItem): SavedItem {
+  const kind = (
+    [
+      "text",
+      "photo",
+      "video",
+      "audio",
+      "voice",
+      "file",
+      "link",
+      "contact",
+      "location",
+      "sticker",
+      "message",
+    ] as const
+  ).includes(s.kind as SavedItem["kind"])
+    ? s.kind
+    : "text";
+  return {
+    ...s,
+    kind,
+    body: s.body ?? "",
+    bodyCipher: s.bodyCipher ?? "",
+    notesCipher: s.notesCipher ?? "",
+    linkUrl: s.linkUrl ?? "",
+    fileName: s.fileName ?? "",
+    fileType: s.fileType ?? "",
+    fileSize: s.fileSize ?? 0,
+    media: s.media ?? "",
+    mediaCipher: s.mediaCipher ?? "",
+    tag: s.tag ?? "",
+    tags: Array.isArray(s.tags) ? s.tags.map(String) : s.tag ? [s.tag] : [],
+    folderId: s.folderId ?? null,
+    bookmarked: Boolean(s.bookmarked),
+    favorite: Boolean(s.favorite),
+    pinned: Boolean(s.pinned),
+    source: s.source ?? null,
+    createdAt: s.createdAt ?? 0,
+    updatedAt: s.updatedAt ?? s.createdAt ?? 0,
+    deviceStamp: s.deviceStamp ?? "",
+    deletedAt: s.deletedAt ?? null,
+    purgedAt: s.purgedAt ?? null,
+  };
+}
+
+function hydrateSavedFolder(f: SavedFolder): SavedFolder {
+  return {
+    ...f,
+    icon: f.icon || "📁",
+    sort: f.sort ?? 0,
+    updatedAt: f.updatedAt ?? 0,
+    deviceStamp: f.deviceStamp ?? "",
+  };
+}
 
 function hydrateProduct(p: BizProduct): BizProduct {
   return {
@@ -1316,6 +1391,7 @@ export type StoreData = {
   pubChannels: PubChannelRecord[];
   channelPosts: ChannelPost[];
   savedItems: SavedItem[];
+  savedFolders: SavedFolder[];
   galleryItems: GalleryItem[];
   galleryAlbums: GalleryAlbum[];
   galleryPrefs: import("@/lib/gallery-types").GalleryPrefs[];
@@ -1399,6 +1475,7 @@ const EMPTY: StoreData = {
   pubChannels: [],
   channelPosts: [],
   savedItems: [],
+  savedFolders: [],
   galleryItems: [],
   galleryAlbums: [],
   galleryPrefs: [],
@@ -1511,7 +1588,8 @@ async function readStore(): Promise<StoreData> {
             comments: Array.isArray(p.comments) ? p.comments : [],
           }))
         : [],
-      savedItems: Array.isArray(parsed.savedItems) ? parsed.savedItems : [],
+      savedItems: Array.isArray(parsed.savedItems) ? parsed.savedItems.map(hydrateSavedItem) : [],
+      savedFolders: Array.isArray(parsed.savedFolders) ? parsed.savedFolders.map(hydrateSavedFolder) : [],
       galleryItems: Array.isArray(parsed.galleryItems)
         ? parsed.galleryItems.map((i) => ({
             ...i,
@@ -1682,6 +1760,7 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.threads = data.threads.filter((t) => t.ownerUserId !== uid);
   data.messages = data.messages.filter((m) => m.ownerUserId !== uid);
   data.savedItems = (data.savedItems ?? []).filter((s) => s.ownerUserId !== uid);
+  data.savedFolders = (data.savedFolders ?? []).filter((s) => s.ownerUserId !== uid);
   data.galleryItems = (data.galleryItems ?? []).filter((s) => s.ownerUserId !== uid);
   data.galleryAlbums = (data.galleryAlbums ?? []).filter((s) => s.ownerUserId !== uid);
   data.galleryPrefs = (data.galleryPrefs ?? []).filter((s) => s.userId !== uid);

@@ -395,6 +395,19 @@ export function ChannelPane({
                     await fetch("/api/reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ targetKind: "channel", targetKey: `${channelId}:${p.id}`, category: "spam" }) });
                     toast.message("گزارش پست ثبت شد.");
                   }}>گزارش پست</button>
+                  <button type="button" onClick={() => {
+                    void fetch("/api/saved", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        kind: p.kind === "photo" || p.kind === "video" || p.kind === "voice" || p.kind === "file" ? p.kind : /https?:\/\//.test(p.body) ? "link" : "message",
+                        body: p.body || p.caption,
+                        source: { type: "channel", id: channelId, name: channel.name, messageId: p.id },
+                      }),
+                    }).then((r) => {
+                      if (r.ok) toast.success("در Saved Messages ذخیره شد.");
+                    });
+                  }}>Save Message</button>
                 </div>
                 {channel.commentsEnabled && channel.subscribed && (
                   <div className="mt-2 space-y-1">

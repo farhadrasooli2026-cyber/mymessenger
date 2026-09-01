@@ -76,17 +76,6 @@ function senderOk(name: string, username: string | null | undefined, from?: stri
   return name.toLowerCase().includes(f) || (username ?? "").toLowerCase().includes(f);
 }
 
-function fileKind(name: string) {
-  const n = name.toLowerCase();
-  if (n.endsWith(".pdf")) return "pdf";
-  if (n.endsWith(".zip") || n.endsWith(".rar")) return "zip";
-  if (n.endsWith(".doc") || n.endsWith(".docx")) return "doc";
-  if (n.endsWith(".gif")) return "gif";
-  if (/\.(png|jpe?g|webp)$/.test(n)) return "photo";
-  if (/\.(mp4|mov|webm)$/.test(n)) return "video";
-  return "file";
-}
-
 export type SearchQuery = {
   q: string;
   kind?: SearchKind;
@@ -518,30 +507,6 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
           ),
         );
       }
-    }
-    for (const s of data.savedItems) {
-      if (s.ownerUserId !== userId || s.deletedAt) continue;
-      const ik = s.kind === "message" ? "text" : fileKind(s.fileName || "") !== "file" ? fileKind(s.fileName || "") : s.kind;
-      if (!matchesKind(kind, ik) && kind !== "all") continue;
-      if (!inRange(s.createdAt, input.fromDate, input.toDate)) continue;
-      const blob = `${s.body} ${s.linkUrl} ${s.fileName} ${s.tag}`;
-      if (!blobMatches(blob, q)) continue;
-      hits.push(
-        rank(
-          {
-            id: `saved:${s.id}`,
-            scope: "saved",
-            title: "پیام‌های ذخیره‌شده",
-            preview: (s.body || s.fileName || s.linkUrl || s.kind).slice(0, 140),
-            sender: "من",
-            chatName: "Saved Messages",
-            date: s.createdAt,
-            kind: ik,
-            target: { type: "saved", id: s.id },
-          },
-          q,
-        ),
-      );
     }
   }
 

@@ -28,8 +28,7 @@ export const SEARCH_KINDS = [
 
 export type SearchKind = (typeof SEARCH_KINDS)[number];
 
-export const SAVED_TAGS = ["Work", "Personal", "Important", "Downloads", "Projects"] as const;
-export const SAVED_MAX_MEDIA = 420_000;
+export { SAVED_TAGS, SAVED_MAX_MEDIA } from "@/lib/saved-types";
 
 export type SearchHit = {
   id: string;
