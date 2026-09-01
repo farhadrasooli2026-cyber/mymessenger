@@ -16,7 +16,6 @@ import {
   sniffFileBytes,
   sortFiles,
   stripJpegExif,
-  type FileKind,
   type FileSort,
 } from "@/lib/files";
 import { logFileAccess } from "@/lib/file-access";
