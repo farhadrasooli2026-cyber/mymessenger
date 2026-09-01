@@ -1,6 +1,6 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
-import { commentPost, createPost, deleteComment, deletePost, editPost, pinPost, reactPost, recordForward, recordPostView, votePoll } from "@/lib/channels";
+import { commentPost, createPost, deleteComment, deletePost, editPost, pinPost, reactPost, recordForward, recordPostView, votePoll, cancelScheduledPost, repostPost } from "@/lib/channels";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -34,9 +34,19 @@ export async function POST(request: Request, ctx: Ctx) {
     return json({ ok: true, reactions: result.reactions });
   }
   if (body.action === "comment") {
-    const result = await commentPost(user.id, id, String(body.postId ?? ""), String(body.body ?? ""));
+    const result = await commentPost(user.id, id, String(body.postId ?? ""), String(body.body ?? ""), typeof body.parentId === "string" ? body.parentId : null);
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true, comments: result.comments });
+  }
+  if (body.action === "cancel-schedule") {
+    const result = await cancelScheduledPost(user.id, id, String(body.postId ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true, post: result.post });
+  }
+  if (body.action === "repost") {
+    const result = await repostPost(user.id, id, String(body.sourcePostId ?? body.postId ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true, post: result.post, channel: result.channel });
   }
   if (body.action === "deleteComment") {
     const result = await deleteComment(user.id, id, String(body.postId ?? ""), String(body.commentId ?? ""));

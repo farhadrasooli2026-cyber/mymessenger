@@ -1,6 +1,6 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
-import { inviteDirect, liveChat, moderateSubscriber, publishChannelStory, setLive, setNotify, setStaff, subscribe, transferChannelOwner, unsubscribe } from "@/lib/channels";
+import { inviteDirect, liveChat, moderateSubscriber, publishChannelStory, setLive, setNotify, setStaff, subscribe, transferChannelOwner, unsubscribe, moderateJoinRequest, exportChannelData, adminChannelLifecycle } from "@/lib/channels";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -19,6 +19,25 @@ export async function POST(request: Request, ctx: Ctx) {
     const result = await unsubscribe(user.id, id);
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true });
+  }
+  if (body.action === "join-approve" || body.action === "join-reject") {
+    const result = await moderateJoinRequest(user.id, id, String(body.targetId ?? ""), body.action === "join-approve");
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true, channel: result.channel });
+  }
+  if (body.action === "export") {
+    const result = await exportChannelData(user.id, id);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true, export: result.export });
+  }
+  if (body.action === "platform") {
+    const status = body.status;
+    if (status !== "active" && status !== "restricted" && status !== "suspended" && status !== "deleted") {
+      return jsonError("وضعیت نامعتبر است.");
+    }
+    const result = await adminChannelLifecycle(user.id, id, status, { verified: typeof body.verified === "boolean" ? body.verified : undefined });
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true, status: result.status, verified: result.verified });
   }
   if (body.action === "notify") {
     const notify = body.notify;

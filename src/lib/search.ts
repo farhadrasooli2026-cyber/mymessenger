@@ -34,12 +34,13 @@ function canSeeCommunity(community: CommunityRecord, userId: string) {
 }
 
 function canSeeChannel(channel: PubChannelRecord, userId: string) {
-  if (channel.deletedAt) return false;
-  if (channel.bans.some((b) => b.key === userId)) return false;
+  if (channel.deletedAt || channel.status === "deleted") return false;
   const staff = channel.ownerUserId === userId || channel.staff.some((s) => s.userId === userId);
+  if (channel.status === "suspended" && !staff) return false;
+  if (channel.bans.some((b) => b.key === userId)) return false;
   const sub = channel.subscribers.some((s) => s.userId === userId && liveSub(s));
   if (staff || sub) return true;
-  return channel.visibility === "public";
+  return channel.visibility === "public" && channel.status !== "restricted";
 }
 
 function needleOf(q: string) {

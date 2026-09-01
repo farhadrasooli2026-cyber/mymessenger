@@ -35,6 +35,8 @@ export async function PATCH(request: Request, ctx: Ctx) {
     adminPerms: body.adminPerms && typeof body.adminPerms === "object" ? (body.adminPerms as ChannelAdminPerms) : undefined,
     photoDataUrl: body.photoDataUrl === null || typeof body.photoDataUrl === "string" ? (body.photoDataUrl as string | null) : undefined,
     rules: typeof body.rules === "string" ? body.rules : undefined,
+    joinMode: body.joinMode === "request" || body.joinMode === "invite" || body.joinMode === "open" ? body.joinMode : undefined,
+    showSubscriberCount: typeof body.showSubscriberCount === "boolean" ? body.showSubscriberCount : undefined,
     purpose:
       body.purpose === "news" ||
       body.purpose === "products" ||

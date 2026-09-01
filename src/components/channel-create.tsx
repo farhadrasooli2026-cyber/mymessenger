@@ -20,6 +20,7 @@ export function ChannelCreate({ onCreated, onClose }: { onCreated: (id: string) 
   const [photo, setPhoto] = useState<PhotoValue>({ kind: "default" });
   const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [purpose, setPurpose] = useState<ChannelPurpose>("general");
+  const [joinMode, setJoinMode] = useState<"invite" | "request">("invite");
   const [busy, setBusy] = useState(false);
 
   function photoDataUrl() {
@@ -41,6 +42,7 @@ export function ChannelCreate({ onCreated, onClose }: { onCreated: (id: string) 
           photoDataUrl: photoDataUrl(),
           username: visibility === "public" ? username : username || undefined,
           visibility,
+          joinMode: visibility === "private" ? joinMode : "open",
           purpose,
         }),
       });
@@ -104,8 +106,20 @@ export function ChannelCreate({ onCreated, onClose }: { onCreated: (id: string) 
             </label>
             <label className="mt-2 flex items-center gap-2 text-sm">
               <input type="radio" checked={visibility === "private"} onChange={() => setVisibility("private")} />
-              Private — فقط Invite Link یا دعوت مستقیم
+              Private — Invite Link، دعوت مستقیم، یا Join Request
             </label>
+            {visibility === "private" && (
+              <div className="mt-2 space-y-1 text-sm">
+                <label className="flex items-center gap-2">
+                  <input type="radio" checked={joinMode === "invite"} onChange={() => setJoinMode("invite")} />
+                  فقط لینک / دعوت
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="radio" checked={joinMode === "request"} onChange={() => setJoinMode("request")} />
+                  Join Request برای تأیید ادمین
+                </label>
+              </div>
+            )}
             <Input
               value={username}
               onChange={(e) => setUsername(e.target.value)}

@@ -329,6 +329,14 @@ function hydratePubChannel(channel: PubChannelRecord): PubChannelRecord {
     username: channel.username ?? null,
     photoDataUrl: channel.photoDataUrl ?? null,
     visibility: channel.visibility === "private" ? "private" : "public",
+    status:
+      channel.status === "restricted" || channel.status === "suspended" || channel.status === "deleted" || channel.deletedAt
+        ? channel.deletedAt
+          ? "deleted"
+          : channel.status
+        : "active",
+    joinMode: channel.joinMode === "request" || channel.joinMode === "invite" || channel.joinMode === "open" ? channel.joinMode : channel.visibility === "private" ? "invite" : "open",
+    showSubscriberCount: channel.showSubscriberCount !== false,
     purpose: channel.purpose ?? "general",
     businessId: channel.businessId ?? null,
     verified: Boolean(channel.verified),
@@ -349,6 +357,7 @@ function hydratePubChannel(channel: PubChannelRecord): PubChannelRecord {
     adminPerms: { ...DEFAULT_CHANNEL_ADMIN_PERMS, ...(channel.adminPerms ?? {}) },
     staff: Array.isArray(channel.staff) ? channel.staff : [],
     subscribers: Array.isArray(channel.subscribers) ? channel.subscribers : [],
+    requests: Array.isArray(channel.requests) ? channel.requests : [],
     bans: Array.isArray(channel.bans) ? channel.bans : [],
     pinIds: Array.isArray(channel.pinIds) ? channel.pinIds : [],
     audit: Array.isArray(channel.audit) ? channel.audit : [],
@@ -1170,6 +1179,24 @@ export type ChannelComment = {
   authorName: string;
   body: string;
   createdAt: number;
+  parentId?: string | null;
+};
+
+export type ChannelJoinRequest = {
+  id: string;
+  userId: string;
+  name: string;
+  createdAt: number;
+  status: "pending" | "approved" | "rejected";
+};
+
+export type ChannelBroadcastJob = {
+  id: string;
+  channelId: string;
+  postId: string;
+  offset: number;
+  status: "queued" | "running" | "done";
+  createdAt: number;
 };
 
 export type ChannelPoll = {
@@ -1279,10 +1306,13 @@ export type ChannelPost = {
   poll?: ChannelPoll;
   album: string[];
   views: string[];
+  viewHits?: number;
   forwards: number;
   createdAt: number;
   durationMs?: number;
   deleted?: boolean;
+  cancelled?: boolean;
+  sourcePostId?: string | null;
 };
 
 export type PubChannelRecord = {
@@ -1294,6 +1324,9 @@ export type PubChannelRecord = {
   color: string;
   photoDataUrl: string | null;
   visibility: "public" | "private";
+  status: import("@/lib/channel-types").ChannelLifecycle;
+  joinMode: import("@/lib/channel-types").ChannelJoinMode;
+  showSubscriberCount: boolean;
   purpose: import("@/lib/channel-types").ChannelPurpose;
   businessId: string | null;
   ownerUserId: string;
@@ -1311,6 +1344,7 @@ export type PubChannelRecord = {
   adminPerms: ChannelAdminPerms;
   staff: ChannelStaff[];
   subscribers: ChannelSubscriber[];
+  requests: ChannelJoinRequest[];
   bans: { key: string; at: number }[];
   pinIds: string[];
   audit: ChannelAuditEvent[];
@@ -1547,6 +1581,7 @@ export type StoreData = {
   communities: CommunityRecord[];
   pubChannels: PubChannelRecord[];
   channelPosts: ChannelPost[];
+  channelBroadcasts: ChannelBroadcastJob[];
   savedItems: SavedItem[];
   savedFolders: SavedFolder[];
   galleryItems: GalleryItem[];
@@ -1650,6 +1685,7 @@ const EMPTY: StoreData = {
   communities: [],
   pubChannels: [],
   channelPosts: [],
+  channelBroadcasts: [],
   savedItems: [],
   savedFolders: [],
   galleryItems: [],
@@ -1778,11 +1814,15 @@ async function readStore(): Promise<StoreData> {
             ...p,
             album: Array.isArray(p.album) ? p.album : [],
             views: Array.isArray(p.views) ? p.views : [],
+            viewHits: typeof p.viewHits === "number" ? p.viewHits : 0,
             forwards: typeof p.forwards === "number" ? p.forwards : 0,
             reactions: Array.isArray(p.reactions) ? p.reactions : [],
             comments: Array.isArray(p.comments) ? p.comments : [],
+            cancelled: Boolean(p.cancelled),
+            sourcePostId: p.sourcePostId ?? null,
           }))
         : [],
+      channelBroadcasts: Array.isArray(parsed.channelBroadcasts) ? parsed.channelBroadcasts : [],
       savedItems: Array.isArray(parsed.savedItems) ? parsed.savedItems.map(hydrateSavedItem) : [],
       savedFolders: Array.isArray(parsed.savedFolders) ? parsed.savedFolders.map(hydrateSavedFolder) : [],
       galleryItems: Array.isArray(parsed.galleryItems)

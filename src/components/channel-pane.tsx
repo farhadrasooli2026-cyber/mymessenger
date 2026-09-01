@@ -25,7 +25,7 @@ type Post = {
   publishedAt: number | null;
   editedAt: number | null;
   reactions: { emoji: string; count?: number; keys?: string[]; mine?: boolean; users?: { username: string }[] }[];
-  comments: { id: string; authorName: string; body: string }[];
+  comments: { id: string; authorName: string; body: string; parentId?: string | null }[];
   poll?: { question: string; options: string[]; votes: { indexes: number[] }[]; quiz?: boolean; correctIndex?: number | null };
   album: string[];
   authorName: string;
@@ -70,8 +70,12 @@ type Ch = {
   liveChat?: { id: string; authorName: string; body: string }[];
   liveStreamId?: string | null;
   stories?: { id: string; body: string; createdAt: number; views: number }[];
-  analytics?: { subscribers: number; posts: number; views: number; reactions: number; comments: number; forwards: number } | null;
+  analytics?: { subscribers: number; posts: number; views: number; reactions: number; comments: number; forwards: number; viewHits?: number } | null;
   audit?: { at: number; actorName: string; kind: string; detail: string }[];
+  status?: string;
+  joinMode?: string;
+  joinRequests?: { id: string; userId: string; name: string; createdAt: number }[];
+  pendingJoin?: boolean;
 };
 
 export function ChannelPane({
@@ -202,6 +206,7 @@ export function ChannelPane({
             <p className="text-[11px] text-emerald-100/60">
               {channel.username ? `@${channel.username} · ` : ""}
               {formatSubscribers(channel.subscriberCount)} دنبال‌کننده · {channel.visibility === "public" ? "عمومی" : "خصوصی"}
+              {channel.status && channel.status !== "active" ? ` · ${channel.status}` : ""}
               {channel.ownerName ? ` · مالک ${channel.ownerName}` : ""}
               {channel.purpose && channel.purpose !== "general" ? ` · ${channel.purpose}` : ""}
             </p>
@@ -217,9 +222,13 @@ export function ChannelPane({
             }}>
               {channel.myRole === "owner" ? "مشترک" : "لغو دنبال"}
             </Button>
+          ) : channel.pendingJoin ? (
+            <Button type="button" variant="secondary" disabled>
+              درخواست عضویت ارسال شد
+            </Button>
           ) : (
             <Button type="button" className="bg-amber-300 text-[#102824]" onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "subscribe" }) }).then(load)}>
-              دنبال کردن
+              {channel.visibility === "private" && channel.joinMode === "request" ? "درخواست عضویت" : "دنبال کردن"}
             </Button>
           )}
         </div>
@@ -283,6 +292,21 @@ export function ChannelPane({
             </div>
           )}
 
+          {staff && (channel.joinRequests ?? []).length > 0 && (
+            <div className="rounded-2xl border border-amber-300/30 bg-white/5 p-3 text-xs">
+              <p className="font-medium">Join Requests</p>
+              {channel.joinRequests!.map((r) => (
+                <div key={r.id} className="mt-1 flex items-center justify-between gap-2">
+                  <span>{r.name}</span>
+                  <span className="flex gap-1">
+                    <button type="button" onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "join-approve", targetId: r.userId }) }).then(load)}>تأیید</button>
+                    <button type="button" className="text-rose-200" onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "join-reject", targetId: r.userId }) }).then(load)}>رد</button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {staff && (
             <form
               className="space-y-2 rounded-2xl bg-white/5 p-3"
@@ -294,8 +318,8 @@ export function ChannelPane({
                   caption,
                   voiceDataUrl: kind === "voice" ? voiceFile : undefined,
                   durationMs: kind === "voice" ? voiceMs : undefined,
-                  fileDataUrl: kind === "file" ? fileUrl : undefined,
-                  fileName: kind === "file" ? fileName : undefined,
+                  fileDataUrl: kind === "file" || kind === "audio" ? fileUrl : undefined,
+                  fileName: kind === "file" || kind === "audio" ? fileName : undefined,
                   poll: kind === "poll" || kind === "quiz" ? { question: pollQ, options: pollOpts.split("\n").filter(Boolean), anonymous: kind === "poll", multiple: false, quiz: kind === "quiz", correctIndex: kind === "quiz" ? 0 : null } : undefined,
                   album: kind === "album" ? draft.split("\n") : undefined,
                 });
@@ -308,13 +332,13 @@ export function ChannelPane({
               }}
             >
               <div className="flex flex-wrap gap-1 text-[11px]">
-                {["text", "photo", "video", "gif", "voice", "file", "link", "poll", "quiz", "album"].map((k) => (
+                {["text", "photo", "video", "gif", "voice", "audio", "file", "link", "poll", "quiz", "album"].map((k) => (
                   <button key={k} type="button" className={`rounded px-2 py-1 ${kind === k ? "bg-amber-300 text-[#102824]" : "bg-black/30"}`} onClick={() => setKind(k)}>
                     {k}
                   </button>
                 ))}
               </div>
-              {kind === "file" ? (
+              {kind === "file" || kind === "audio" ? (
                 <input
                   type="file"
                   className="text-xs"
@@ -439,6 +463,9 @@ export function ChannelPane({
                         void act({ action: "edit", postId: p.id, body });
                       }}>ویرایش</button>
                       <button type="button" className="text-rose-200" onClick={() => void act({ action: "delete", postId: p.id })}>حذف</button>
+                      {p.status === "scheduled" && (
+                        <button type="button" onClick={() => void act({ action: "cancel-schedule", postId: p.id })}>لغو زمان‌بندی</button>
+                      )}
                     </>
                   )}
                   {channel.allowForward && channel.allowCopy !== false && (
@@ -468,12 +495,19 @@ export function ChannelPane({
                 </div>
                 {channel.commentsEnabled && channel.subscribed && (
                   <div className="mt-2 space-y-1">
-                    {p.comments.slice(-4).map((c) => (
+                    {p.comments.slice(-6).map((c) => (
                       <p key={c.id} className="flex justify-between text-[11px] opacity-80">
-                        <span>{c.authorName}: {c.body}</span>
-                        {staff && (
-                          <button type="button" className="text-rose-200" onClick={() => void act({ action: "deleteComment", postId: p.id, commentId: c.id })}>حذف</button>
-                        )}
+                        <span>{c.parentId ? "↳ " : ""}{c.authorName}: {c.body}</span>
+                        <span className="flex gap-1">
+                          <button type="button" onClick={() => {
+                            const body = window.prompt("پاسخ", "");
+                            if (!body) return;
+                            void act({ action: "comment", postId: p.id, body, parentId: c.id });
+                          }}>پاسخ</button>
+                          {staff && (
+                            <button type="button" className="text-rose-200" onClick={() => void act({ action: "deleteComment", postId: p.id, commentId: c.id })}>حذف</button>
+                          )}
+                        </span>
                       </p>
                     ))}
                     <form
@@ -614,6 +648,25 @@ export function ChannelPane({
             }}>
               <Flag className="ml-1 size-3.5" /> گزارش کانال
             </Button>
+            {channel.myRole === "owner" && (
+              <Button type="button" variant="secondary" onClick={async () => {
+                const res = await fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "export" }) });
+                const data = await res.json();
+                if (!res.ok) toast.error(data.error ?? "خروجی گرفته نشد.");
+                else {
+                  const blob = new Blob([JSON.stringify(data.export, null, 2)], { type: "application/json" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `nixo-channel-${channelId}.json`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  toast.success("خروجی فرادادهٔ کانال دانلود شد.");
+                }
+              }}>
+                خروجی دادهٔ مالک
+              </Button>
+            )}
             {channel.myRole === "owner" && (
               <div className="rounded-2xl border border-rose-400/30 p-3">
                 <p>حذف کانال — مرحله {deleteStep + 1} از ۳</p>

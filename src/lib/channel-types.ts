@@ -8,9 +8,11 @@ export const CHANNEL_MAX_PINS = 5;
 
 export type ChannelStaffRole = Extract<GroupRole, "owner" | "admin" | "moderator">;
 export type ChannelNotify = "on" | "off" | "important";
-export type ChannelPostKind = "text" | "photo" | "video" | "voice" | "file" | "link" | "poll" | "album" | "gif" | "quiz";
+export type ChannelPostKind = "text" | "photo" | "video" | "voice" | "audio" | "file" | "link" | "poll" | "album" | "gif" | "quiz";
 export type ChannelPostStatus = "draft" | "scheduled" | "published";
 export type ChannelPurpose = "general" | "news" | "products" | "promotions" | "announcements";
+export type ChannelLifecycle = "active" | "restricted" | "suspended" | "deleted";
+export type ChannelJoinMode = "open" | "invite" | "request";
 
 export type ChannelAdminPerms = {
   postMessages: boolean;
@@ -24,6 +26,7 @@ export type ChannelAdminPerms = {
   manageInvites: boolean;
   manageBots: boolean;
   manageAI: boolean;
+  viewAnalytics: boolean;
 };
 
 export const DEFAULT_CHANNEL_ADMIN_PERMS: ChannelAdminPerms = {
@@ -38,6 +41,7 @@ export const DEFAULT_CHANNEL_ADMIN_PERMS: ChannelAdminPerms = {
   manageInvites: true,
   manageBots: false,
   manageAI: true,
+  viewAnalytics: true,
 };
 
 export const CHANNEL_PERM_FA: Record<keyof ChannelAdminPerms, string> = {
@@ -52,6 +56,14 @@ export const CHANNEL_PERM_FA: Record<keyof ChannelAdminPerms, string> = {
   manageInvites: "مدیریت دعوت",
   manageBots: "مدیریت ربات",
   manageAI: "استفاده از AI کمکی",
+  viewAnalytics: "آمار کانال",
+};
+
+export const LIFECYCLE_FA: Record<ChannelLifecycle, string> = {
+  active: "فعال",
+  restricted: "محدود",
+  suspended: "معلق",
+  deleted: "حذف‌شده",
 };
 
 export const PURPOSE_FA: Record<ChannelPurpose, string> = {

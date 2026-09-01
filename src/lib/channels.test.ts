@@ -16,6 +16,11 @@ import {
   setStaff,
   subscribe,
   transferChannelOwner,
+  moderateJoinRequest,
+  cancelScheduledPost,
+  listChannelDiscovery,
+  exportChannelData,
+  adminChannelLifecycle,
 } from "./channels";
 
 async function activeUser(username: string) {
@@ -150,5 +155,72 @@ describe("NIXO channels", () => {
     expect(quiz.ok).toBe(true);
     if (!quiz.ok) return;
     expect(quiz.post.kind).toBe("quiz");
+  });
+
+  it("handles join requests, schedule cancel, unique views, and hides deleted channels", async () => {
+    const owner = await activeUser("ch_join_o");
+    const fan = await activeUser("ch_join_f");
+    const created = await createChannel(owner, { name: "خصوصی درخواست", visibility: "private", joinMode: "request" });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const asked = await subscribe(fan, created.channel.id);
+    expect(asked.ok).toBe(true);
+    if (asked.ok) expect(asked.requested).toBe(true);
+    const before = await getChannel(fan, created.channel.id);
+    expect(before).toBeNull();
+    const okJoin = await moderateJoinRequest(owner, created.channel.id, fan, true);
+    expect(okJoin.ok).toBe(true);
+    expect((await getChannel(fan, created.channel.id))?.channel.subscribed).toBe(true);
+
+    const sched = await createPost(owner, created.channel.id, {
+      body: "بعداً",
+      status: "scheduled",
+      scheduledAt: Date.now() + 60_000 * 60,
+    });
+    expect(sched.ok).toBe(true);
+    if (!sched.ok) return;
+    const cancelled = await cancelScheduledPost(owner, created.channel.id, sched.post.id);
+    expect(cancelled.ok).toBe(true);
+
+    const pub = await createChannel(owner, { name: "کشف", username: "nixo_disc1", visibility: "public" });
+    expect(pub.ok).toBe(true);
+    if (!pub.ok) return;
+    const post = await createPost(owner, pub.channel.id, { body: "عمومی" });
+    expect(post.ok).toBe(true);
+    if (!post.ok) return;
+    await recordPostView(fan, pub.channel.id, post.post.id);
+    await recordPostView(fan, pub.channel.id, post.post.id);
+    const disc = await listChannelDiscovery(fan, "trending");
+    expect(disc.ok).toBe(true);
+    if (disc.ok) expect(disc.channels.some((c) => c.id === pub.channel.id)).toBe(true);
+    expect(disc.ok && disc.channels.some((c) => c.id === created.channel.id)).toBe(false);
+
+    const dumped = await exportChannelData(fan, pub.channel.id);
+    expect(dumped.ok).toBe(false);
+    const mine = await exportChannelData(owner, pub.channel.id);
+    expect(mine.ok).toBe(true);
+
+    await deleteChannel(owner, pub.channel.id);
+    expect(await getChannel(fan, pub.channel.id)).toBeNull();
+    expect((await searchPublicChannels("کشف", fan)).some((c) => c.id === pub.channel.id)).toBe(false);
+  });
+
+  it("rejects IDOR on private posts and platform suspend", async () => {
+    const owner = await activeUser("ch_idor_o");
+    const stranger = await activeUser("ch_idor_s");
+    const ops = await activeUser("nixo_ops");
+    const created = await createChannel(owner, { name: "محرمانه", visibility: "private" });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const post = await createPost(owner, created.channel.id, { body: "مخفی" });
+    expect(post.ok).toBe(true);
+    if (!post.ok) return;
+    expect(await getChannel(stranger, created.channel.id)).toBeNull();
+    const view = await recordPostView(stranger, created.channel.id, post.post.id);
+    expect(view.ok).toBe(false);
+    const blocked = await adminChannelLifecycle(stranger, created.channel.id, "suspended");
+    expect(blocked.ok).toBe(false);
+    const frozen = await adminChannelLifecycle(ops, created.channel.id, "suspended");
+    expect(frozen.ok).toBe(true);
   });
 });
