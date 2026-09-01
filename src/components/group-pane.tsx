@@ -27,10 +27,11 @@ import { MediaBubble } from "@/components/media-bubble";
 
 type GMember = {
   id?: string;
-  key: string;
-  kind: "user" | "seed";
+  key?: string;
+  kind: "user" | "seed" | "bot";
   role: GroupRole;
   name: string;
+  state?: string;
   mutedUntil: number | null;
   restrictedUntil: number | null;
 };
@@ -42,11 +43,18 @@ type GInfo = {
   rules: string;
   welcome: string;
   username: string | null;
+  publicLink?: string | null;
   color: string;
+  photoDataUrl?: string | null;
   joinMode: "invite" | "request" | "open";
+  visibility?: "public" | "private";
+  hideMemberList?: boolean;
+  historyMode?: "all" | "from-join";
   maxMembers: number;
   perms: GroupPerms;
   inviteToken: string | null;
+  inviteExpiresAt?: number | null;
+  inviteMaxUses?: number | null;
   memberCount: number;
   pinIds: string[];
   reactionsEnabled?: boolean;
@@ -56,7 +64,9 @@ type GInfo = {
   myRole: GroupRole | null;
   notifyMutedUntil: number | null;
   members: GMember[];
-  pendingRequests: { id: string; userId: string; name: string; createdAt: number }[];
+  pendingRequests: { id: string; userId: string; name: string; createdAt: number; expiresAt?: number }[];
+  bans?: { id?: string; key: string; until?: number | null; permanent?: boolean; reason?: string }[];
+  audit?: { id: string; at: number; kind: string; detail: string; actorName: string }[];
 };
 
 type GMsg = {
@@ -716,11 +726,11 @@ export function GroupPane({
                 className="mt-1 h-8 bg-black/20 text-xs"
               />
               {group.members
-                .filter((m) => !memberQuery.trim() || m.name.includes(memberQuery.trim()) || m.role.includes(memberQuery.trim().toLowerCase()))
+                .filter((m) => !memberQuery.trim() || m.name.includes(memberQuery.trim()) || (m.role ?? "").includes(memberQuery.trim().toLowerCase()))
                 .map((m) => (
-                <div key={m.key} className="mt-1 flex flex-wrap items-center justify-between gap-1 text-xs">
-                  <span>{m.name} · {ROLE_FA[m.role]}</span>
-                  {admin && m.key !== userIdHint && (
+                <div key={m.id ?? m.key ?? m.name} className="mt-1 flex flex-wrap items-center justify-between gap-1 text-xs">
+                  <span>{m.name} · {ROLE_FA[m.role]}{m.state && m.state !== "active" ? ` · ${m.state}` : ""}</span>
+                  {admin && m.key && m.key !== userIdHint && (
                     <span className="flex flex-wrap gap-1">
                       {MUTE_PRESETS.map((p) => (
                         <button key={p.id} type="button" className="rounded bg-white/10 px-1" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "mute", targetKey: m.key, ms: p.ms }) }).then(load)}>{p.label}</button>
@@ -745,6 +755,20 @@ export function GroupPane({
                       <button type="button" className="rounded bg-white/10 px-1" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "remove", targetKey: m.key, membershipId: m.id }) }).then(load)}>حذف</button>
                       <button type="button" className="rounded bg-rose-500/20 px-1" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ban", targetKey: m.key, membershipId: m.id, until: null }) }).then(load)}>بن دائم</button>
                       <button type="button" className="rounded bg-rose-500/10 px-1" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ban", targetKey: m.key, membershipId: m.id, ms: 24 * 3600_000 }) }).then(load)}>بن ۱روز</button>
+                      <button type="button" className="rounded bg-white/10 px-1" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "role", targetKey: m.key, role: "member" }) }).then(load)}>عادی</button>
+                      <button
+                        type="button"
+                        className="rounded bg-white/10 px-1"
+                        onClick={() =>
+                          void fetch("/api/reports", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ targetKind: "group", targetKey: `${groupId}:member:${m.key}`, category: reportCat }),
+                          }).then((r) => toast.message(r.ok ? "گزارش عضو ثبت شد." : "گزارش ارسال نشد."))
+                        }
+                      >
+                        گزارش
+                      </button>
                       {group.myRole === "owner" && m.kind === "user" && (
                         <>
                           <button type="button" className="rounded bg-white/10 px-1" onClick={() => void fetch(`/api/groups/${groupId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "role", targetKey: m.key, role: "admin" }) }).then(load)}>ادمین</button>
@@ -762,6 +786,32 @@ export function GroupPane({
                 </div>
               ))}
             </div>
+            {admin && (group.bans ?? []).length > 0 && (
+              <div>
+                <p className="text-sm font-medium">بن‌ها</p>
+                {(group.bans ?? []).map((b) => (
+                  <div key={b.id ?? b.key} className="mt-1 flex items-center justify-between text-xs">
+                    <span>
+                      {b.key.slice(0, 8)} · {b.permanent ? "دائم" : "موقت"}
+                      {b.reason ? ` · ${b.reason}` : ""}
+                    </span>
+                    <button
+                      type="button"
+                      className="rounded bg-white/10 px-2 py-0.5"
+                      onClick={() =>
+                        void fetch(`/api/groups/${groupId}/members`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ action: "unban", targetKey: b.key }),
+                        }).then(load)
+                      }
+                    >
+                      رفع بن
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             {admin && (
               <div className="space-y-2 text-xs">
                 <p className="text-sm font-medium">مجوز اعضای عادی</p>
@@ -813,6 +863,55 @@ export function GroupPane({
                           allowedFileExts: raw ? raw.split(/[,\s]+/).filter(Boolean) : null,
                         }),
                       }).then(load);
+                    }}
+                  />
+                </label>
+                <label className="flex items-center justify-between">
+                  <span>تاریخچه برای عضو جدید فقط از زمان عضویت</span>
+                  <input
+                    type="checkbox"
+                    checked={group.historyMode === "from-join"}
+                    onChange={(e) =>
+                      void fetch(`/api/groups/${groupId}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ historyMode: e.target.checked ? "from-join" : "all" }),
+                      }).then(load)
+                    }
+                  />
+                </label>
+                <label className="flex items-center justify-between">
+                  <span>مخفی کردن فهرست کامل اعضا از اعضای عادی</span>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(group.hideMemberList)}
+                    onChange={(e) =>
+                      void fetch(`/api/groups/${groupId}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ hideMemberList: e.target.checked }),
+                      }).then(load)
+                    }
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span>عکس گروه</span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="text-[11px]"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        void fetch(`/api/groups/${groupId}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ photoDataUrl: String(reader.result ?? "") }),
+                        }).then(load);
+                      };
+                      reader.readAsDataURL(file);
                     }}
                   />
                 </label>
@@ -958,7 +1057,7 @@ export function GroupPane({
       {groupCall && (
         <GroupCallStage
           initial={groupCall}
-          members={(group?.members ?? []).filter((m) => m.kind === "user").map((m) => ({ key: m.key, name: m.name }))}
+          members={(group?.members ?? []).filter((m) => m.kind === "user" && m.key).map((m) => ({ key: m.key!, name: m.name }))}
           lowData={false}
           minimized={callMin}
           onMinimized={setCallMin}

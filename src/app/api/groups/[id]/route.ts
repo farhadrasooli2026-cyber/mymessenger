@@ -42,6 +42,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
     searchVisible: typeof body.searchVisible === "boolean" ? body.searchVisible : undefined,
     inviteExpiresAt: body.inviteExpiresAt === null ? null : typeof body.inviteExpiresAt === "number" ? body.inviteExpiresAt : undefined,
     inviteMaxUses: body.inviteMaxUses === null ? null : typeof body.inviteMaxUses === "number" ? body.inviteMaxUses : undefined,
+    hideMemberList: typeof body.hideMemberList === "boolean" ? body.hideMemberList : undefined,
     customRoles: Array.isArray(body.customRoles) ? (body.customRoles as never) : undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);

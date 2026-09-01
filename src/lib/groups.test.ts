@@ -3,7 +3,7 @@ import { hashIp } from "./crypto-utils";
 import { completeProfile } from "./profile";
 import { ackHumanChallenge, issueHumanChallenge, startRegistration, verifyOtp } from "./registration";
 import { getOutbox } from "./outbox";
-import { resetStoreForTests } from "./store";
+import { mutateStore, resetStoreForTests } from "./store";
 import {
   createGroup,
   deleteGroup,
@@ -240,5 +240,59 @@ describe("NIXO groups", () => {
     const other = await activeUser("grp_space_x");
     const listed = await searchSpaces(other, { q: "مخفی فضا", kind: "group" });
     expect(listed.items.some((i) => i.id === secret.group.id)).toBe(false);
+  });
+
+  it("validates name/avatar, expires join requests, hides members, and unbans", async () => {
+    const owner = await activeUser("grp_sec75");
+    const member = await activeUser("grp_sec75b");
+    expect((await createGroup(owner, { name: "x" })).ok).toBe(false);
+    expect((await createGroup(owner, { name: "https://phish.test" })).ok).toBe(false);
+    expect((await createGroup(owner, { name: "گروه عکس", photoDataUrl: "data:image/gif;base64,AAAA" })).ok).toBe(false);
+    const created = await createGroup(owner, { name: "باشگاه مجوز", joinMode: "open" });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    await joinByToken(member, created.group.inviteToken!, { acceptRules: true });
+    const live = await getGroup(owner, created.group.id);
+    await updateGroup(owner, created.group.id, {
+      hideMemberList: true,
+      perms: { ...live!.group.perms, sendLinks: false },
+    });
+    const asMember = await getGroup(member, created.group.id);
+    expect(asMember?.group.hideMemberList).toBe(true);
+    expect(asMember?.group.members.every((m: { key?: string; role: string }) => m.key === member || m.role !== "member")).toBe(true);
+    const linkSpam = await sendGroupMessage(member, created.group.id, { ...envelope, kind: "text", containsLink: true });
+    expect(linkSpam.ok).toBe(false);
+    const banned = await moderateMember(owner, created.group.id, member, "ban", { until: null, reason: "spam" });
+    expect(banned.ok).toBe(true);
+    const blocked = await joinByToken(member, created.group.inviteToken!);
+    expect(blocked.ok).toBe(false);
+    const unbanned = await moderateMember(owner, created.group.id, member, "unban");
+    expect(unbanned.ok).toBe(true);
+    const again = await joinByToken(member, created.group.inviteToken!, { acceptRules: true });
+    expect(again.ok).toBe(true);
+    const reqGroup = await createGroup(owner, { name: "ورود با تأیید", joinMode: "request" });
+    expect(reqGroup.ok).toBe(true);
+    if (!reqGroup.ok) return;
+    const pending = await joinByToken(member, reqGroup.group.inviteToken!);
+    expect(pending.ok).toBe(true);
+    let rid = "";
+    await mutateStore((data) => {
+      const g = data.groups.find((x) => x.id === reqGroup.group.id);
+      if (g?.requests[0]) {
+        rid = g.requests[0].id;
+        g.requests[0].expiresAt = Date.now() - 10;
+      }
+    });
+    const { decideRequest } = await import("./groups");
+    const late = await decideRequest(owner, reqGroup.group.id, rid, true);
+    expect(late.ok).toBe(false);
+    const { fileReport } = await import("./safety");
+    const report = await fileReport(owner, {
+      targetKind: "group",
+      targetKey: `${created.group.id}:member:${member}`,
+      category: "spam",
+      details: "",
+    });
+    expect(report.ok).toBe(true);
   });
 });

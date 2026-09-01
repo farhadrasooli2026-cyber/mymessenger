@@ -88,13 +88,22 @@ export async function fileReport(
       if (!thread) return { ok: false as const, error: "گفتگو یافت نشد.", status: 404 };
     }
     if (input.targetKind === "group") {
-      const [gid, mid] = input.targetKey.split(":");
+      const parts = input.targetKey.split(":");
+      const gid = parts[0];
       const group = data.groups.find((g) => g.id === gid && !g.deletedAt);
       if (!group || !group.members.some((m) => m.key === reporterId && !m.leftAt)) {
         return { ok: false as const, error: "گروه یافت نشد.", status: 404 };
       }
-      if (mid && !data.groupMessages.some((m) => m.id === mid && m.groupId === gid)) {
-        return { ok: false as const, error: "پیام یافت نشد.", status: 404 };
+      if (parts[1] === "member") {
+        const memberKey = parts[2] ?? "";
+        if (!group.members.some((m) => m.key === memberKey)) {
+          return { ok: false as const, error: "عضو یافت نشد.", status: 404 };
+        }
+      } else if (parts[1]) {
+        const mid = parts.slice(1).join(":");
+        if (!data.groupMessages.some((m) => m.id === mid && m.groupId === gid)) {
+          return { ok: false as const, error: "پیام یافت نشد.", status: 404 };
+        }
       }
     }
     if (input.targetKind === "community") {

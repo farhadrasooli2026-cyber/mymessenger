@@ -13,6 +13,15 @@ export const GROUP_MEMBER_PAGE = 40;
 export const GROUP_CATEGORIES = ["general", "friends", "work", "gaming", "education", "local", "tech", "art"] as const;
 export type GroupCategory = (typeof GROUP_CATEGORIES)[number];
 
+export const GROUP_REQUEST_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const GROUP_LINK_WINDOW_MS = 10 * 60 * 1000;
+export const GROUP_LINK_MAX = 8;
+export const GROUP_NAME_MAX = 48;
+export const GROUP_DESC_MAX = 500;
+
+export type GroupMembershipState = "pending" | "active" | "left" | "removed" | "banned";
+export type GroupJoinRequestStatus = "pending" | "approved" | "rejected" | "cancelled" | "expired";
+
 export type CustomGroupRole = {
   id: string;
   name: string;
@@ -22,7 +31,30 @@ export type CustomGroupRole = {
   muteMembers: boolean;
   manageAdmins?: boolean;
   addMembers?: boolean;
+  manageLinks?: boolean;
+  manageRoles?: boolean;
+  manageSettings?: boolean;
+  manageMedia?: boolean;
 };
+
+export function validateGroupName(raw: string): { ok: true; name: string } | { ok: false; error: string } {
+  const name = raw.trim().replace(/\s+/g, " ");
+  if (name.length < 2 || name.length > GROUP_NAME_MAX) {
+    return { ok: false, error: `نام گروه باید ۲ تا ${GROUP_NAME_MAX} نویسه باشد.` };
+  }
+  if (/[\u0000-\u001f]/.test(name) || /https?:\/\//i.test(name) || /<script/i.test(name)) {
+    return { ok: false, error: "نام گروه نامعتبر است." };
+  }
+  return { ok: true, name };
+}
+
+export function validateGroupDescription(raw: string): { ok: true; text: string } | { ok: false; error: string } {
+  const text = raw.trim().slice(0, GROUP_DESC_MAX);
+  if (/[\u0000-\u0008]/.test(text) || /<script/i.test(text)) {
+    return { ok: false, error: "توضیحات گروه نامعتبر است." };
+  }
+  return { ok: true, text };
+}
 export const GROUP_STORAGE_MAX_ITEMS = 2000;
 export const GROUP_SLOW_PRESETS = [
   { id: "off", ms: 0, label: "خاموش" },
@@ -41,6 +73,9 @@ export type GroupPerms = {
   sendFiles: boolean;
   sendVoice: boolean;
   sendLinks: boolean;
+  sendStickers: boolean;
+  sendMentions: boolean;
+  sendReactions: boolean;
   addMembers: boolean;
   changeInfo: boolean;
   pinMessages: boolean;
@@ -55,6 +90,9 @@ export const DEFAULT_GROUP_PERMS: GroupPerms = {
   sendFiles: true,
   sendVoice: true,
   sendLinks: true,
+  sendStickers: true,
+  sendMentions: true,
+  sendReactions: true,
   addMembers: false,
   changeInfo: false,
   pinMessages: false,
@@ -72,6 +110,11 @@ export type GroupAdminPerms = {
   manageInvites: boolean;
   managePermissions: boolean;
   manageAdmins: boolean;
+  manageRoles: boolean;
+  manageSettings: boolean;
+  manageMedia: boolean;
+  manageLinks: boolean;
+  banMembers: boolean;
 };
 
 export const DEFAULT_GROUP_ADMIN_PERMS: GroupAdminPerms = {
@@ -84,6 +127,11 @@ export const DEFAULT_GROUP_ADMIN_PERMS: GroupAdminPerms = {
   manageInvites: true,
   managePermissions: false,
   manageAdmins: false,
+  manageRoles: false,
+  manageSettings: true,
+  manageMedia: true,
+  manageLinks: true,
+  banMembers: true,
 };
 
 export const ROLE_FA: Record<GroupRole, string> = {
@@ -113,6 +161,9 @@ export const PERM_FA: Record<keyof GroupPerms, string> = {
   sendFiles: "ارسال فایل",
   sendVoice: "ارسال صوت",
   sendLinks: "ارسال لینک",
+  sendStickers: "ارسال استیکر",
+  sendMentions: "منشن اعضا",
+  sendReactions: "واکنش",
   addMembers: "افزودن عضو",
   changeInfo: "تغییر اطلاعات گروه",
   pinMessages: "پین پیام",
@@ -130,6 +181,11 @@ export const ADMIN_PERM_FA: Record<keyof GroupAdminPerms, string> = {
   manageInvites: "مدیریت دعوت",
   managePermissions: "تغییر مجوز اعضا",
   manageAdmins: "مدیریت ادمین‌ها",
+  manageRoles: "مدیریت نقش‌ها",
+  manageSettings: "تنظیمات گروه",
+  manageMedia: "مدیریت رسانه",
+  manageLinks: "مدیریت لینک دعوت",
+  banMembers: "بن اعضا",
 };
 
 export const GROUP_FOLDER_PRESETS = ["Friends", "Work", "Gaming"] as const;

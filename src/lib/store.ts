@@ -1228,6 +1228,7 @@ export type GroupMember = {
   notifyMentions?: boolean;
   lastSentAt?: number | null;
   leftAt: number | null;
+  removedBy?: string | null;
 };
 
 export type GroupAuditEvent = {
@@ -1244,13 +1245,19 @@ export type GroupJoinRequest = {
   userId: string;
   name: string;
   createdAt: number;
-  status: "pending" | "approved" | "rejected" | "cancelled";
+  expiresAt?: number;
+  status: "pending" | "approved" | "rejected" | "cancelled" | "expired";
 };
 
 export type GroupBan = {
+  id?: string;
   key: string;
   at: number;
   until?: number | null;
+  byKey?: string;
+  byName?: string;
+  reason?: string;
+  permanent?: boolean;
 };
 
 export type GroupRecord = {
@@ -1292,6 +1299,7 @@ export type GroupRecord = {
   customRoles: CustomGroupRole[];
   allowForward?: boolean;
   previousUsernames?: string[];
+  hideMemberList?: boolean;
 };
 
 export type GroupPoll = {

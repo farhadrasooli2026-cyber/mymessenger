@@ -23,6 +23,7 @@ export function GroupCreate({ onCreated, onClose }: { onCreated: (id: string) =>
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [hits, setHits] = useState<{ id: string; displayName: string; username: string | null }[]>([]);
+  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
 
   async function create() {
     setBusy(true);
@@ -37,6 +38,7 @@ export function GroupCreate({ onCreated, onClose }: { onCreated: (id: string) =>
           memberKeys: picked,
           joinMode,
           username: username || undefined,
+          photoDataUrl: photoDataUrl || undefined,
           tags: tags.split(/[,\s]+/).filter(Boolean).slice(0, 8),
           category,
         }),
@@ -131,12 +133,25 @@ export function GroupCreate({ onCreated, onClose }: { onCreated: (id: string) =>
                 />
               ))}
             </div>
-            <div
-              className="mt-3 grid h-20 place-items-center rounded-2xl text-2xl font-semibold text-[#071614]"
-              style={{ background: color }}
-            >
-              {name.slice(0, 1) || "گ"}
-            </div>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="mt-2 text-[11px]"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) {
+                  setPhotoDataUrl(null);
+                  return;
+                }
+                const reader = new FileReader();
+                reader.onload = () => setPhotoDataUrl(String(reader.result ?? ""));
+                reader.readAsDataURL(file);
+              }}
+            />
+            {photoDataUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={photoDataUrl} alt="" className="mt-2 h-16 w-16 rounded-2xl object-cover" />
+            )}
           </>
         )}
         {step === 2 && (

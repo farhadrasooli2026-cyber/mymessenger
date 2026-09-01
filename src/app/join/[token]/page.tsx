@@ -23,7 +23,11 @@ export default function JoinGroupPage() {
   }, [token]);
 
   async function join() {
-    const res = await fetch(`/api/groups/join/${token}`, { method: "POST" });
+    const res = await fetch(`/api/groups/join/${token}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ acceptRules: true }),
+    });
     const data = await res.json();
     if (res.status === 401) {
       router.replace("/");

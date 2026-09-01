@@ -51,6 +51,7 @@ export async function POST(request: Request, ctx: Ctx) {
     until: body.until === null ? null : typeof body.until === "number" ? body.until : undefined,
     membershipId: typeof body.membershipId === "string" ? body.membershipId : undefined,
     customRoleId: body.customRoleId === null || typeof body.customRoleId === "string" ? (body.customRoleId as string | null) : undefined,
+    reason: typeof body.reason === "string" ? body.reason : undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, group: result.group });

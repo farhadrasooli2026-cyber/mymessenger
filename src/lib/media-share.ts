@@ -5,6 +5,7 @@ import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { ChatMessage, GroupMessage, MediaJob, StoreData } from "@/lib/store";
 import { randomId } from "@/lib/crypto-utils";
 import { blockState } from "@/lib/safety";
+import { rankRole } from "@/lib/group-types";
 
 export const MEDIA_JOB_RETRY_MAX = 3;
 
@@ -59,8 +60,14 @@ export async function authorizeGroupBlob(userId: string, groupId: string, blobId
   if (!group) return { ok: false, error: "گروه یافت نشد.", status: 404 };
   const member = group.members.find((m) => m.key === userId && !m.leftAt);
   if (!member) return { ok: false, error: "عضو این گروه نیستی.", status: 403 };
+  if (group.bans.some((b) => b.key === userId && (b.until == null || b.until > Date.now()))) {
+    return { ok: false, error: "از این گروه بن شده‌ای.", status: 403 };
+  }
   const msg = data.groupMessages.find((m) => m.groupId === groupId && m.blobId === blobId && !m.deleted) as GroupMessage | undefined;
   if (!msg?.blobId) return { ok: false, error: "فایل در دسترس نیست.", status: 404 };
+  if ((group.historyMode ?? "all") === "from-join" && rankRole(member.role) < 3 && msg.createdAt < member.joinedAt) {
+    return { ok: false, error: "تاریخچه برای عضو جدید محدود است.", status: 403 };
+  }
   return { ok: true, storageUserId: msg.senderKey, messageId: msg.id, kind: msg.kind ?? "file" };
 }
 
