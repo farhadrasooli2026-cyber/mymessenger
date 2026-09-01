@@ -1,6 +1,7 @@
 import "server-only";
 import { randomId } from "@/lib/crypto-utils";
 import { SEED_PEERS } from "@/lib/chat-copy";
+import { postingBlocked } from "@/lib/account-gate";
 import { canAddToGroup } from "@/lib/privacy";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
@@ -786,6 +787,9 @@ export async function joinGroup(userId: string, groupId: string, extra?: { accep
     }
     const group = data.groups.find((g) => g.id === groupId && !g.deletedAt);
     if (!group) return { ok: false as const, error: "گروه یافت نشد.", status: 404 };
+    if (group.platformHold === "removed") {
+      return { ok: false as const, error: "این گروه توسط ایمنی نیکسو محدود است.", status: 403 };
+    }
     expireJoinRequests(group, now);
     const user = data.users.find((u) => u.id === userId);
     if (!user) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
@@ -1228,8 +1232,13 @@ export async function sendGroupMessage(
   },
 ) {
   return mutateStore((data) => {
+    const blocked = postingBlocked(data.users.find((u) => u.id === userId));
+    if (blocked.blocked) return { ok: false as const, error: blocked.error, status: 403 };
     const group = data.groups.find((g) => g.id === groupId && !g.deletedAt);
     if (!group) return { ok: false as const, error: "گروه یافت نشد.", status: 404 };
+    if (group.platformHold === "removed" || group.platformHold === "restricted") {
+      return { ok: false as const, error: "این گروه توسط ایمنی نیکسو محدود است.", status: 403 };
+    }
     const me = findMember(group, userId);
     if (!me) return { ok: false as const, error: "عضو این گروه نیستی.", status: 403 };
     const now = Date.now();

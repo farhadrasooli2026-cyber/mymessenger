@@ -31,6 +31,10 @@ export async function POST(request: Request) {
 
   if (result.alreadyActive) {
     const user = await getUserById(result.userId);
+    const blocked = (await import("@/lib/account-gate")).loginBlocked(user);
+    if (blocked.blocked) {
+      return jsonError(blocked.error, 403, { code: blocked.code });
+    }
     if (userNeedsTwoStep(user)) {
       await writeSession({
         step: "twostep",

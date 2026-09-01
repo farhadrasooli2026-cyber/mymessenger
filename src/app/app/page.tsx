@@ -3,6 +3,7 @@ import { requireVerifiedUser } from "@/lib/auth";
 import { defaultAppearance } from "@/lib/appearance-types";
 import { Messenger } from "@/components/messenger";
 import { readSession } from "@/lib/session";
+import { loginBlocked } from "@/lib/account-gate";
 
 export default async function AppPage() {
   const session = await readSession();
@@ -10,6 +11,7 @@ export default async function AppPage() {
   const user = await requireVerifiedUser();
   if (!user) redirect("/");
   if (user.status !== "active") redirect("/setup");
+  if (loginBlocked(user).blocked) redirect("/app/settings/appeals");
   return (
     <Messenger
       userId={user.id}

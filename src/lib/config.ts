@@ -43,6 +43,7 @@ export const config = {
   },
   cookieName: "nixo_reg",
   adminCookie: "nixo_admin",
+  staffCookie: "nixo_staff",
   adminKey: process.env.NIXO_ADMIN_KEY || "nixo-admin-dev",
   cookieMaxAgeSec: 7 * 24 * 60 * 60,
   deletionGraceMs: 14 * 24 * 60 * 60 * 1000,

@@ -1,4 +1,5 @@
 import "server-only";
+import { loginBlocked } from "@/lib/account-gate";
 import { getUserById } from "@/lib/registration";
 import { publicProfile } from "@/lib/profile";
 import { readSession } from "@/lib/session";
@@ -17,6 +18,7 @@ export async function requireActiveUser() {
   if (!session?.userId || session.step !== "complete") return null;
   const user = await getUserById(session.userId);
   if (!user || user.status !== "active") return null;
+  if (loginBlocked(user).blocked) return null;
   return publicProfile(user, user.id);
 }
 
@@ -25,6 +27,7 @@ export async function requireActiveSession() {
   if (!session?.userId || session.step !== "complete") return null;
   const user = await getUserById(session.userId);
   if (!user || user.status !== "active") return null;
+  if (loginBlocked(user).blocked) return null;
   return { user, session, profile: publicProfile(user, user.id) };
 }
 

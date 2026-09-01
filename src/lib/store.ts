@@ -62,6 +62,20 @@ import type { NotifyAudit, NotifyDeadLetter, NotifyPrefs, NotifyRecord, PushJob,
 import type { SearchDoc, SearchIndexJob, SearchMetrics, SearchQueryCache } from "@/lib/search-types";
 import type { SecurityMetrics } from "@/lib/security-core";
 import { emptySecurityMetrics } from "@/lib/security-core";
+import { emptyAdminMetrics } from "@/lib/admin-types";
+import type {
+  AdminAlert,
+  AdminAuditRow,
+  AdminMetrics,
+  AdminSessionRow,
+  AccountWarning,
+  AutoModFlag,
+  ContentTombstone,
+  ModerationAppeal,
+  ModerationCase,
+  StaffMember,
+} from "@/lib/admin-types";
+import { expireStaleRestriction } from "@/lib/account-gate";
 import type { VaultJob, VaultObject, VaultSession, StorageMetrics } from "@/lib/storage-types";
 import { applyMigrations, hydrateSchemaMeta } from "@/lib/db/migrate";
 import { repairOrphans } from "@/lib/db/integrity";
@@ -199,9 +213,21 @@ function hydrateUser(user: UserRecord): UserRecord {
     statusExpiresAt: typeof user.statusExpiresAt === "number" ? user.statusExpiresAt : null,
     statusHistory: Array.isArray(user.statusHistory) ? user.statusHistory.slice(-20) : [],
     accountStatus:
-      user.accountStatus === "pending_deletion" || user.accountStatus === "closed" || user.accountStatus === "deactivated"
+      user.accountStatus === "pending_deletion" ||
+      user.accountStatus === "closed" ||
+      user.accountStatus === "deactivated" ||
+      user.accountStatus === "restricted" ||
+      user.accountStatus === "suspended" ||
+      user.accountStatus === "banned"
         ? user.accountStatus
         : "active",
+    restrictionUntil: typeof user.restrictionUntil === "number" ? user.restrictionUntil : null,
+    restrictionKind:
+      user.restrictionKind === "restrict" || user.restrictionKind === "suspend" || user.restrictionKind === "ban"
+        ? user.restrictionKind
+        : "none",
+    restrictionReason: typeof user.restrictionReason === "string" ? user.restrictionReason.slice(0, 400) : "",
+    restrictionPermanent: Boolean(user.restrictionPermanent),
     deactivatedAt: typeof user.deactivatedAt === "number" ? user.deactivatedAt : null,
     deletionFinalizeAt: user.deletionFinalizeAt ?? null,
     backupPrefs: user.backupPrefs ?? {
@@ -344,6 +370,8 @@ function hydrateGroup(group: GroupRecord): GroupRecord {
     adminPerms: { ...DEFAULT_GROUP_ADMIN_PERMS, ...(group.adminPerms ?? {}) },
     slowModeMs: typeof group.slowModeMs === "number" ? group.slowModeMs : 0,
     historyMode: group.historyMode === "from-join" ? "from-join" : "all",
+    platformHold: group.platformHold === "restricted" || group.platformHold === "removed" ? group.platformHold : "ok",
+    platformHoldReason: group.platformHoldReason ?? "",
     inviteToken: group.inviteToken || "",
     inviteExpiresAt: typeof group.inviteExpiresAt === "number" ? group.inviteExpiresAt : null,
     inviteMaxUses: typeof group.inviteMaxUses === "number" ? group.inviteMaxUses : null,
@@ -651,7 +679,11 @@ export type UserRecord = {
   relationshipRev: number;
   statusExpiresAt: number | null;
   statusHistory: { at: number; preset: string; text: string }[];
-  accountStatus?: "active" | "pending_deletion" | "closed" | "deactivated";
+  accountStatus?: "active" | "pending_deletion" | "closed" | "deactivated" | "restricted" | "suspended" | "banned";
+  restrictionUntil?: number | null;
+  restrictionKind?: "none" | "restrict" | "suspend" | "ban";
+  restrictionReason?: string;
+  restrictionPermanent?: boolean;
   deactivatedAt?: number | null;
   deletionFinalizeAt?: number | null;
   backupPrefs?: BackupPrefs;
@@ -1051,13 +1083,35 @@ export type ChatMessage = {
 export type SafetyReport = {
   id: string;
   reporterId: string;
-  targetKind: "user" | "chat" | "group" | "community" | "channel" | "story" | "bot" | "miniapp" | "business" | "sticker" | "live" | "call";
+  targetKind:
+    | "user"
+    | "chat"
+    | "group"
+    | "community"
+    | "channel"
+    | "story"
+    | "bot"
+    | "miniapp"
+    | "business"
+    | "sticker"
+    | "live"
+    | "call"
+    | "file"
+    | "profile"
+    | "message";
   targetKey: string;
   threadId?: string;
   messageIds: string[];
   category: "spam" | "abuse" | "fake" | "harassment" | "other";
   details: string;
   createdAt: number;
+  status?: import("@/lib/admin-types").ReportStatus;
+  priority?: import("@/lib/admin-types").ReportPriority;
+  assignedTo?: string | null;
+  duplicateOf?: string | null;
+  notes?: import("@/lib/admin-types").ModerationNote[];
+  caseId?: string | null;
+  autoFlagged?: boolean;
 };
 
 export type StoryView = {
@@ -1369,6 +1423,8 @@ export type GroupRecord = {
   allowForward?: boolean;
   previousUsernames?: string[];
   hideMemberList?: boolean;
+  platformHold?: "ok" | "restricted" | "removed";
+  platformHoldReason?: string;
 };
 
 export type GroupPoll = {
@@ -2070,6 +2126,16 @@ export type StoreData = {
   /** Public hashtag counts only. Never stores private queries, phones, or emails. */
   searchPopular: Record<string, number>;
   securityMetrics: SecurityMetrics;
+  staffMembers: StaffMember[];
+  adminSessions: AdminSessionRow[];
+  adminAudit: AdminAuditRow[];
+  moderationCases: ModerationCase[];
+  moderationAppeals: ModerationAppeal[];
+  accountWarnings: AccountWarning[];
+  adminAlerts: AdminAlert[];
+  autoModFlags: AutoModFlag[];
+  contentTombstones: ContentTombstone[];
+  adminMetrics: AdminMetrics;
   schemaMeta: import("@/lib/db/migrate").SchemaMeta;
   dbJobs: DbJob[];
   dbAudit: DbAudit[];
@@ -2217,6 +2283,16 @@ const EMPTY: StoreData = {
   searchMetrics: { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0 },
   searchPopular: {},
   securityMetrics: emptySecurityMetrics(),
+  staffMembers: [],
+  adminSessions: [],
+  adminAudit: [],
+  moderationCases: [],
+  moderationAppeals: [],
+  accountWarnings: [],
+  adminAlerts: [],
+  autoModFlags: [],
+  contentTombstones: [],
+  adminMetrics: emptyAdminMetrics(),
   schemaMeta: { version: 0, migratedAt: 0, env: process.env.VITEST ? "test" : "development" },
   dbJobs: [],
   dbAudit: [],
@@ -2468,6 +2544,16 @@ async function readStore(): Promise<StoreData> {
       searchMetrics: parsed.searchMetrics ?? { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0 },
       searchPopular: parsed.searchPopular && typeof parsed.searchPopular === "object" ? parsed.searchPopular : {},
       securityMetrics: parsed.securityMetrics ?? emptySecurityMetrics(),
+      staffMembers: Array.isArray(parsed.staffMembers) ? parsed.staffMembers : [],
+      adminSessions: Array.isArray(parsed.adminSessions) ? parsed.adminSessions : [],
+      adminAudit: Array.isArray(parsed.adminAudit) ? parsed.adminAudit : [],
+      moderationCases: Array.isArray(parsed.moderationCases) ? parsed.moderationCases : [],
+      moderationAppeals: Array.isArray(parsed.moderationAppeals) ? parsed.moderationAppeals : [],
+      accountWarnings: Array.isArray(parsed.accountWarnings) ? parsed.accountWarnings : [],
+      adminAlerts: Array.isArray(parsed.adminAlerts) ? parsed.adminAlerts : [],
+      autoModFlags: Array.isArray(parsed.autoModFlags) ? parsed.autoModFlags : [],
+      contentTombstones: Array.isArray(parsed.contentTombstones) ? parsed.contentTombstones : [],
+      adminMetrics: parsed.adminMetrics ?? emptyAdminMetrics(),
       schemaMeta: hydrateSchemaMeta(parsed.schemaMeta),
       dbJobs: Array.isArray(parsed.dbJobs) ? parsed.dbJobs : [],
       dbAudit: Array.isArray(parsed.dbAudit) ? parsed.dbAudit : [],
@@ -2563,6 +2649,10 @@ function prune(data: StoreData, now: number): void {
   data.vaultLinks = (data.vaultLinks ?? []).filter((l) => !l.revokedAt && l.expiresAt > now - 24 * 60 * 60 * 1000);
   data.dbJobs = (data.dbJobs ?? []).filter((j) => now - j.createdAt < 30 * 24 * 60 * 60 * 1000);
   data.dbAudit = (data.dbAudit ?? []).filter((j) => now - j.at < 30 * 24 * 60 * 60 * 1000);
+  data.adminAudit = (data.adminAudit ?? []).filter((j) => now - j.createdAt < 180 * 24 * 60 * 60 * 1000).slice(0, 2000);
+  data.adminSessions = (data.adminSessions ?? []).filter((s) => !s.revokedAt || now - (s.revokedAt ?? 0) < 14 * 24 * 60 * 60 * 1000);
+  data.adminAlerts = (data.adminAlerts ?? []).filter((a) => now - a.createdAt < 90 * 24 * 60 * 60 * 1000).slice(0, 400);
+  for (const user of data.users) expireStaleRestriction(user, now);
   data.callEvents = (data.callEvents ?? []).filter((e) => now - e.at < 7 * 24 * 60 * 60 * 1000).slice(-4000);
   data.callSignals = (data.callSignals ?? []).filter((s) => now - s.createdAt < 10 * 60 * 1000).slice(-800);
   data.callQuality = (data.callQuality ?? []).filter((q) => now - q.at < 10 * 60 * 1000).slice(-400);

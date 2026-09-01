@@ -3,6 +3,7 @@ import { randomId } from "@/lib/crypto-utils";
 import { SEED_PEERS } from "@/lib/chat-copy";
 import { blockState } from "@/lib/safety";
 import { canMessageUser } from "@/lib/privacy";
+import { postingBlocked } from "@/lib/account-gate";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { ChatMessage, StoreData } from "@/lib/store";
@@ -349,6 +350,8 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
     seedInbox(data, userId);
     const thread = data.threads.find((t) => t.id === threadId && t.ownerUserId === userId);
     if (!thread) return { ok: false as const, error: "گفتگو یافت نشد.", status: 404 };
+    const gated = postingBlocked(data.users.find((u) => u.id === userId));
+    if (gated.blocked) return { ok: false as const, error: gated.error, status: 403 };
     const safety = blockState(data, userId, thread.peerKey);
     if (!safety.messagesAllowed) {
       return {

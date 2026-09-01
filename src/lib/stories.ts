@@ -2,6 +2,7 @@ import "server-only";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { randomId } from "@/lib/crypto-utils";
 import { config } from "@/lib/config";
+import { postingBlocked } from "@/lib/account-gate";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { StoreData, StoryHighlight, UserStory } from "@/lib/store";
@@ -411,6 +412,8 @@ function resolveMentions(data: StoreData, actorId: string, raw: string[]) {
 export async function createStory(userId: string, input: Partial<UserStory> & { kind: StoryKind }) {
   const user = (await readStoreSnapshot()).users.find((u) => u.id === userId);
   if (!user) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+  const gated = postingBlocked(user);
+  if (gated.blocked) return { ok: false as const, error: gated.error, status: 403 };
   return mutateStore((data) => {
     const now = Date.now();
     const flood = hitRateLimit(data, `story:${userId}`, 60_000, 8, now);

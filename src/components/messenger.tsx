@@ -2366,6 +2366,12 @@ export function Messenger({
             <Link href="/app/settings/security" className="block text-sm text-amber-200">
               تنظیمات → امنیت
             </Link>
+            <Link href="/app/admin" className="block text-sm text-amber-200">
+              پنل مدیریت نیکسو
+            </Link>
+            <Link href="/app/settings/appeals" className="block text-sm text-amber-200">
+              اعتراض به محدودیت حساب
+            </Link>
             <Link href="/app/settings/notifications" className="block text-sm text-amber-200">
               تنظیمات → اعلان‌ها
             </Link>

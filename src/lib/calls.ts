@@ -5,6 +5,7 @@ import { blockState } from "@/lib/safety";
 import { audienceAllows } from "@/lib/privacy";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { CallDirection, CallKind, CallRecord, CallStatus, StoreData } from "@/lib/store";
+import { postingBlocked } from "@/lib/account-gate";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { emitNotification } from "@/lib/notify";
 import { appendCallEvent } from "@/lib/call-events";
@@ -338,6 +339,8 @@ export async function startOutgoing(userId: string, threadId: string, kind: Call
     }
     const now = Date.now();
     const meUser = data.users.find((u) => u.id === userId);
+    const gated = postingBlocked(meUser);
+    if (gated.blocked) return { ok: false as const, error: gated.error, status: 403 };
     if (meUser?.callRestrictedUntil && meUser.callRestrictedUntil > now) {
       return { ok: false as const, error: "تماس‌های خروجی موقتاً محدود شده است.", status: 429 };
     }

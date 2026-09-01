@@ -6,6 +6,7 @@ import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { StoreData } from "@/lib/store";
 import { canViewStory } from "@/lib/stories";
 import type { ReportCategory } from "@/lib/chat-copy";
+import { afterReportFiled } from "@/lib/admin-moderation";
 
 export const reportCategorySchema = z.enum(["spam", "abuse", "fake", "harassment", "other"]);
 
@@ -66,7 +67,7 @@ export async function listBlocked(userId: string) {
 }
 
 export const reportInputSchema = z.object({
-  targetKind: z.enum(["user", "chat", "group", "community", "channel", "story", "bot", "miniapp", "business", "sticker", "live", "call"]),
+  targetKind: z.enum(["user", "chat", "group", "community", "channel", "story", "bot", "miniapp", "business", "sticker", "live", "call", "file", "profile", "message"]),
   targetKey: z.string().min(1).max(160),
   threadId: z.string().max(80).optional(),
   messageIds: z.array(z.string().max(80)).max(20).optional(),
@@ -168,6 +169,21 @@ export async function fileReport(
       const live = (data.lives ?? []).find((l) => l.id === input.targetKey);
       if (!live) return { ok: false as const, error: "Live یافت نشد.", status: 404 };
     }
+    if (input.targetKind === "file") {
+      const file = (data.vaultObjects ?? []).find((o) => o.id === input.targetKey);
+      if (!file || (file.ownerUserId !== reporterId && !(file.allowIds ?? []).includes(reporterId) && file.privacy !== "public")) {
+        return { ok: false as const, error: "فایل یافت نشد.", status: 404 };
+      }
+    }
+    if (input.targetKind === "profile") {
+      const target = data.users.find((u) => u.id === input.targetKey || u.username === input.targetKey);
+      if (!target) return { ok: false as const, error: "کاربر یافت نشد.", status: 404 };
+    }
+    if (input.targetKind === "message") {
+      const own = data.messages.some((m) => m.id === input.targetKey && m.ownerUserId === reporterId);
+      const grp = data.groupMessages.some((m) => m.id === input.targetKey);
+      if (!own && !grp) return { ok: false as const, error: "پیام یافت نشد.", status: 404 };
+    }
     if (input.targetKind === "call") {
       const one = data.calls.find((c) => c.id === input.targetKey && c.ownerUserId === reporterId);
       const group = (data.groupCalls ?? []).find(
@@ -185,8 +201,16 @@ export async function fileReport(
       category: input.category as ReportCategory,
       details: input.details ?? "",
       createdAt: Date.now(),
+      status: "open" as const,
+      priority: input.category === "abuse" ? ("high" as const) : ("normal" as const),
+      assignedTo: null,
+      duplicateOf: null,
+      notes: [],
+      caseId: null,
+      autoFlagged: false,
     };
     data.reports.push(report);
+    afterReportFiled(data, report);
     return { ok: true as const, status: 200, reportId: report.id };
   });
 }
