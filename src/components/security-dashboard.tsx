@@ -30,6 +30,9 @@ type Dash = {
   backupSet: boolean;
   hasPassword: boolean;
   incidentPlaybook?: { phase: string; title: string; steps: readonly string[] }[];
+  metrics?: { activeSessions: number; suspicious24h: number; failedLogins: number; permissionDenies?: number; incidents?: number; tokenRevokes?: number };
+  auditIntegrity?: boolean;
+  score?: number;
 };
 
 function when(ts: number) {
@@ -191,6 +194,12 @@ export function SecurityDashboard() {
           {dash.checkup.suspiciousDevices.length > 0 && (
             <p className="mt-2 text-xs text-amber-200">ورود مشکوک ثبت شده — دستگاه را بررسی کنید.</p>
           )}
+          {dash.metrics && (
+            <p className="mt-2 text-[11px] opacity-70">
+              نشست فعال {dash.metrics.activeSessions} · مشکوک ۲۴ساعت {dash.metrics.suspicious24h} · ابطال توکن {dash.metrics.tokenRevokes ?? 0}
+              {dash.auditIntegrity === false ? " · زنجیرهٔ Audit ناسازگار" : ""}
+            </p>
+          )}
         </section>
 
         <section className="rounded-2xl bg-white/5 p-4 text-sm">
@@ -212,6 +221,15 @@ export function SecurityDashboard() {
               </li>
             ))}
           </ol>
+          <p className="mt-3 text-[11px] opacity-70">مهار حادثه با رمز فعلی، نشست‌ها و توکن‌های دیگر را باطل می‌کند. این دستگاه می‌ماند.</p>
+          <Button
+            type="button"
+            className="mt-2"
+            disabled={busy || !password}
+            onClick={() => void act({ action: "incident-contain", password }).then((d) => d && toast.success("نشست‌های دیگر باطل شدند."))}
+          >
+            مهار حادثه · Revoke other sessions
+          </Button>
         </section>
 
         <section className="rounded-2xl bg-white/5 p-4 text-sm">

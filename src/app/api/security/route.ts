@@ -5,6 +5,7 @@ import {
   changeAccountPassword,
   clearBackupSecret,
   confirmAuthenticator,
+  containSecurityIncident,
   createPrivacyExport,
   deletePasskey,
   disableAuthenticator,
@@ -115,7 +116,7 @@ export async function POST(request: Request) {
     return json({ ok: true });
   }
   if (action === "password-change") {
-    const result = await changeAccountPassword(userId, String(body.current ?? ""), String(body.next ?? ""), ip);
+    const result = await changeAccountPassword(userId, String(body.current ?? ""), String(body.next ?? ""), ip, ctx.session.sid);
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true });
   }
@@ -155,6 +156,11 @@ export async function POST(request: Request) {
   }
   if (action === "screenshot") {
     const result = await setScreenshotProtect(userId, Boolean(body.on), ip);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (action === "incident-contain") {
+    const result = await containSecurityIncident(userId, String(body.password ?? ""), ip, ctx.session.sid);
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
   }

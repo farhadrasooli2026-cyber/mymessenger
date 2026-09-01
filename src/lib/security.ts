@@ -7,10 +7,21 @@ import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { AuditEvent, DeviceSession, SecurityEventKind, StoreData, UserRecord } from "@/lib/store";
 import { emitNotification } from "@/lib/notify";
 import { otpauthUrl, randomTotpSecret, totpValid } from "@/lib/totp";
-import { INCIDENT_PLAYBOOK, nextAuditChainHash } from "@/lib/anti-abuse";
+import { INCIDENT_PLAYBOOK, nextAuditChainHash, verifyAuditChain } from "@/lib/anti-abuse";
+import { emptySecurityMetrics, isNixoOpsHandle, sanitizeUserHtml, type SecurityMetrics } from "@/lib/security-core";
 import { countryFromApprox, impossibleTravel } from "@/lib/safe-web";
 
 export const PASSWORD_MIN = 10;
+
+function bumpSecMetrics(data: StoreData, patch: Partial<SecurityMetrics>) {
+  data.securityMetrics ??= emptySecurityMetrics();
+  const m = data.securityMetrics;
+  if (patch.permissionDenies) m.permissionDenies += patch.permissionDenies;
+  if (patch.loginFails) m.loginFails += patch.loginFails;
+  if (patch.incidents) m.incidents += patch.incidents;
+  if (patch.tokenRevokes) m.tokenRevokes += patch.tokenRevokes;
+  if (patch.lastAlertAt) m.lastAlertAt = patch.lastAlertAt;
+}
 
 function ipHint(ip: string) {
   return hmacIdentifier(`ip:${ip}`).slice(0, 16);
@@ -41,7 +52,7 @@ export function appendAudit(
     ipHint: opts.ip ? ipHint(opts.ip) : undefined,
     userAgent: opts.userAgent?.slice(0, 180),
     deviceSessionId: opts.deviceSessionId,
-    detail: opts.detail?.slice(0, 280),
+    detail: sanitizeUserHtml(opts.detail ?? "").slice(0, 280) || undefined,
   };
   const prev = (data.audit ?? [])[0]?.chainHash ?? "genesis";
   event.chainHash = nextAuditChainHash(prev, event);
@@ -453,10 +464,14 @@ export async function getSecurityDashboard(userId: string, currentSid?: string) 
     screenshotProtect: Boolean(user.prefs?.screenshotProtect),
     incidentPlaybook: INCIDENT_PLAYBOOK,
     score,
+    auditIntegrity: verifyAuditChain(events),
     metrics: {
       activeSessions: devices.filter((d) => !d.revokedAt).length,
       suspicious24h: events.filter((e) => e.kind === "suspicious" && Date.now() - e.createdAt < 86_400_000).length,
       failedLogins: events.filter((e) => e.kind === "suspicious").length,
+      permissionDenies: data.securityMetrics?.permissionDenies ?? 0,
+      incidents: data.securityMetrics?.incidents ?? 0,
+      tokenRevokes: data.securityMetrics?.tokenRevokes ?? 0,
     },
   };
 }
@@ -729,7 +744,7 @@ export function passwordPolicyOk(password: string, username?: string) {
   return { ok: true as const };
 }
 
-export async function changeAccountPassword(userId: string, current: string, next: string, ip: string) {
+export async function changeAccountPassword(userId: string, current: string, next: string, ip: string, keepSid?: string) {
   return mutateStore((data) => {
     const gate = twoStepGate(data, userId, ip);
     if (!gate.allowed) return { ok: false as const, error: "تعداد تلاش بیش از حد است.", status: 429 };
@@ -738,13 +753,24 @@ export async function changeAccountPassword(userId: string, current: string, nex
     const policy = passwordPolicyOk(next, user.username ?? undefined);
     if (!policy.ok) return { ok: false as const, error: policy.error, status: 400 };
     if (user.passwordHash && !passwordMatches(user, current)) {
+      bumpSecMetrics(data, { loginFails: 1 });
       return { ok: false as const, error: "رمز فعلی نادرست است.", status: 400 };
     }
     const { salt, hash } = hashPassword(next);
     user.passwordSalt = salt;
     user.passwordHash = hash;
-    appendAudit(data, userId, "password", { ip, detail: "تغییر رمز؛ فقط هش ذخیره شد" });
-    return { ok: true as const };
+    let revoked = 0;
+    for (const d of data.devices ?? []) {
+      if (d.userId === userId && !d.revokedAt && d.id !== keepSid) {
+        d.revokedAt = Date.now();
+        d.refreshHash = undefined;
+        d.refreshSalt = undefined;
+        revoked += 1;
+      }
+    }
+    bumpSecMetrics(data, { tokenRevokes: revoked, lastAlertAt: Date.now() });
+    appendAudit(data, userId, "password", { ip, detail: "تغییر رمز؛ فقط هش ذخیره شد. نشست‌های دیگر باطل شدند." });
+    return { ok: true as const, revoked };
   });
 }
 
@@ -923,6 +949,48 @@ export async function setScreenshotProtect(userId: string, on: boolean, ip: stri
   });
 }
 
+export async function containSecurityIncident(userId: string, password: string, ip: string, keepSid?: string) {
+  return mutateStore((data) => {
+    const user = data.users.find((u) => u.id === userId);
+    if (!user) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    if (user.passwordHash) {
+      if (!passwordMatches(user, password)) {
+        bumpSecMetrics(data, { loginFails: 1 });
+        return { ok: false as const, error: "رمز عبور نادرست است.", status: 400 };
+      }
+    } else {
+      return { ok: false as const, error: "مهار حادثه نیازمند رمز دومرحله‌ای است.", status: 400 };
+    }
+    let revoked = 0;
+    const now = Date.now();
+    for (const d of data.devices ?? []) {
+      if (d.userId === userId && !d.revokedAt && d.id !== keepSid) {
+        d.revokedAt = now;
+        d.refreshHash = undefined;
+        d.refreshSalt = undefined;
+        revoked += 1;
+      }
+    }
+    for (const g of data.miniGrants ?? []) {
+      if (g.userId === userId) {
+        g.revokedAt = now;
+        g.tokenHash = undefined;
+        g.tokenExp = 0;
+      }
+    }
+    for (const s of data.miniSessions ?? []) {
+      if (s.userId === userId && !s.revokedAt) s.revokedAt = now;
+    }
+    bumpSecMetrics(data, { incidents: 1, tokenRevokes: revoked, lastAlertAt: now });
+    appendAudit(data, userId, "suspicious", {
+      ip,
+      deviceSessionId: keepSid,
+      detail: "مهار حادثه: نشست‌ها و توکن‌های دیگر باطل شدند.",
+    });
+    return { ok: true as const, revoked };
+  });
+}
+
 export function requestOriginAllowed(request: Request) {
   const origin = request.headers.get("origin");
   if (!origin) return true;
@@ -937,6 +1005,10 @@ export function requestOriginAllowed(request: Request) {
 
 export function userNeedsTwoStep(user: UserRecord | null | undefined) {
   return Boolean(user?.status === "active" && ((user.twoStepEnabled && user.passwordHash) || user.totpSecretCipher));
+}
+
+export function assertOpsUser(user: { username?: string | null } | null | undefined) {
+  return isNixoOpsHandle(user?.username ?? undefined);
 }
 
 /** Test helper: never persist plaintext. */

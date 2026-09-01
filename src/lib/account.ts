@@ -111,6 +111,7 @@ export async function scheduleDeletion(
   userId: string,
   input: { phrase: string; code?: string; challengeId?: string; password?: string },
   ip: string,
+  keepSid?: string,
 ) {
   if (input.phrase.trim() !== DELETION_PHRASE) {
     return { ok: false as const, error: "عبارت تأیید را دقیقاً بنویسید: حذف حساب", status: 400 };
@@ -140,6 +141,13 @@ export async function scheduleDeletion(
     user.accountStatus = "pending_deletion";
     user.deletionRequestedAt = now;
     user.deletionFinalizeAt = now + config.deletionGraceMs;
+    for (const d of data.devices ?? []) {
+      if (d.userId === userId && !d.revokedAt && d.id !== keepSid) {
+        d.revokedAt = now;
+        d.refreshHash = undefined;
+        d.refreshSalt = undefined;
+      }
+    }
     appendAudit(data, userId, "account_delete", {
       ip,
       detail: `حذف پس از دورهٔ بازیابی تا ${new Date(user.deletionFinalizeAt).toISOString()}`,

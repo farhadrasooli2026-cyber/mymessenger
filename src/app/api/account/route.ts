@@ -49,6 +49,7 @@ export async function POST(request: Request) {
         password: typeof body.password === "string" ? body.password : undefined,
       },
       ip,
+      ctx.session.sid,
     );
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);

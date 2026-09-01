@@ -252,4 +252,52 @@ describe("NIXO security", () => {
     const dash = await getSecurityDashboard(id);
     expect(dash?.incidentPlaybook?.length).toBe(4);
   });
+
+  it("contains an incident, blocks privilege escalation, and sanitizes untrusted HTML", async () => {
+    const { assertOwned, denyIfCrossAccount, isNixoOpsHandle, sanitizeUserHtml } = await import("./security-core");
+    const { containSecurityIncident } = await import("./security");
+    const { verifyAuditChain } = await import("./anti-abuse");
+    const { safeRedirectPath } = await import("./safe-web");
+    const { updateProfile } = await import("./profile");
+
+    expect(assertOwned("a", "a")).toBe(true);
+    expect(assertOwned("a", "b")).toBe(false);
+    expect(denyIfCrossAccount("owner", "other").ok).toBe(false);
+    expect(isNixoOpsHandle("nixo_ops")).toBe(true);
+    expect(isNixoOpsHandle("random_user")).toBe(false);
+    expect(sanitizeUserHtml("<script>alert(1)</script>سلام")).toBe("سلام");
+    expect(safeRedirectPath("https://evil.example")).toBeNull();
+    expect(safeRedirectPath("/app/settings/security")).toBe("/app/settings/security");
+
+    const id = await activeUser("sec_inc");
+    const pw = "correct-horse-battery";
+    await enableTwoStep(id, pw, "10.0.0.8");
+    const keep = await createDeviceSessionForUser({
+      userId: id,
+      ip: "203.0.113.2",
+      userAgent: "Mozilla/5.0 Keep",
+      approx: "شبکه",
+    });
+    const other = await createDeviceSessionForUser({
+      userId: id,
+      ip: "203.0.113.3",
+      userAgent: "Mozilla/5.0 Other",
+      approx: "شبکه",
+    });
+    const contained = await containSecurityIncident(id, pw, "10.0.0.8", keep.device.id);
+    expect(contained.ok).toBe(true);
+    expect(await isDeviceActive(keep.device.id, id)).toBe(true);
+    expect(await isDeviceActive(other.device.id, id)).toBe(false);
+
+    const escalate = await updateProfile(id, { officialVerified: true } as never);
+    expect(escalate.ok).toBe(false);
+    if (!escalate.ok) expect(escalate.status).toBe(403);
+
+    const snap = await readStoreSnapshot();
+    expect(verifyAuditChain(snap.audit)).toBe(true);
+    expect(snap.securityMetrics.incidents).toBeGreaterThan(0);
+    const dash = await getSecurityDashboard(id);
+    expect(dash?.metrics.incidents).toBeGreaterThan(0);
+    expect(dash?.loginHistory?.every((e) => !JSON.stringify(e).includes("passwordHash"))).toBe(true);
+  });
 });

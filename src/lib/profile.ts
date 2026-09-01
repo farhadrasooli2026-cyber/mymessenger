@@ -206,7 +206,10 @@ export async function completeProfile(userId: string, input: ProfileInput) {
   });
 }
 
-export async function updateProfile(userId: string, input: Partial<ProfileInput> & { username?: string }) {
+export async function updateProfile(userId: string, input: Partial<ProfileInput> & { username?: string; officialVerified?: unknown }) {
+  if (typeof input.officialVerified !== "undefined") {
+    return { ok: false as const, status: 403, error: "ارتقای نقش از این مسیر مجاز نیست." };
+  }
   const now = Date.now();
   if (input.photo?.kind === "upload" && input.photo.dataUrl) {
     const buf = decodeDataUrl(input.photo.dataUrl);

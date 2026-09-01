@@ -60,6 +60,8 @@ import type {
 } from "@/lib/shop-types";
 import type { NotifyAudit, NotifyDeadLetter, NotifyPrefs, NotifyRecord, PushJob, PushToken } from "@/lib/notify-types";
 import type { SearchDoc, SearchIndexJob, SearchMetrics, SearchQueryCache } from "@/lib/search-types";
+import type { SecurityMetrics } from "@/lib/security-core";
+import { emptySecurityMetrics } from "@/lib/security-core";
 import type { VaultJob, VaultObject, VaultSession, StorageMetrics } from "@/lib/storage-types";
 import { applyMigrations, hydrateSchemaMeta } from "@/lib/db/migrate";
 import { repairOrphans } from "@/lib/db/integrity";
@@ -2067,6 +2069,7 @@ export type StoreData = {
   searchMetrics: SearchMetrics;
   /** Public hashtag counts only. Never stores private queries, phones, or emails. */
   searchPopular: Record<string, number>;
+  securityMetrics: SecurityMetrics;
   schemaMeta: import("@/lib/db/migrate").SchemaMeta;
   dbJobs: DbJob[];
   dbAudit: DbAudit[];
@@ -2213,6 +2216,7 @@ const EMPTY: StoreData = {
   searchQueryCache: [],
   searchMetrics: { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0 },
   searchPopular: {},
+  securityMetrics: emptySecurityMetrics(),
   schemaMeta: { version: 0, migratedAt: 0, env: process.env.VITEST ? "test" : "development" },
   dbJobs: [],
   dbAudit: [],
@@ -2463,6 +2467,7 @@ async function readStore(): Promise<StoreData> {
       searchQueryCache: Array.isArray(parsed.searchQueryCache) ? parsed.searchQueryCache : [],
       searchMetrics: parsed.searchMetrics ?? { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0 },
       searchPopular: parsed.searchPopular && typeof parsed.searchPopular === "object" ? parsed.searchPopular : {},
+      securityMetrics: parsed.securityMetrics ?? emptySecurityMetrics(),
       schemaMeta: hydrateSchemaMeta(parsed.schemaMeta),
       dbJobs: Array.isArray(parsed.dbJobs) ? parsed.dbJobs : [],
       dbAudit: Array.isArray(parsed.dbAudit) ? parsed.dbAudit : [],
