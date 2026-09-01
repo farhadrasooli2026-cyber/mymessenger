@@ -33,6 +33,7 @@ export const ADMIN_PERMS = [
   "bulk",
   "audit.view",
   "alerts",
+  "monitor",
 ] as const;
 export type AdminPerm = (typeof ADMIN_PERMS)[number];
 
@@ -57,6 +58,7 @@ const ROLE_PERMS: Record<StaffRole, AdminPerm[]> = {
     "notes.write",
     "audit.view",
     "alerts",
+    "monitor",
   ],
   support: [
     "dashboard",
@@ -68,8 +70,9 @@ const ROLE_PERMS: Record<StaffRole, AdminPerm[]> = {
     "appeals.review",
     "notes.write",
     "audit.view",
+    "monitor",
   ],
-  analyst: ["dashboard", "users.view", "users.search", "reports.view", "audit.view", "export"],
+  analyst: ["dashboard", "users.view", "users.search", "reports.view", "audit.view", "export", "monitor"],
 };
 
 export function permsForRole(role: StaffRole): AdminPerm[] {

@@ -63,6 +63,7 @@ import type { SearchDoc, SearchIndexJob, SearchMetrics, SearchQueryCache } from 
 import type { SecurityMetrics } from "@/lib/security-core";
 import { emptySecurityMetrics } from "@/lib/security-core";
 import { emptyAdminMetrics } from "@/lib/admin-types";
+import { emptyMonitorPersist, hydrateMonitorPersist, type MonitorPersist } from "@/lib/monitor-types";
 import type {
   AdminAlert,
   AdminAuditRow,
@@ -2136,6 +2137,7 @@ export type StoreData = {
   autoModFlags: AutoModFlag[];
   contentTombstones: ContentTombstone[];
   adminMetrics: AdminMetrics;
+  monitor: MonitorPersist;
   schemaMeta: import("@/lib/db/migrate").SchemaMeta;
   dbJobs: DbJob[];
   dbAudit: DbAudit[];
@@ -2293,6 +2295,7 @@ const EMPTY: StoreData = {
   autoModFlags: [],
   contentTombstones: [],
   adminMetrics: emptyAdminMetrics(),
+  monitor: emptyMonitorPersist(),
   schemaMeta: { version: 0, migratedAt: 0, env: process.env.VITEST ? "test" : "development" },
   dbJobs: [],
   dbAudit: [],
@@ -2554,6 +2557,7 @@ async function readStore(): Promise<StoreData> {
       autoModFlags: Array.isArray(parsed.autoModFlags) ? parsed.autoModFlags : [],
       contentTombstones: Array.isArray(parsed.contentTombstones) ? parsed.contentTombstones : [],
       adminMetrics: parsed.adminMetrics ?? emptyAdminMetrics(),
+      monitor: hydrateMonitorPersist(parsed.monitor),
       schemaMeta: hydrateSchemaMeta(parsed.schemaMeta),
       dbJobs: Array.isArray(parsed.dbJobs) ? parsed.dbJobs : [],
       dbAudit: Array.isArray(parsed.dbAudit) ? parsed.dbAudit : [],
@@ -2652,6 +2656,13 @@ function prune(data: StoreData, now: number): void {
   data.adminAudit = (data.adminAudit ?? []).filter((j) => now - j.createdAt < 180 * 24 * 60 * 60 * 1000).slice(0, 2000);
   data.adminSessions = (data.adminSessions ?? []).filter((s) => !s.revokedAt || now - (s.revokedAt ?? 0) < 14 * 24 * 60 * 60 * 1000);
   data.adminAlerts = (data.adminAlerts ?? []).filter((a) => now - a.createdAt < 90 * 24 * 60 * 60 * 1000).slice(0, 400);
+  data.monitor = hydrateMonitorPersist(data.monitor);
+  const monitorKeep = 14 * 24 * 60 * 60 * 1000;
+  data.monitor.logs = data.monitor.logs.filter((l) => now - l.at < monitorKeep).slice(0, 300);
+  data.monitor.samples = data.monitor.samples.filter((s) => now - s.at < 7 * 24 * 60 * 60 * 1000).slice(0, 48);
+  data.monitor.alerts = data.monitor.alerts.filter((a) => now - a.at < 90 * 24 * 60 * 60 * 1000).slice(0, 120);
+  data.monitor.incidents = data.monitor.incidents.filter((i) => now - i.createdAt < 180 * 24 * 60 * 60 * 1000).slice(0, 80);
+  data.monitor.errors = data.monitor.errors.slice(0, 80);
   for (const user of data.users) expireStaleRestriction(user, now);
   data.callEvents = (data.callEvents ?? []).filter((e) => now - e.at < 7 * 24 * 60 * 60 * 1000).slice(-4000);
   data.callSignals = (data.callSignals ?? []).filter((s) => now - s.createdAt < 10 * 60 * 1000).slice(-800);

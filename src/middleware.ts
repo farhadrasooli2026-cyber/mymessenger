@@ -96,7 +96,11 @@ export function middleware(request: NextRequest) {
     });
   }
 
-  const res = NextResponse.next();
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-request-id", extra["X-Request-Id"] ?? "");
+  requestHeaders.set("x-nixo-start", String(Date.now()));
+  requestHeaders.set("x-nixo-path", request.nextUrl.pathname);
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
   for (const [k, v] of Object.entries(cors)) res.headers.set(k, v);
   return res;
 }

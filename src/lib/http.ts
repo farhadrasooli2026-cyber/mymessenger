@@ -27,6 +27,13 @@ export function mergeHeaders(extra?: HeadersInit, correlationId?: string): Heade
 
 const MAX_JSON_RESPONSE_CHARS = 4_000_000;
 
+function observeStatus(status: number) {
+  if (process.env.VITEST) return;
+  void import("@/lib/monitor")
+    .then((m) => m.observeHttp(status))
+    .catch(() => undefined);
+}
+
 export function json(data: unknown, status = 200, extraHeaders?: HeadersInit) {
   const body = stripSensitive(data);
   try {
@@ -37,6 +44,7 @@ export function json(data: unknown, status = 200, extraHeaders?: HeadersInit) {
   } catch {
     return jsonError("پاسخ قابل ارسال نیست.", 500);
   }
+  observeStatus(status);
   return NextResponse.json(body, { status, headers: mergeHeaders(extraHeaders) });
 }
 
@@ -47,5 +55,6 @@ export function jsonError(error: string, status = 400, extra?: Record<string, un
   delete rest.stack;
   delete rest.password;
   const message = error.replace(/\n[\s\S]*$/g, "").slice(0, 280);
+  observeStatus(status);
   return NextResponse.json(stripSensitive({ ok: false, error: message, code, ...rest }), { status, headers: mergeHeaders() });
 }
