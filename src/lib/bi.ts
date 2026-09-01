@@ -20,6 +20,7 @@ import {
   type BiRange,
 } from "@/lib/bi-types";
 import { hydrateBiPersist } from "@/lib/bi-persist";
+import type { BillingPersist } from "@/lib/billing-types";
 
 const FEATURE_SET = new Set<string>(BI_FEATURE_KEYS);
 
@@ -346,8 +347,16 @@ export async function biDashboard(opts: {
   const paid = payments.filter((p) => p.status === "confirmed");
   const payFail = payments.filter((p) => p.status === "failed");
   const refunded = refunds.filter((r) => r.status === "completed");
-  const revenue = paid.reduce((s, p) => s + (p.amount || 0), 0);
+  const shopRevenue = paid.reduce((s, p) => s + (p.amount || 0), 0);
   const refundSum = refunded.reduce((s, r) => s + (r.amount || 0), 0);
+  const billing: BillingPersist | undefined = data.billing;
+  const billIntents = billing?.intents ?? [];
+  const billOk = billIntents.filter((i) => i.status === "succeeded");
+  const billFail = billIntents.filter((i) => i.status === "failed");
+  const billRefunds = (billing?.refunds ?? []).filter((r) => r.status === "completed");
+  const billRevenue = billOk.reduce((s, i) => s + (i.amount || 0), 0);
+  const revenue = shopRevenue + billRevenue;
+  const subs = billing?.subs ?? [];
 
   const vault = data.vaultObjects ?? [];
   const liveBytes = vault.reduce((s, v) => s + (v.deletedAt ? 0 : v.size || 0), 0);
@@ -584,11 +593,18 @@ export async function biDashboard(opts: {
       revenueAggregate: Math.round(revenue * 100) / 100,
       refunds: refunded.length,
       refundRate: paid.length ? Math.round((refunded.length / paid.length) * 1000) / 10 : null,
-      refundAmount: Math.round(refundSum * 100) / 100,
+      refundAmount: Math.round((refundSum + billRefunds.reduce((s, r) => s + (r.amount || 0), 0)) * 100) / 100,
       arpu: scopedUsers.length ? Math.round((revenue / scopedUsers.length) * 100) / 100 : 0,
       subscriptions: {
-        note: "اشتراک جدا هنوز فعال نیست؛ سفارش فروشگاه سندباکس است.",
-        activeShops: (data.shops ?? []).length,
+        active: subs.filter((s) => s.status === "active").length,
+        trial: subs.filter((s) => s.status === "trial").length,
+        cancelled: subs.filter((s) => s.status === "cancelled").length,
+        expired: subs.filter((s) => s.status === "expired").length,
+        pastDue: subs.filter((s) => s.status === "past_due").length,
+        billingPaymentsOk: billOk.length,
+        billingPaymentsFail: billFail.length,
+        billingRevenueAggregate: Math.round(billRevenue * 100) / 100,
+        note: "فقط شمارش تجمیعی؛ شناسهٔ کاربر و PAN نیست.",
       },
       conversionCheckout: payments.length && (data.bizCarts ?? []).length ? Math.round((paid.length / Math.max(1, data.bizCarts.length)) * 1000) / 10 : null,
     },

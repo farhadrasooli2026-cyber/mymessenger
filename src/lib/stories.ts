@@ -10,6 +10,7 @@ import { emitNotification } from "@/lib/notify";
 import { inspectLink, inspectTextLinks } from "@/lib/link-safety";
 import { audienceAllows } from "@/lib/privacy";
 import { enqueueSearchIndexSync } from "@/lib/search";
+import { storyDailyCap } from "@/lib/billing-access";
 import { isLikelyEmoji } from "@/lib/emoji-data";
 import {
   STORY_CAPTION_MAX,
@@ -418,6 +419,11 @@ export async function createStory(userId: string, input: Partial<UserStory> & { 
     const now = Date.now();
     const flood = hitRateLimit(data, `story:${userId}`, 60_000, 8, now);
     if (!flood.allowed) return { ok: false as const, error: "انتشار استوری محدود شد.", status: 429 };
+    const cap = storyDailyCap(data, userId);
+    const postedToday = (data.userStories ?? []).filter((s) => s.ownerUserId === userId && now - s.createdAt < 24 * 60 * 60_000 && !s.deletedAt).length;
+    if (postedToday >= cap) {
+      return { ok: false as const, error: "سقف روزانهٔ استوری این پلن تمام شد.", status: 403 };
+    }
     const kind = input.kind;
     const media = typeof input.media === "string" ? input.media : "";
     const bodyText = (input.body ?? "").toString();

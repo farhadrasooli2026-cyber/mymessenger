@@ -22,6 +22,7 @@ import { logFileAccess } from "@/lib/file-access";
 import { pairBlocked } from "@/lib/privacy";
 import { enqueueSearchIndexSync } from "@/lib/search";
 import { VAULT_KEY_ID } from "@/lib/storage-crypto";
+import { userVaultQuota } from "@/lib/billing-access";
 import {
   VAULT_ALERT_RATIO,
   VAULT_CHANNEL_QUOTA,
@@ -77,9 +78,10 @@ function metricsOf(data: StoreData): StorageMetrics {
   return data.storageMetrics;
 }
 
-function quotaFor(scope: VaultScope) {
+function quotaFor(scope: VaultScope, data?: StoreData, userId?: string) {
   if (scope === "group") return VAULT_GROUP_QUOTA;
   if (scope === "channel") return VAULT_CHANNEL_QUOTA;
+  if (data && userId) return userVaultQuota(data, userId);
   return VAULT_USER_QUOTA;
 }
 
@@ -219,7 +221,7 @@ export async function storageDashboard(userId: string) {
   const mine = (data.vaultObjects ?? []).filter((o) => o.ownerUserId === userId && o.status !== "deleted");
   const live = mine.filter((o) => !o.deletedAt && o.status !== "quarantined");
   const used = usedBytes(data, "user", userId);
-  const quota = VAULT_USER_QUOTA;
+  const quota = quotaFor("user", data, userId);
   const m = metricsOf(data);
   return {
     ok: true as const,
@@ -314,7 +316,7 @@ export async function beginVaultUpload(
     const gate = hitRateLimit(data, `vault:up:${userId}`, 60_000, FILE_SEND_PER_MIN);
     if (!gate.allowed) return { ok: false as const, error: "آپلود پیاپی محدود شد.", status: 429 };
     const used = usedBytes(data, scope, scoped.scopeId);
-    const quota = quotaFor(scope);
+    const quota = quotaFor(scope, data, userId);
     if (used + input.size > quota) return { ok: false as const, error: "سهمیه ذخیره‌سازی پر است.", status: 413 };
     const nonce = (input.clientNonce ?? "").slice(0, 80);
     if (nonce) {
@@ -492,7 +494,7 @@ export async function completeVaultUpload(userId: string, sessionId: string) {
     const m = metricsOf(store);
     m.uploads += 1;
     m.lastUploadMs = Date.now() - started;
-    if (usedBytes(store, obj.scope, obj.scopeId) / quotaFor(obj.scope) >= VAULT_ALERT_RATIO) {
+    if (usedBytes(store, obj.scope, obj.scopeId) / quotaFor(obj.scope, store, obj.ownerUserId) >= VAULT_ALERT_RATIO) {
       m.alertAt = Date.now();
     }
     logFileAccess(store, userId, "vault-complete", obj.id);

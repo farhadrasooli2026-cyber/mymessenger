@@ -41,3 +41,5 @@ Admin / Product / Growth / Engagement / Reliability / Security / Storage / Call 
 ## تست
 
 `src/lib/bi.test.ts`
+
+درآمد اشتراک در `business.subscriptions` فقط شمارش تجمیعی است؛ PAN و شناسهٔ کاربر نیست.

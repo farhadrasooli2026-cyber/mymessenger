@@ -4,7 +4,7 @@ export const MAX_API_BODY_BYTES = 32 * 1024 * 1024;
 export const IP_WINDOW_MS = 60_000;
 export const IP_MAX_HITS = 300;
 
-const CSRF_EXEMPT = ["/api/health", "/api/status", "/api/version", "/api/docs", "/api/shop/webhook", "/api/bot/v1"];
+const CSRF_EXEMPT = ["/api/health", "/api/status", "/api/version", "/api/docs", "/api/shop/webhook", "/api/billing/webhook", "/api/bot/v1"];
 
 export function clientIpFromHeaders(headers: Headers): string {
   const forwarded = headers.get("x-forwarded-for");

@@ -74,6 +74,7 @@ export const DOC_API_PATHS = [
   "/api/i18n",
   "/api/a11y",
   "/api/bi",
+  "/api/billing",
 ] as const;
 
 function page(p: Omit<DocPage, "headings">): DocPage {
@@ -253,6 +254,9 @@ POST /api/chats/:id  body: { ciphertext, nonce, enc, clientNonce }
 
 ## خطا
 401 unauthorized، 403 forbidden، 404 not_found، 429 rate_limited، 503 service_unavailable (از جمله shed).
+
+## اشتراک و پرداخت پلتفرم
+\`GET /api/billing?view=plans|me|finance\` · \`POST /api/billing\` · Webhook \`POST /api/billing/webhook\` با \`x-nixo-billing-signature\` = HMAC(pepper, \`"billing:" + raw\`). موفق بودن پرداخت فقط با تأیید سرور/Webhook است نه پاسخ کلاینت. PAN در body رد می‌شود.
 
 ## Deprecation
 فعلاً Breaking Change عمومی اعلام‌شده نیست. حذف فیلد فقط با bump API_VERSION و یادداشت در CHANGELOG.md.
@@ -619,6 +623,27 @@ DAU/WAU/MAU، Retention، Cohort، Churn، قیف ثبت‌نام، پیام (ف
 
 ## دسترسی
 \`analytics.view\` / \`analytics.manage\`. قابلیت اطمینان و امنیت تجمیعی نیازمند \`monitor\`. ادمین تحلیل به محتوای خصوصی نمی‌رسد.`,
+  }),
+  page({
+    slug: "billing",
+    title: "اشتراک و درآمدزایی",
+    group: "عملیات",
+    owner: DOCS_OWNERS.platform,
+    summary: "پلن، Entitlement سمت سرور، درگاه انتزاعی، فاکتور، استرداد و حسابرسی مالی.",
+    tags: ["billing", "subscription", "invoice", "refund", "entitlement"],
+    body: `مرکز کاربر: Settings → اشتراک. داشبورد مالی: \`/app/admin\` زبانهٔ مالی. فایل: \`docs/BILLING.md\`. API \`/api/billing\`.
+
+## Entitlement
+پلن رایگان بدون ردیف اشتراک است. سقف استوری، Vault و AI روی سرور اعمال می‌شود. UI قفل به‌تنهایی کافی نیست.
+
+## پرداخت
+سندباکس و NIXO Pay. توکن \`tok_\`؛ PAN/CVV ذخیره نمی‌شود. Intent با Idempotency. Webhook با HMAC \`billing:\` + بدنه. رویداد تکراری دوباره شارژ نمی‌کند.
+
+## حریم و نقش
+پروفایل صورتحساب جدا از پروفایل کاربر است. نقش \`finance\` با \`billing.view|manage|refund|export\`. حسابرسی زنجیره‌ای فقط‌خواندنی. انقضای اشتراک پیام و فایل را حذف نمی‌کند.
+
+## تحلیل
+متریک درآمد اشتراک در \`/api/bi\` فقط تجمیعی است.`,
   }),
   page({
     slug: "changelog",

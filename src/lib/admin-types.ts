@@ -1,6 +1,6 @@
 /** Client-safe admin/moderation types. No secrets. */
 
-export const STAFF_ROLES = ["super_admin", "admin", "moderator", "support", "analyst"] as const;
+export const STAFF_ROLES = ["super_admin", "admin", "moderator", "support", "analyst", "finance"] as const;
 export type StaffRole = (typeof STAFF_ROLES)[number];
 
 export const ADMIN_PERMS = [
@@ -44,6 +44,10 @@ export const ADMIN_PERMS = [
   "i18n.manage",
   "analytics.view",
   "analytics.manage",
+  "billing.view",
+  "billing.manage",
+  "billing.refund",
+  "billing.export",
 ] as const;
 export type AdminPerm = (typeof ADMIN_PERMS)[number];
 
@@ -86,6 +90,7 @@ const ROLE_PERMS: Record<StaffRole, AdminPerm[]> = {
     "monitor",
   ],
   analyst: ["dashboard", "users.view", "users.search", "reports.view", "audit.view", "export", "monitor", "backup.view", "deploy.view", "i18n.view", "analytics.view"],
+  finance: ["dashboard", "audit.view", "export", "analytics.view", "billing.view", "billing.manage", "billing.refund", "billing.export"],
 };
 
 export function permsForRole(role: StaffRole): AdminPerm[] {
@@ -97,7 +102,7 @@ export function roleHasPerm(role: StaffRole, perm: AdminPerm) {
 }
 
 export function roleRank(role: StaffRole) {
-  return { analyst: 1, support: 2, moderator: 3, admin: 4, super_admin: 5 }[role];
+  return { analyst: 1, finance: 1, support: 2, moderator: 3, admin: 4, super_admin: 5 }[role];
 }
 
 export const REPORT_STATUSES = ["open", "reviewing", "resolved", "rejected", "escalated"] as const;
@@ -142,6 +147,7 @@ export const STAFF_ROLE_FA: Record<StaffRole, string> = {
   moderator: "ناظر",
   support: "پشتیبانی",
   analyst: "تحلیل‌گر",
+  finance: "مالی",
 };
 
 export type StaffMember = {

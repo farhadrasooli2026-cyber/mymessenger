@@ -4,9 +4,9 @@ import { randomId } from "@/lib/crypto-utils";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import { collectSearchHits } from "@/lib/search";
+import { aiDailyCaps } from "@/lib/billing-access";
 import { extractMemoryCandidate, runAiEngine, type AiEngineInput } from "@/lib/ai-engine";
 import {
-  AI_FREE,
   DEFAULT_AI_PREFS,
   type AiChatRecord,
   type AiIntent,
@@ -54,6 +54,7 @@ export async function getAiWorkspace(userId: string) {
     ({ userId, ...DEFAULT_AI_PREFS, updatedAt: 0 } as AiPrefs);
   const chats = (data.aiChats ?? []).filter((c) => c.userId === userId).sort((a, b) => b.updatedAt - a.updatedAt);
   const memory = prefs.memoryEnabled ? (data.aiMemory ?? []).filter((m) => m.userId === userId) : [];
+  const caps = aiDailyCaps(data, userId);
   return {
     prefs,
     chats: chats.map((c) => ({ id: c.id, title: c.title, topic: c.topic, model: c.model, updatedAt: c.updatedAt })),
@@ -65,8 +66,8 @@ export async function getAiWorkspace(userId: string) {
       training: false,
       delete: "Settings → AI → Delete AI History و View/Delete/Disable Memory.",
     },
-    limits: AI_FREE,
-    subscription: "نسخهٔ رایگان: گفتگو، ترجمه، نوشتن، خلاصه، پیشنهاد پاسخ، SVG. Premium آینده: مدل بینایی و فایل خیلی بزرگ.",
+    limits: { messagesPerDay: caps.messages, filesPerDay: caps.files, imagesPerDay: caps.images },
+    subscription: caps.messages > 48 ? "پلن پولی: سقف بالاتر طبق Entitlement سرور." : "نسخهٔ رایگان: گفتگو، ترجمه، نوشتن، خلاصه. سقف روزانه در سرور اعمال می‌شود.",
   };
 }
 
@@ -108,18 +109,19 @@ export async function sendAiMessage(userId: string, input: z.infer<typeof aiSend
     if (input.consentE2ee && !prefs.allowCloudE2ee) {
       return { ok: false as const, status: 403, error: "ارسال متن چت E2EE به AI ابری در Data Controls خاموش است." };
     }
-    const msgLimit = hitRateLimit(data, dayKey(userId, "msg"), 24 * 60 * 60_000, AI_FREE.messagesPerDay);
+    const caps = aiDailyCaps(data, userId);
+    const msgLimit = hitRateLimit(data, dayKey(userId, "msg"), 24 * 60 * 60_000, caps.messages);
     if (!msgLimit.allowed) {
       log(data, userId, "abuse", "سقف پیام روزانه AI");
       return { ok: false as const, status: 429, error: "سقف روزانهٔ پیام AI تمام شد.", retryAfterSec: msgLimit.retryAfterSec };
     }
     if (input.fileText) {
-      const f = hitRateLimit(data, dayKey(userId, "file"), 24 * 60 * 60_000, AI_FREE.filesPerDay);
+      const f = hitRateLimit(data, dayKey(userId, "file"), 24 * 60 * 60_000, caps.files);
       if (!f.allowed) return { ok: false as const, status: 429, error: "سقف فایل روزانه." };
     }
     const intent = (input.intent as AiIntent | undefined) ?? undefined;
     if (intent === "image") {
-      const im = hitRateLimit(data, dayKey(userId, "img"), 24 * 60 * 60_000, AI_FREE.imagesPerDay);
+      const im = hitRateLimit(data, dayKey(userId, "img"), 24 * 60 * 60_000, caps.images);
       if (!im.allowed) return { ok: false as const, status: 429, error: "سقف تصویر روزانه." };
     }
     let chat = input.chatId ? data.aiChats.find((c) => c.id === input.chatId && c.userId === userId) : undefined;

@@ -143,6 +143,7 @@ export const CORE_API_PREFIXES = [
   "/api/storage",
   "/api/groups",
   "/api/channels",
+  "/api/billing",
   "/api/dr",
   "/api/monitor",
   "/api/admin",

@@ -26,6 +26,7 @@ import {
 } from "@/lib/live-types";
 import { emitNotification } from "@/lib/notify";
 import { pairBlocked } from "@/lib/privacy";
+import { hasEntitlement } from "@/lib/billing-access";
 
 export function livePrefsOf(data: StoreData, userId: string): LivePrefs {
   data.livePrefs ??= [];
@@ -340,7 +341,12 @@ export function insertLive(
     endedAt: null,
     pausedAt: null,
     audioOnly: Boolean(input.audioOnly),
-    quality: input.quality === "low" || input.quality === "medium" || input.quality === "high" ? input.quality : "auto",
+    quality:
+      input.quality === "high" && !hasEntitlement(data, userId, "live.extended")
+        ? "medium"
+        : input.quality === "low" || input.quality === "medium" || input.quality === "high"
+          ? input.quality
+          : "auto",
     chatEnabled: input.chatEnabled !== false,
     slowModeMs: 0,
     reactionsEnabled: input.reactionsEnabled !== false,
@@ -602,7 +608,12 @@ export async function actLive(
       if (typeof body.slowModeMs === "number") live.slowModeMs = Math.max(0, Math.min(60_000, Math.floor(body.slowModeMs)));
       if (typeof body.maxViewers === "number") live.maxViewers = Math.min(LIVE_MAX_VIEWERS_HARD, Math.max(2, Math.floor(body.maxViewers)));
       if (typeof body.guestRequestsEnabled === "boolean") live.guestRequestsEnabled = body.guestRequestsEnabled;
-      if (body.quality === "auto" || body.quality === "low" || body.quality === "medium" || body.quality === "high") live.quality = body.quality;
+      if (body.quality === "auto" || body.quality === "low" || body.quality === "medium" || body.quality === "high") {
+        if (body.quality === "high" && !hasEntitlement(data, userId, "live.extended")) {
+          return { ok: false as const, error: "کیفیت بالا فقط با پلن Premium است.", status: 403 };
+        }
+        live.quality = body.quality;
+      }
       if (typeof body.audioOnly === "boolean") live.audioOnly = body.audioOnly;
       if (typeof body.title === "string") live.title = body.title.trim().slice(0, 80) || live.title;
       if (typeof body.description === "string") live.description = body.description.trim().slice(0, 500);

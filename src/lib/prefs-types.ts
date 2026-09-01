@@ -125,5 +125,6 @@ export const SETTINGS_CATALOG = [
   { href: "/app/settings/ai", title: "هوش مصنوعی", en: "AI", hint: "Data Controls" },
   { href: "/app/settings/business", title: "کسب‌وکار", en: "Business", hint: "پروفایل تجاری" },
   { href: "/app/settings/shop", title: "فروشگاه", en: "Shop", hint: "پرداخت و سفارش" },
+  { href: "/app/settings/billing", title: "اشتراک", en: "Billing", hint: "پلن، فاکتور، استرداد" },
   { href: "/app/settings/live", title: "پخش زنده", en: "Live", hint: "تنظیمات Live" },
 ] as const;

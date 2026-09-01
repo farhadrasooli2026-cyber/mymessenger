@@ -8,11 +8,12 @@
 - ادمین، پایش، DR، عملکرد، کاتالوگ انتشار
 - Localization (`/api/i18n`) و دسترسی‌پذیری (`/api/a11y`, Settings → دسترسی‌پذیری)
 - تحلیل محصول (`/api/bi`, زبانهٔ تحلیل) جدا از پایش عملیاتی
+- اشتراک و صورتحساب سندباکس (`/api/billing`, Settings → اشتراک، زبانهٔ مالی)
 - Dependency اصلی: Next 16.3، React 19، Zod 4، Vitest 4، Tailwind 4
 
 ### API
 
-- `GET /api/health`, `/api/status`, `/api/version`, `/api/docs`, `/api/i18n`, `/api/bi`
+- `GET /api/health`, `/api/status`, `/api/version`, `/api/docs`, `/api/i18n`, `/api/bi`, `/api/billing`
 - SSE `/api/chats/:id/live`
 
 ### Breaking
