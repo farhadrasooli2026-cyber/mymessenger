@@ -3,16 +3,22 @@ import { requireActiveUser } from "@/lib/auth";
 import {
   addBotToChannel,
   addBotToGroup,
+  adminBotStatus,
   developerDashboard,
+  publishBotVersion,
   registerMiniApp,
+  removeBotPlacement,
+  retryWebhooks,
   revokeToken,
+  rollbackBotVersion,
   rotateToken,
   setBotPerms,
   setBotStatus,
   setCommands,
   setWebhook,
+  updateBotProfile,
 } from "@/lib/bots";
-import type { BotApiPerms, MiniCategory, MiniScope } from "@/lib/bot-types";
+import type { BotApiPerms, BotCategory, BotCommand, BotStatus, MiniCategory, MiniScope } from "@/lib/bot-types";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -49,7 +55,7 @@ export async function POST(request: Request, ctx: Ctx) {
     return json(result);
   }
   if (body.action === "commands") {
-    const commands = Array.isArray(body.commands) ? (body.commands as { command: string; description: string }[]) : [];
+    const commands = Array.isArray(body.commands) ? (body.commands as BotCommand[]) : [];
     const result = await setCommands(user.id, id, commands);
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
@@ -60,7 +66,8 @@ export async function POST(request: Request, ctx: Ctx) {
     return json(result);
   }
   if (body.action === "status") {
-    const status = body.status === "disabled" || body.status === "deleted" || body.status === "active" ? body.status : null;
+    const status =
+      body.status === "disabled" || body.status === "deleted" || body.status === "active" || body.status === "suspended" ? body.status : null;
     if (!status) return jsonError("وضعیت نامعتبر است.");
     if (status !== "active" && body.confirm !== true) return jsonError("تأیید لازم است.");
     const result = await setBotStatus(user.id, id, status);
@@ -96,6 +103,43 @@ export async function POST(request: Request, ctx: Ctx) {
       canPost: Boolean(body.canPost),
       canModerate: Boolean(body.canModerate),
     });
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (body.action === "remove-group") {
+    const result = await removeBotPlacement(user.id, id, String(body.groupId ?? ""), undefined);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (body.action === "profile") {
+    const result = await updateBotProfile(user.id, id, {
+      name: typeof body.name === "string" ? body.name : undefined,
+      description: typeof body.description === "string" ? body.description : undefined,
+      startMessage: typeof body.startMessage === "string" ? body.startMessage : undefined,
+      privacyUrl: typeof body.privacyUrl === "string" ? body.privacyUrl : undefined,
+      termsUrl: typeof body.termsUrl === "string" ? body.termsUrl : undefined,
+      category: body.category as BotCategory | undefined,
+    });
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (body.action === "publish") {
+    const result = await publishBotVersion(user.id, id, String(body.version ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (body.action === "rollback") {
+    const result = await rollbackBotVersion(user.id, id, String(body.version ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (body.action === "webhook-retry") {
+    const result = await retryWebhooks(user.id, id);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (body.action === "admin") {
+    const result = await adminBotStatus(user.id, id, body.status as BotStatus);
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
   }

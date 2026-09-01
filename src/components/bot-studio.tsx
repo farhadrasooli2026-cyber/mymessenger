@@ -28,6 +28,11 @@ type Dash = {
   logs: { id: string; at: number; kind: string; summary: string }[];
   chats: number;
   usage: number;
+  analytics?: { chats: number; messages: number; jobs: number; kvKeys: number; rating: number };
+  health?: string;
+  version?: string;
+  versions?: { version: string }[];
+  apiVersion?: string;
 };
 
 export function BotStudio({ botId }: { botId?: string }) {
@@ -162,8 +167,12 @@ export function BotStudio({ botId }: { botId?: string }) {
         {dash && (
           <>
             <section className="rounded-2xl bg-white/5 p-4 text-xs leading-6">
-              <p>وضعیت: {dash.bot.status} · گفتگوهای فعال: {dash.chats} · رخداد فنی: {dash.usage}</p>
-              <p>Token: {dash.bot.tokenHint} {dash.bot.tokenRevoked ? "· باطل" : ""}</p>
+              <p>وضعیت: {dash.bot.status} · سلامت: {dash.health ?? "ok"} · API {dash.apiVersion ?? "v1"} · نسخه {dash.version ?? "1.0.0"}</p>
+              <p>گفتگوهای فعال: {dash.chats} · رخداد فنی: {dash.usage}</p>
+              {dash.analytics && (
+                <p>آمار کلی (بدون دادهٔ خصوصی): چت {dash.analytics.chats} · پیام {dash.analytics.messages} · Job {dash.analytics.jobs} · KV {dash.analytics.kvKeys}</p>
+              )}
+              <p>Token: {dash.bot.tokenHint} {dash.bot.tokenRevoked ? "· باطل" : ""} — هرگز در لاگ یا خطای عمومی تکرار نمی‌شود.</p>
               <p>Webhook: {dash.bot.webhookLastStatus ?? "تنظیم نشده"}</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <Button type="button" size="sm" disabled={busy} onClick={() => void act({ action: "rotate-token" }, "توکن جدید. قبلی Invalid است.")}>Rotate Token</Button>
@@ -175,6 +184,8 @@ export function BotStudio({ botId }: { botId?: string }) {
               <p className="text-[11px] opacity-70">فقط HTTPS + HMAC Signature + Rate Limit. متن خصوصی کاربر در لاگ نیست.</p>
               <Input dir="ltr" placeholder="https://example.com/nixo-hook" value={webhook} onChange={(e) => setWebhook(e.target.value)} />
               <Button type="button" size="sm" disabled={busy} onClick={() => void act({ action: "webhook", url: webhook }, "Webhook ذخیره شد.")}>ذخیره Webhook</Button>
+              <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => void act({ action: "webhook-retry" }, "Retry با Timeout و backoff.")}>Retry Webhook</Button>
+              <p className="text-[11px] opacity-60">Timeout پیش‌فرض ۸ ثانیه. Secret فقط یک‌بار پس از ذخیره.</p>
             </section>
             <section className="rounded-2xl bg-white/5 p-4 text-sm">
               <h2 className="font-medium">Permissions (سمت سرور)</h2>
@@ -196,9 +207,21 @@ export function BotStudio({ botId }: { botId?: string }) {
               </ul>
             </section>
             <section className="rounded-2xl bg-white/5 p-4 text-sm space-y-2">
+              <h2 className="font-medium">Version / Rollback</h2>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" disabled={busy} onClick={() => void act({ action: "publish", version: "1.0.1" }, "نسخه منتشر شد.")}>Publish 1.0.1</Button>
+                {(dash.versions ?? []).slice(0, 4).map((v) => (
+                  <Button key={v.version} type="button" size="xs" variant="secondary" disabled={busy} onClick={() => void act({ action: "rollback", version: v.version }, `Rollback به ${v.version}`)}>
+                    Rollback {v.version}
+                  </Button>
+                ))}
+              </div>
+            </section>
+            <section className="rounded-2xl bg-white/5 p-4 text-sm space-y-2">
               <h2 className="font-medium">گروه / کانال</h2>
               <Input placeholder="شناسه گروه" value={groupId} onChange={(e) => setGroupId(e.target.value)} />
               <Button type="button" size="sm" disabled={busy} onClick={() => void act({ action: "add-group", groupId, canSend: true, canModerate: false }, "با مجوز مشخص به گروه اضافه شد.")}>افزودن به گروه</Button>
+              <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => void act({ action: "remove-group", groupId }, "ربات از گروه حذف شد.")}>حذف از گروه</Button>
               <Input placeholder="شناسه کانال" value={channelId} onChange={(e) => setChannelId(e.target.value)} />
               <Button type="button" size="sm" disabled={busy} onClick={() => void act({ action: "add-channel", channelId, canPost: true, canModerate: false }, "با مجوز پست به کانال اضافه شد.")}>افزودن به کانال</Button>
             </section>

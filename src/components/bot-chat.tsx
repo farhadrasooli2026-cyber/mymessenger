@@ -21,8 +21,12 @@ export function BotChat({ botId }: { botId: string }) {
   const [notify, setNotify] = useState<"on" | "off" | "mute">("on");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [mini, setMini] = useState<Mini[]>([]);
+  const [commands, setCommands] = useState<{ command: string; description: string }[]>([]);
+  const [reviews, setReviews] = useState<{ stars: number; body: string }[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [stars, setStars] = useState(5);
+  const [reviewBody, setReviewBody] = useState("");
 
   function load() {
     fetch(`/api/bots/chat?botId=${encodeURIComponent(botId)}`, { cache: "no-store" })
@@ -36,6 +40,8 @@ export function BotChat({ botId }: { botId: string }) {
         setNotify(d.chat?.notify ?? "on");
         setMessages(d.messages ?? []);
         setMini(d.miniApps ?? []);
+        setCommands(d.commands ?? []);
+        setReviews(d.reviews ?? []);
       })
       .catch(() => undefined);
   }
@@ -52,6 +58,8 @@ export function BotChat({ botId }: { botId: string }) {
         setNotify(d.chat?.notify ?? "on");
         setMessages(d.messages ?? []);
         setMini(d.miniApps ?? []);
+        setCommands(d.commands ?? []);
+        setReviews(d.reviews ?? []);
       })
       .catch(() => undefined);
   }, [botId]);
@@ -125,7 +133,7 @@ export function BotChat({ botId }: { botId: string }) {
                 {m.buttons.map((b) => (
                   <Button key={b.id} type="button" size="xs" variant="secondary" disabled={busy} onClick={() => {
                     if (b.payload === "open_mini" && mini[0]) router.push(`/app/mini/${mini[0].id}`);
-                    else void act({ action: "send", text: b.payload });
+                    else void act({ action: "callback", messageId: m.id, buttonId: b.id });
                   }}>
                     {b.label}
                   </Button>
@@ -135,6 +143,15 @@ export function BotChat({ botId }: { botId: string }) {
           </div>
         ))}
       </div>
+      {started && commands.length > 0 && (
+        <div className="flex flex-wrap gap-1 border-t border-white/10 p-2" role="navigation" aria-label="فهرست دستور ربات">
+          {commands.map((c) => (
+            <Button key={c.command} type="button" size="xs" variant="secondary" disabled={busy} onClick={() => void act({ action: "send", text: `/${c.command}` })}>
+              /{c.command}
+            </Button>
+          ))}
+        </div>
+      )}
       {started && (
         <form
           className="flex gap-2 border-t border-white/10 p-3"
@@ -146,10 +163,27 @@ export function BotChat({ botId }: { botId: string }) {
             void act({ action: "send", text: t });
           }}
         >
-          <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="/help یا پیام" />
+          <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="/help یا پیام" aria-label="پیام به ربات" />
           <Button type="submit" disabled={busy}>ارسال</Button>
         </form>
       )}
+      <section className="border-t border-white/10 p-3 text-xs">
+        <p className="font-medium">نظر و امتیاز</p>
+        <div className="mt-2 flex gap-2">
+          <select className="h-8 rounded-lg bg-black/30" value={stars} onChange={(e) => setStars(Number(e.target.value))} aria-label="امتیاز ربات">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+          <Input value={reviewBody} onChange={(e) => setReviewBody(e.target.value)} placeholder="نظر بدون لینک هرزنامه" />
+          <Button type="button" size="sm" disabled={busy} onClick={() => void act({ action: "review", stars, body: reviewBody })}>ثبت</Button>
+        </div>
+        <ul className="mt-2 space-y-1 opacity-80">
+          {reviews.map((r, i) => (
+            <li key={i}>{"★".repeat(r.stars)} {r.body}</li>
+          ))}
+        </ul>
+      </section>
     </main>
   );
 }

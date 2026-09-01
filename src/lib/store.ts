@@ -15,12 +15,18 @@ import { DEFAULT_CATEGORIES, seedCatalogItems } from "@/lib/avatar-catalog";
 import { BG_CATEGORIES, seedBackgroundItems } from "@/lib/background-catalog";
 import { randomId } from "@/lib/crypto-utils";
 import type {
+  BotAccessLog,
   BotChat,
+  BotIdempotency,
+  BotJob,
+  BotKvItem,
   BotLog,
   BotMessage,
   BotPlacement,
   BotRecord,
+  BotReview,
   BotUpdate,
+  BotWebhookJob,
   MiniAppRecord,
   MiniGrant,
   MiniReview,
@@ -1520,6 +1526,12 @@ export type StoreData = {
   botPlacements: BotPlacement[];
   botLogs: BotLog[];
   botUpdates: BotUpdate[];
+  botReviews: BotReview[];
+  botAccessLogs: BotAccessLog[];
+  botKv: BotKvItem[];
+  botJobs: BotJob[];
+  botIdempotency: BotIdempotency[];
+  botWebhookJobs: BotWebhookJob[];
   aiChats: AiChatRecord[];
   aiMessages: AiMessageRecord[];
   aiMemory: AiMemoryItem[];
@@ -1615,6 +1627,12 @@ const EMPTY: StoreData = {
   botPlacements: [],
   botLogs: [],
   botUpdates: [],
+  botReviews: [],
+  botAccessLogs: [],
+  botKv: [],
+  botJobs: [],
+  botIdempotency: [],
+  botWebhookJobs: [],
   aiChats: [],
   aiMessages: [],
   aiMemory: [],
@@ -1759,6 +1777,12 @@ async function readStore(): Promise<StoreData> {
       botPlacements: Array.isArray(parsed.botPlacements) ? parsed.botPlacements : [],
       botLogs: Array.isArray(parsed.botLogs) ? parsed.botLogs : [],
       botUpdates: Array.isArray(parsed.botUpdates) ? parsed.botUpdates : [],
+      botReviews: Array.isArray(parsed.botReviews) ? parsed.botReviews : [],
+      botAccessLogs: Array.isArray(parsed.botAccessLogs) ? parsed.botAccessLogs : [],
+      botKv: Array.isArray(parsed.botKv) ? parsed.botKv : [],
+      botJobs: Array.isArray(parsed.botJobs) ? parsed.botJobs : [],
+      botIdempotency: Array.isArray(parsed.botIdempotency) ? parsed.botIdempotency : [],
+      botWebhookJobs: Array.isArray(parsed.botWebhookJobs) ? parsed.botWebhookJobs : [],
       aiChats: Array.isArray(parsed.aiChats) ? parsed.aiChats : [],
       aiMessages: Array.isArray(parsed.aiMessages) ? parsed.aiMessages : [],
       aiMemory: Array.isArray(parsed.aiMemory) ? parsed.aiMemory : [],
@@ -1924,6 +1948,15 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
     }
   }
   data.botChats = (data.botChats ?? []).filter((c) => c.userId !== uid);
+  data.botMessages = (data.botMessages ?? []).filter((m) => m.userId !== uid);
+  data.botReviews = (data.botReviews ?? []).filter((r) => r.userId !== uid);
+  data.botAccessLogs = (data.botAccessLogs ?? []).filter((l) => l.userId !== uid);
+  data.botJobs = (data.botJobs ?? []).filter((j) => j.userId !== uid);
+  data.botUpdates = (data.botUpdates ?? []).filter((u) => u.userId !== uid);
+  const ownedBots = (data.bots ?? []).filter((b) => b.ownerUserId === uid).map((b) => b.id);
+  data.botKv = (data.botKv ?? []).filter((k) => !ownedBots.includes(k.botId));
+  data.botWebhookJobs = (data.botWebhookJobs ?? []).filter((j) => !ownedBots.includes(j.botId));
+  data.botIdempotency = (data.botIdempotency ?? []).filter((i) => !ownedBots.includes(i.botId));
   data.miniGrants = (data.miniGrants ?? []).filter((g) => g.userId !== uid);
   data.miniReviews = (data.miniReviews ?? []).filter((r) => r.userId !== uid);
   data.miniSessions = (data.miniSessions ?? []).filter((s) => s.userId !== uid);

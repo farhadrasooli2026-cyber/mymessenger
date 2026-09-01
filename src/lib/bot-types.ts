@@ -54,11 +54,11 @@ export const FORBIDDEN_DEFAULTS: (keyof BotApiPerms)[] = [
   "location",
 ];
 
-export const DEFAULT_BOT_COMMANDS = [
-  { command: "start", description: "شروع گفتگو با ربات" },
-  { command: "help", description: "راهنما" },
-  { command: "settings", description: "تنظیمات اعلان" },
-  { command: "search", description: "جستجو در قابلیت‌های ربات" },
+export const DEFAULT_BOT_COMMANDS: BotCommand[] = [
+  { command: "start", description: "شروع گفتگو با ربات", permission: "public" },
+  { command: "help", description: "راهنما", permission: "public" },
+  { command: "settings", description: "تنظیمات اعلان", permission: "public" },
+  { command: "search", description: "جستجو در قابلیت‌های ربات", permission: "public" },
 ];
 
 export const MINI_CATEGORIES = [
@@ -119,7 +119,25 @@ export const BOT_REPORT_CATEGORIES = [
 
 export type BotReportCategory = (typeof BOT_REPORT_CATEGORIES)[number]["id"];
 
-export type BotCommand = { command: string; description: string };
+export const BOT_CATEGORIES = [
+  { id: "utility", label: "ابزار", emoji: "🔧" },
+  { id: "games", label: "بازی", emoji: "🎮" },
+  { id: "education", label: "آموزش", emoji: "📘" },
+  { id: "business", label: "کسب‌وکار", emoji: "📊" },
+  { id: "productivity", label: "بهره‌وری", emoji: "📋" },
+  { id: "entertainment", label: "سرگرمی", emoji: "🎭" },
+  { id: "support", label: "پشتیبانی", emoji: "💬" },
+] as const;
+export type BotCategory = (typeof BOT_CATEGORIES)[number]["id"];
+
+export type BotStatus = "active" | "disabled" | "suspended" | "deleted";
+
+export type BotCommand = { command: string; description: string; permission?: "public" | keyof BotApiPerms };
+
+export const BOT_API_VERSION = "v1";
+export const BOT_WEBHOOK_TIMEOUT_MS = 8_000;
+export const BOT_JOB_MAX = 10;
+export const BOT_KV_MAX = 40;
 
 export type BotButton = { id: string; label: string; payload: string };
 
@@ -131,9 +149,17 @@ export type BotRecord = {
   description: string;
   photoKind: "default" | "upload";
   verified: boolean;
-  status: "active" | "disabled" | "deleted";
+  status: BotStatus;
   perms: BotApiPerms;
   commands: BotCommand[];
+  category?: BotCategory;
+  privacyUrl?: string;
+  termsUrl?: string;
+  version?: string;
+  versions?: { version: string; startMessage: string; commands: BotCommand[]; at: number }[];
+  webhookTimeoutMs?: number;
+  webhookFailCount?: number;
+  health?: "ok" | "degraded" | "down";
   tokenSalt: string;
   tokenHash: string;
   tokenHint: string;
@@ -167,6 +193,62 @@ export type BotMessage = {
   text: string;
   buttons: BotButton[];
   createdAt: number;
+  replyToId?: string;
+  editedAt?: number | null;
+  deletedAt?: number | null;
+};
+
+export type BotReview = {
+  id: string;
+  botId: string;
+  userId: string;
+  stars: number;
+  body: string;
+  createdAt: number;
+  hidden: boolean;
+};
+
+export type BotAccessLog = {
+  id: string;
+  botId: string;
+  userId: string;
+  action: string;
+  at: number;
+};
+
+export type BotKvItem = {
+  botId: string;
+  key: string;
+  value: string;
+  updatedAt: number;
+};
+
+export type BotJob = {
+  id: string;
+  botId: string;
+  kind: "notify" | "send";
+  userId: string;
+  text: string;
+  runAt: number;
+  status: "queued" | "done" | "failed";
+  attempts: number;
+  idempotencyKey?: string;
+};
+
+export type BotIdempotency = {
+  botId: string;
+  key: string;
+  result: string;
+  at: number;
+};
+
+export type BotWebhookJob = {
+  id: string;
+  botId: string;
+  body: string;
+  attempts: number;
+  nextAt: number;
+  lastError: string;
 };
 
 export type MiniAppRecord = {

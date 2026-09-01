@@ -2082,6 +2082,9 @@ export function Messenger({
             <Link href="/app/settings/devices" className="block text-sm text-amber-200">
               تنظیمات → دستگاه‌ها
             </Link>
+            <Link href="/app/settings/connected-bots" className="block text-sm text-amber-200">
+              Settings → Privacy & Security → Connected Bots
+            </Link>
             <Link href="/app/apps" className="block text-sm text-amber-200">
               Mini Apps & Web Apps
             </Link>

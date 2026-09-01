@@ -346,6 +346,16 @@ export function PrivacyDashboard() {
         </section>
 
         <section className="rounded-2xl bg-white/5 p-4 text-sm">
+          <h2 className="font-medium">Connected Bots</h2>
+          <p className="text-[11px] leading-5 opacity-70">
+            مسیر: Settings → Privacy & Security → Connected Bots. Stop اتصال را قطع می‌کند.
+          </p>
+          <Link href="/app/settings/connected-bots" className="mt-2 inline-block text-xs text-amber-200">
+            فهرست ربات‌های متصل
+          </Link>
+        </section>
+
+        <section className="rounded-2xl bg-white/5 p-4 text-sm">
           <h2 className="font-medium">Connected Apps</h2>
           <p className="text-[11px] leading-5 opacity-70">
             مسیر: Settings → Privacy & Security → Connected Apps. مجوز Mini App از آنجا لغو می‌شود و توکن باطل می‌گردد.

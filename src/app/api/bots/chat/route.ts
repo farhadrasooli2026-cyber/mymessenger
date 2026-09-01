@@ -1,6 +1,6 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
-import { blockBot, reportBot, setBotNotify, startBot, stopBot, userBotChat, userSendToBot } from "@/lib/bots";
+import { blockBot, reportBot, reviewBot, setBotNotify, startBot, stopBot, userBotChat, userCallback, userSendToBot } from "@/lib/bots";
 import type { BotReportCategory } from "@/lib/bot-types";
 
 export async function GET(request: Request) {
@@ -48,6 +48,16 @@ export async function POST(request: Request) {
   }
   if (body.action === "report") {
     const result = await reportBot(user.id, botId, String(body.category ?? "other") as BotReportCategory, String(body.details ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (body.action === "callback") {
+    const result = await userCallback(user.id, botId, String(body.messageId ?? ""), String(body.buttonId ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (body.action === "review") {
+    const result = await reviewBot(user.id, botId, Number(body.stars ?? 0), String(body.body ?? ""));
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
   }

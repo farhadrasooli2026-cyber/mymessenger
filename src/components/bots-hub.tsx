@@ -7,7 +7,20 @@ import { NixoMark } from "@/components/nixo-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-type Bot = { id: string; name: string; username: string; description: string; verified: boolean; status?: string };
+import { BOT_CATEGORIES } from "@/lib/bot-types";
+
+type Bot = {
+  id: string;
+  name: string;
+  username: string;
+  description: string;
+  verified: boolean;
+  status?: string;
+  category?: string;
+  version?: string;
+  rating?: number;
+  reviewCount?: number;
+};
 type Mini = { id: string; title: string; category: string; description: string; paymentHint: boolean; bot: Bot };
 
 export function BotsHub() {
@@ -15,10 +28,11 @@ export function BotsHub() {
   const [q, setQ] = useState("");
   const [bots, setBots] = useState<Bot[]>([]);
   const [mini, setMini] = useState<Mini[]>([]);
+  const [category, setCategory] = useState("");
   const [mine, setMine] = useState<Bot[]>([]);
 
   function load() {
-    fetch(`/api/bots?q=${encodeURIComponent(q)}`, { cache: "no-store" })
+    fetch(`/api/bots?q=${encodeURIComponent(q)}${category ? `&category=${encodeURIComponent(category)}` : ""}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         if (d.ok) {
@@ -42,7 +56,7 @@ export function BotsHub() {
         if (d.ok) setMine(d.bots ?? []);
       })
       .catch(() => undefined);
-    fetch(`/api/bots?q=${encodeURIComponent(q)}`, { cache: "no-store" })
+    fetch(`/api/bots?q=${encodeURIComponent(q)}${category ? `&category=${encodeURIComponent(category)}` : ""}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         if (d.ok) {
@@ -51,7 +65,7 @@ export function BotsHub() {
         }
       })
       .catch(() => undefined);
-  }, [q]);
+  }, [q, category]);
 
   return (
     <main className="min-h-dvh bg-[#071614] p-5 text-emerald-50">
@@ -73,10 +87,21 @@ export function BotsHub() {
         <p className="text-xs">
           <Link href="/app/apps" className="text-amber-200">Mini App Directory</Link>
           {" · "}
+          <Link href="/app/settings/connected-bots" className="text-amber-200">Connected Bots</Link>
+          {" · "}
           <Link href="/app/settings/bots" className="text-amber-200">Developer Dashboard — ساخت ربات</Link>
           {" · "}
           <Link href="/app" className="text-amber-200">بازگشت</Link>
         </p>
+
+        <div className="flex flex-wrap gap-1">
+          <Button type="button" size="xs" variant={category === "" ? "default" : "secondary"} onClick={() => setCategory("")}>همه</Button>
+          {BOT_CATEGORIES.map((c) => (
+            <Button key={c.id} type="button" size="xs" variant={category === c.id ? "default" : "secondary"} onClick={() => setCategory(c.id)}>
+              {c.emoji} {c.label}
+            </Button>
+          ))}
+        </div>
 
         {mine.length > 0 && (
           <section className="rounded-2xl bg-white/5 p-4 text-sm">
@@ -99,8 +124,9 @@ export function BotsHub() {
                 <p className="font-medium">
                   {b.name} {b.verified ? "· Verified Bot" : ""}
                 </p>
-                <p className="text-amber-200" dir="ltr">@{b.username}</p>
+                <p className="text-amber-200" dir="ltr">@{b.username} {b.category ? `· ${b.category}` : ""} {b.version ? `· v${b.version}` : ""}</p>
                 <p className="mt-1 opacity-70">{b.description}</p>
+                <p className="text-[11px] opacity-60">امتیاز {b.rating || "—"} ({b.reviewCount ?? 0})</p>
                 <Button type="button" size="sm" className="mt-2 bg-amber-300 text-[#102824]" onClick={() => router.push(`/app/bots/chat/${b.id}`)}>
                   باز کردن ربات
                 </Button>

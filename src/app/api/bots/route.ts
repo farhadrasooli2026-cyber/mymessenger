@@ -1,6 +1,7 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
-import { createBotSchema, createBot, directoryBots, directoryMiniApps, listOwnedBots, usernameAvailableForBot } from "@/lib/bots";
+import { createBotSchema, createBot, connectedBots, directoryBots, directoryMiniApps, listOwnedBots, usernameAvailableForBot } from "@/lib/bots";
+import { BOT_CATEGORIES } from "@/lib/bot-types";
 
 export async function GET(request: Request) {
   const user = await requireActiveUser();
@@ -13,9 +14,12 @@ export async function GET(request: Request) {
     const owned = await listOwnedBots(user.id);
     return json({ ok: true, bots: owned });
   }
-  const bots = await directoryBots(q);
+  if (url.searchParams.get("connected") === "1") {
+    return json(await connectedBots(user.id));
+  }
+  const bots = await directoryBots(q, category || undefined);
   const miniApps = await directoryMiniApps(category || undefined);
-  return json({ ok: true, bots, miniApps });
+  return json({ ok: true, bots, miniApps, categories: BOT_CATEGORIES, apiVersion: "v1" });
 }
 
 export async function POST(request: Request) {

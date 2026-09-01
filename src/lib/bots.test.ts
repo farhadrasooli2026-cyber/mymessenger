@@ -7,11 +7,16 @@ import { resetStoreForTests } from "./store";
 import { createGroup } from "./groups";
 import {
   botSendToUser,
+  botEditOwnMessage,
+  botKvGet,
+  botKvSet,
   createBot,
+  adminBotStatus,
   resolveBotFromToken,
   rotateToken,
   setBotPerms,
   startBot,
+  userCallback,
   validHttpsWebhook,
 } from "./bots";
 
@@ -72,6 +77,38 @@ describe("NIXO bots and mini apps", () => {
     expect(sent.ok).toBe(true);
     const priv = await setBotPerms(owner, created.bot.id, { readPrivateChats: true });
     expect(priv.ok).toBe(false);
+  });
+
+  it("isolates storage, rejects forged callbacks, and honors idempotency", async () => {
+    const owner = await activeUser("bot_plat_a");
+    const user = await activeUser("bot_plat_u");
+    const a = await createBot(owner, { name: "آلف", username: "alpha_botx", description: "ربات آلفا آزمایشی نیکسو" });
+    const b = await createBot(owner, { name: "بتا", username: "beta_botx", description: "ربات بتا آزمایشی نیکسو" });
+    expect(a.ok && b.ok).toBe(true);
+    if (!a.ok || !b.ok) return;
+    await startBot(user, a.bot.id);
+    const sent = await botSendToUser(a.token, { userId: user, text: "سلام", buttons: [{ id: "ok", label: "OK", payload: "ok" }], idempotencyKey: "k1" });
+    expect(sent.ok).toBe(true);
+    if (!sent.ok) return;
+    const dup2 = await botSendToUser(a.token, { userId: user, text: "دیگر", idempotencyKey: "k1" });
+    expect(dup2.ok).toBe(true);
+    if (dup2.ok) expect(dup2.messageId).toBe(sent.messageId);
+    const steal = await botEditOwnMessage(b.token, sent.messageId, "هک");
+    expect(steal.ok).toBe(false);
+    const cb = await userCallback(user, a.bot.id, sent.messageId, "nope");
+    expect(cb.ok).toBe(false);
+    const okcb = await userCallback(user, a.bot.id, sent.messageId, "ok");
+    expect(okcb.ok).toBe(true);
+    await botKvSet(a.token, "note", "secret-a");
+    await botKvSet(b.token, "note", "secret-b");
+    const ga = await botKvGet(a.token, "note");
+    const gb = await botKvGet(b.token, "note");
+    expect(ga.ok && ga.value).toBe("secret-a");
+    expect(gb.ok && gb.value).toBe("secret-b");
+    const staff = await activeUser("nixo_ops");
+    await adminBotStatus(staff, a.bot.id, "suspended");
+    const after = await botSendToUser(a.token, { userId: user, text: "بعد از تعلیق" });
+    expect(after.ok).toBe(false);
   });
 
   it("invalidates the old token after rotate", async () => {

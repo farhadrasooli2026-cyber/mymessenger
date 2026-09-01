@@ -11,8 +11,12 @@ import { normalizeUsername } from "@/lib/username";
 import {
   BOT_API_MAX,
   BOT_API_WINDOW_MS,
+  BOT_CATEGORIES,
   BOT_CREATE_MAX_DAY,
+  BOT_JOB_MAX,
+  BOT_KV_MAX,
   BOT_MSG_MAX,
+  BOT_WEBHOOK_TIMEOUT_MS,
   DEFAULT_BOT_COMMANDS,
   DEFAULT_BOT_PERMS,
   FORBIDDEN_DEFAULTS,
@@ -20,10 +24,13 @@ import {
   MINI_SENSITIVE,
   type BotApiPerms,
   type BotButton,
+  type BotCategory,
+  type BotCommand,
   type BotLog,
   type BotMessage,
   type BotRecord,
   type BotReportCategory,
+  type BotStatus,
   type MiniAppStatus,
   type MiniCategory,
   type MiniScope,
@@ -37,6 +44,9 @@ export const createBotSchema = z.object({
   description: z.string().trim().min(4).max(280),
   photoDataUrl: z.string().max(1_400_000).optional(),
   startMessage: z.string().trim().max(500).optional(),
+  category: z.enum(["utility", "games", "education", "business", "productivity", "entertainment", "support"]).optional(),
+  privacyUrl: z.string().trim().max(200).optional(),
+  termsUrl: z.string().trim().max(200).optional(),
 });
 
 function emptyPerms(): BotApiPerms {
@@ -44,10 +54,36 @@ function emptyPerms(): BotApiPerms {
 }
 
 function log(data: StoreData, botId: string, kind: BotLog["kind"], summary: string) {
+  const clean = summary.replace(/nxtb_[a-z0-9]+/gi, "nxtb_***").replace(/\b\d{6}\b/g, "******").slice(0, 180);
   data.botLogs = [
-    { id: randomId(), botId, at: Date.now(), kind, summary: summary.slice(0, 180) },
+    { id: randomId(), botId, at: Date.now(), kind, summary: clean },
     ...(data.botLogs ?? []),
   ].slice(0, 800);
+}
+
+function accessLog(data: StoreData, botId: string, userId: string, action: string) {
+  data.botAccessLogs = [
+    { id: randomId(), botId, userId, action: action.slice(0, 80), at: Date.now() },
+    ...(data.botAccessLogs ?? []),
+  ].slice(0, 2000);
+}
+
+export function hydrateBot(b: BotRecord): BotRecord {
+  const cat = BOT_CATEGORIES.some((c) => c.id === b.category) ? b.category : "utility";
+  const status: BotStatus =
+    b.status === "disabled" || b.status === "suspended" || b.status === "deleted" || b.status === "active" ? b.status : "active";
+  return {
+    ...b,
+    category: cat,
+    version: b.version || "1.0.0",
+    versions: b.versions ?? [],
+    privacyUrl: b.privacyUrl ?? "",
+    termsUrl: b.termsUrl ?? "",
+    webhookTimeoutMs: b.webhookTimeoutMs ?? BOT_WEBHOOK_TIMEOUT_MS,
+    webhookFailCount: b.webhookFailCount ?? 0,
+    health: b.health ?? "ok",
+    status,
+  };
 }
 
 export function ensureOfficialBot(data: StoreData) {
@@ -59,6 +95,12 @@ export function ensureOfficialBot(data: StoreData) {
   data.botPlacements ??= [];
   data.botLogs ??= [];
   data.botUpdates ??= [];
+  data.botReviews ??= [];
+  data.botAccessLogs ??= [];
+  data.botKv ??= [];
+  data.botJobs ??= [];
+  data.botIdempotency ??= [];
+  data.botWebhookJobs ??= [];
   if (data.bots.some((b) => b.id === OFFICIAL_ID)) return;
   const salt = newSalt();
   const raw = `nxtb_${randomBytes(24).toString("hex")}`;
@@ -83,6 +125,12 @@ export function ensureOfficialBot(data: StoreData) {
     webhookLastAt: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    category: "support",
+    version: "1.0.0",
+    privacyUrl: "/app/settings/privacy",
+    termsUrl: "/app/settings/account",
+    health: "ok",
+    webhookTimeoutMs: BOT_WEBHOOK_TIMEOUT_MS,
     startMessage: "سلام. من @nixo_bot هستم. /start را بزن. Mini App راهنما را از دکمه باز کن. کلید خصوصی و OTP هرگز به مینی‌اپ داده نمی‌شود.",
   });
   data.miniApps.push({
@@ -127,16 +175,23 @@ function applyToken(bot: BotRecord, raw: string) {
 }
 
 export function publicBot(bot: BotRecord, viewerId?: string | null) {
+  const b = hydrateBot(bot);
   return {
-    id: bot.id,
-    name: bot.name,
-    username: bot.username,
-    description: bot.description,
-    verified: bot.verified,
-    status: bot.status,
-    photoUrl: bot.photoKind === "upload" ? `/api/media/photo/${bot.id}` : null,
-    owner: viewerId === bot.ownerUserId,
-    createdAt: bot.createdAt,
+    id: b.id,
+    name: b.name,
+    username: b.username,
+    description: b.description,
+    verified: b.verified,
+    status: b.status,
+    category: b.category,
+    version: b.version,
+    developer: b.ownerUserId === "system" ? "NIXO" : "developer",
+    privacyUrl: b.privacyUrl,
+    termsUrl: b.termsUrl,
+    health: b.health,
+    photoUrl: b.photoKind === "upload" ? `/api/media/photo/${b.id}` : null,
+    owner: viewerId === b.ownerUserId,
+    createdAt: b.createdAt,
   };
 }
 
@@ -155,6 +210,7 @@ function pushMessage(
   text: string,
   kind: BotMessage["kind"] = "text",
   buttons: BotButton[] = [],
+  replyToId?: string,
 ) {
   const msg: BotMessage = {
     id: randomId(),
@@ -166,6 +222,9 @@ function pushMessage(
     text: text.slice(0, 4000),
     buttons,
     createdAt: Date.now(),
+    replyToId,
+    editedAt: null,
+    deletedAt: null,
   };
   data.botMessages.push(msg);
   const row = data.botChats.find((c) => c.id === chat.id);
@@ -225,6 +284,13 @@ export async function createBot(ownerUserId: string, input: z.infer<typeof creat
       status: "active",
       perms: emptyPerms(),
       commands: DEFAULT_BOT_COMMANDS.map((c) => ({ ...c })),
+      category: input.category && BOT_CATEGORIES.some((c) => c.id === input.category) ? input.category : "utility",
+      privacyUrl: input.privacyUrl ?? "",
+      termsUrl: input.termsUrl ?? "",
+      version: "1.0.0",
+      versions: [{ version: "1.0.0", startMessage: input.startMessage?.trim() || `سلام. من @${username} هستم.`, commands: DEFAULT_BOT_COMMANDS.map((c) => ({ ...c })), at: Date.now() }],
+      health: "ok" as const,
+      webhookTimeoutMs: BOT_WEBHOOK_TIMEOUT_MS,
       tokenSalt: "",
       tokenHash: "",
       tokenHint: "",
@@ -262,15 +328,21 @@ export async function listOwnedBots(ownerUserId: string) {
   }));
 }
 
-export async function directoryBots(q = "") {
+export async function directoryBots(q = "", category?: string) {
   const data = await readStoreSnapshot();
   ensureOfficialBot(data);
   const n = q.replace(/^@/, "").toLowerCase().trim();
   return data.bots
+    .map(hydrateBot)
     .filter((b) => b.status === "active")
-    .filter((b) => !n || `${b.name} ${b.username} ${b.description}`.toLowerCase().includes(n))
+    .filter((b) => !category || b.category === category)
+    .filter((b) => !n || `${b.name} ${b.username} ${b.description} ${b.category}`.toLowerCase().includes(n))
     .sort((a, b) => Number(b.verified) - Number(a.verified) || b.createdAt - a.createdAt)
-    .map((b) => publicBot(b));
+    .map((b) => {
+      const reviews = (data.botReviews ?? []).filter((r) => r.botId === b.id && !r.hidden);
+      const rating = reviews.length ? reviews.reduce((s, r) => s + r.stars, 0) / reviews.length : 0;
+      return { ...publicBot(b), rating: Math.round(rating * 10) / 10, reviewCount: reviews.length };
+    });
 }
 
 export async function directoryMiniApps(category?: string) {
@@ -339,6 +411,22 @@ export async function developerDashboard(ownerUserId: string, botId: string) {
     logs: data.botLogs.filter((l) => l.botId === botId).slice(0, 40),
     usage,
     chats: data.botChats.filter((c) => c.botId === botId && !c.stoppedAt).length,
+    analytics: {
+      chats: data.botChats.filter((c) => c.botId === botId).length,
+      messages: data.botMessages.filter((m) => m.botId === botId).length,
+      jobs: (data.botJobs ?? []).filter((j) => j.botId === botId).length,
+      kvKeys: (data.botKv ?? []).filter((k) => k.botId === botId).length,
+      rating: (() => {
+        const reviews = (data.botReviews ?? []).filter((r) => r.botId === botId && !r.hidden);
+        return reviews.length ? reviews.reduce((s, r) => s + r.stars, 0) / reviews.length : 0;
+      })(),
+    },
+    health: hydrateBot(bot).health,
+    version: hydrateBot(bot).version,
+    versions: hydrateBot(bot).versions,
+    apiVersion: "v1",
+    jobs: (data.botJobs ?? []).filter((j) => j.botId === botId).slice(0, 20),
+    webhookQueue: (data.botWebhookJobs ?? []).filter((j) => j.botId === botId).slice(0, 10).map((j) => ({ id: j.id, attempts: j.attempts, nextAt: j.nextAt, lastError: j.lastError })),
   };
 }
 
@@ -399,7 +487,7 @@ export function webhookSignature(secret: string, body: string) {
   return createHmac("sha256", secret).update(body).digest("hex");
 }
 
-export async function setCommands(ownerUserId: string, botId: string, commands: { command: string; description: string }[]) {
+export async function setCommands(ownerUserId: string, botId: string, commands: BotCommand[]) {
   return mutateStore((data) => {
     ensureOfficialBot(data);
     const bot = data.bots.find((b) => b.id === botId && b.ownerUserId === ownerUserId);
@@ -409,6 +497,7 @@ export async function setCommands(ownerUserId: string, botId: string, commands: 
       .map((c) => ({
         command: c.command.replace(/^\//, "").toLowerCase().slice(0, 32),
         description: c.description.slice(0, 80),
+        permission: c.permission === "public" || (c.permission && c.permission in DEFAULT_BOT_PERMS) ? c.permission : "public",
       }))
       .filter((c) => /^[a-z][a-z0-9_]{1,31}$/.test(c.command));
     bot.updatedAt = Date.now();
@@ -434,7 +523,7 @@ export async function setBotPerms(ownerUserId: string, botId: string, patch: Par
   });
 }
 
-export async function setBotStatus(ownerUserId: string, botId: string, status: "active" | "disabled" | "deleted") {
+export async function setBotStatus(ownerUserId: string, botId: string, status: "active" | "disabled" | "deleted" | "suspended") {
   return mutateStore((data) => {
     ensureOfficialBot(data);
     const bot = data.bots.find((b) => b.id === botId && b.ownerUserId === ownerUserId);
@@ -522,17 +611,22 @@ function apiGate(data: StoreData, bot: BotRecord, key: string, max: number) {
 export async function botApiMe(token: string) {
   const bot = await resolveBotFromToken(token);
   if (!bot) return { ok: false as const, status: 401, error: "توکن نامعتبر یا باطل است." };
-  return { ok: true as const, bot: { id: bot.id, username: bot.username, name: bot.name, perms: bot.perms } };
+  return { ok: true as const, apiVersion: "v1", bot: { id: bot.id, username: bot.username, name: bot.name, perms: bot.perms, version: bot.version ?? "1.0.0", health: bot.health ?? "ok" } };
 }
 
 export async function botSendToUser(
   token: string,
-  input: { userId: string; text?: string; kind?: BotMessage["kind"]; buttons?: BotButton[] },
+  input: { userId: string; text?: string; kind?: BotMessage["kind"]; buttons?: BotButton[]; replyToId?: string; idempotencyKey?: string },
 ) {
   return mutateStore((data) => {
     ensureOfficialBot(data);
     const bot = data.bots.find((b) => b.status === "active" && !b.tokenRevokedAt && otpHashesEqual(b.tokenHash, hashOtp(token, b.tokenSalt)));
     if (!bot) return { ok: false as const, status: 401, error: "توکن نامعتبر یا باطل است. Access Denied." };
+    if (input.idempotencyKey) {
+      data.botIdempotency = data.botIdempotency ?? [];
+      const hit = data.botIdempotency.find((i) => i.botId === bot.id && i.key === input.idempotencyKey && Date.now() - i.at < 10 * 60_000);
+      if (hit) return { ok: true as const, messageId: hit.result, idempotent: true as const };
+    }
     const gate = apiGate(data, bot, "send", BOT_MSG_MAX);
     if (!gate.ok) return gate;
     const kind = input.kind ?? "text";
@@ -560,7 +654,11 @@ export async function botSendToUser(
     if (chat.notify === "off" && kind === "notification") {
       return { ok: false as const, status: 403, error: "اعلان ربات خاموش است." };
     }
-    const msg = pushMessage(data, chat, "bot", input.text ?? "", kind, input.buttons ?? []);
+    const msg = pushMessage(data, chat, "bot", input.text ?? "", kind, input.buttons ?? [], input.replyToId);
+    if (input.idempotencyKey) {
+      data.botIdempotency.unshift({ botId: bot.id, key: input.idempotencyKey.slice(0, 80), result: msg.id, at: Date.now() });
+      data.botIdempotency = data.botIdempotency.slice(0, 400);
+    }
     log(data, bot.id, "api", `send ${kind}`);
     queueWebhook(data, bot, { type: "sent", chatId: chat.id });
     if (chat.notify !== "off") {
@@ -619,6 +717,16 @@ function queueWebhook(data: StoreData, bot: BotRecord, event: Record<string, unk
   const sig = webhookSignature(bot.webhookSecret, body);
   bot.webhookLastStatus = `queued https sig=${sig.slice(0, 8)}`;
   bot.webhookLastAt = Date.now();
+  data.botWebhookJobs = data.botWebhookJobs ?? [];
+  data.botWebhookJobs.unshift({
+    id: randomId(),
+    botId: bot.id,
+    body,
+    attempts: 0,
+    nextAt: Date.now(),
+    lastError: "",
+  });
+  data.botWebhookJobs = data.botWebhookJobs.slice(0, 200);
   log(data, bot.id, "webhook", "رویداد بدون متن خصوصی کاربر صف شد.");
 }
 
@@ -659,6 +767,7 @@ export async function startBot(userId: string, botId: string) {
       consumedAt: null,
     });
     queueWebhook(data, bot, { type: "start", userId });
+    accessLog(data, bot.id, userId, "start");
     return { ok: true as const, chatId: chat.id, message: publicMsg(msg), bot: publicBot(bot, userId) };
   });
 }
@@ -668,9 +777,12 @@ function publicMsg(m: BotMessage) {
     id: m.id,
     from: m.from,
     kind: m.kind,
-    text: m.text,
-    buttons: m.buttons,
+    text: m.deletedAt ? "" : m.text,
+    buttons: m.deletedAt ? [] : m.buttons,
     createdAt: m.createdAt,
+    replyToId: m.replyToId,
+    editedAt: m.editedAt ?? null,
+    deleted: Boolean(m.deletedAt),
   };
 }
 
@@ -682,6 +794,7 @@ export async function userBotChat(userId: string, botId: string) {
   const chat = chatOf(data, botId, userId);
   const messages = chat ? data.botMessages.filter((m) => m.chatId === chat.id).slice(-80).map(publicMsg) : [];
   const mini = data.miniApps.filter((m) => m.botId === botId).map((m) => ({ id: m.id, title: m.title, category: m.category }));
+  const reviews = (data.botReviews ?? []).filter((r) => r.botId === botId && !r.hidden).slice(0, 12);
   return {
     bot: publicBot(bot, userId),
     commands: bot.commands,
@@ -691,6 +804,7 @@ export async function userBotChat(userId: string, botId: string) {
     messages,
     miniApps: mini,
     stopped: Boolean(chat?.stoppedAt),
+    reviews: reviews.map((r) => ({ stars: r.stars, body: r.body, createdAt: r.createdAt })),
   };
 }
 
@@ -709,6 +823,14 @@ export async function userSendToBot(userId: string, botId: string, text: string)
     if (!body) return { ok: false as const, status: 400, error: "پیام خالی است." };
     pushMessage(data, chat, "user", body);
     const cmd = body.startsWith("/") ? body.slice(1).split(/\s+/)[0]?.toLowerCase() : "";
+    const spec = cmd ? bot.commands.find((c) => c.command === cmd) : undefined;
+    if (spec?.permission && spec.permission !== "public") {
+      const need = spec.permission;
+      if (!bot.perms[need]) {
+        const denied = pushMessage(data, chat, "bot", "این دستور روی سرور برای این ربات فعال نیست.", "system");
+        return { ok: true as const, reply: publicMsg(denied) };
+      }
+    }
     const auto = cmd ? commandReply(bot, cmd) : null;
     let reply: BotMessage | null = null;
     if (body === "open_mini" || cmd === "app") {
@@ -997,6 +1119,299 @@ export async function nixoPayStub() {
     status: 503,
     error: "پرداخت فقط از مسیر رسمی NIXO Pay خواهد بود. این Mini App نمی‌تواند درگاه جدا بسازد. سامانهٔ پرداخت هنوز فعال نیست.",
   };
+}
+
+function tokenBot(data: StoreData, token: string) {
+  if (!token.startsWith("nxtb_")) return null;
+  return data.bots.find((b) => b.status === "active" && !b.tokenRevokedAt && otpHashesEqual(b.tokenHash, hashOtp(token, b.tokenSalt))) ?? null;
+}
+
+export async function botEditOwnMessage(token: string, messageId: string, text: string) {
+  return mutateStore((data) => {
+    ensureOfficialBot(data);
+    const bot = tokenBot(data, token);
+    if (!bot) return { ok: false as const, status: 401, error: "توکن نامعتبر." };
+    const gate = apiGate(data, bot, "edit", BOT_API_MAX);
+    if (!gate.ok) return gate;
+    const msg = data.botMessages.find((m) => m.id === messageId);
+    if (!msg || msg.botId !== bot.id || msg.from !== "bot") return { ok: false as const, status: 403, error: "فقط پیام خود همین ربات." };
+    if (msg.deletedAt) return { ok: false as const, status: 410, error: "پیام حذف شده." };
+    msg.text = text.slice(0, 4000);
+    msg.editedAt = Date.now();
+    return { ok: true as const, messageId: msg.id };
+  });
+}
+
+export async function botDeleteOwnMessage(token: string, messageId: string) {
+  return mutateStore((data) => {
+    ensureOfficialBot(data);
+    const bot = tokenBot(data, token);
+    if (!bot) return { ok: false as const, status: 401, error: "توکن نامعتبر." };
+    const msg = data.botMessages.find((m) => m.id === messageId);
+    if (!msg || msg.botId !== bot.id || msg.from !== "bot") return { ok: false as const, status: 403, error: "حذف پیام دیگران مجاز نیست." };
+    msg.deletedAt = Date.now();
+    msg.text = "";
+    msg.buttons = [];
+    return { ok: true as const };
+  });
+}
+
+export async function userCallback(userId: string, botId: string, messageId: string, buttonId: string) {
+  return mutateStore((data) => {
+    ensureOfficialBot(data);
+    const bot = liveBot(data, botId);
+    if (!bot) return { ok: false as const, status: 404, error: "ربات فعال نیست." };
+    const chat = chatOf(data, botId, userId);
+    if (!chat || chat.stoppedAt) return { ok: false as const, status: 403, error: "ابتدا Start." };
+    const msg = data.botMessages.find((m) => m.id === messageId && m.botId === botId && m.chatId === chat.id && !m.deletedAt);
+    if (!msg) return { ok: false as const, status: 403, error: "دکمه نامعتبر است." };
+    const btn = msg.buttons.find((b) => b.id === buttonId);
+    if (!btn) return { ok: false as const, status: 403, error: "Callback از پیام دیگری پذیرفته نمی‌شود." };
+    data.botUpdates.push({
+      id: randomId(),
+      botId,
+      userId,
+      type: "callback",
+      text: btn.label,
+      payload: btn.payload,
+      createdAt: Date.now(),
+      consumedAt: null,
+    });
+    accessLog(data, botId, userId, `callback:${buttonId}`);
+    queueWebhook(data, bot, { type: "callback", chatId: chat.id, buttonId });
+    return { ok: true as const, payload: btn.payload };
+  });
+}
+
+export async function botKvSet(token: string, key: string, value: string) {
+  return mutateStore((data) => {
+    const bot = tokenBot(data, token);
+    if (!bot) return { ok: false as const, status: 401, error: "توکن نامعتبر." };
+    data.botKv = data.botKv ?? [];
+    const k = key.slice(0, 40);
+    const v = value.slice(0, 2000);
+    const mine = data.botKv.filter((x) => x.botId === bot.id);
+    if (mine.length >= BOT_KV_MAX && !mine.some((x) => x.key === k)) {
+      return { ok: false as const, status: 429, error: "سهمیه Storage این ربات پر است." };
+    }
+    data.botKv = data.botKv.filter((x) => !(x.botId === bot.id && x.key === k));
+    data.botKv.push({ botId: bot.id, key: k, value: v, updatedAt: Date.now() });
+    return { ok: true as const };
+  });
+}
+
+export async function botKvGet(token: string, key: string) {
+  const data = await readStoreSnapshot();
+  const bot = tokenBot(data, token);
+  if (!bot) return { ok: false as const, status: 401, error: "توکن نامعتبر." };
+  const row = (data.botKv ?? []).find((x) => x.botId === bot.id && x.key === key);
+  return { ok: true as const, value: row?.value ?? null };
+}
+
+export async function scheduleBotJob(token: string, input: { userId: string; text: string; runAt: number; kind?: "notify" | "send"; idempotencyKey?: string }) {
+  return mutateStore((data) => {
+    const bot = tokenBot(data, token);
+    if (!bot) return { ok: false as const, status: 401, error: "توکن نامعتبر." };
+    data.botJobs = data.botJobs ?? [];
+    if (data.botJobs.filter((j) => j.botId === bot.id && j.status === "queued").length >= BOT_JOB_MAX) {
+      return { ok: false as const, status: 429, error: "سقف Job همزمان." };
+    }
+    const chat = chatOf(data, bot.id, input.userId);
+    if (!chat || chat.stoppedAt) return { ok: false as const, status: 403, error: "Job فقط برای کاربر Start‌شده." };
+    const job = {
+      id: randomId(),
+      botId: bot.id,
+      kind: input.kind === "notify" ? ("notify" as const) : ("send" as const),
+      userId: input.userId,
+      text: input.text.slice(0, 400),
+      runAt: Math.max(Date.now(), input.runAt),
+      status: "queued" as const,
+      attempts: 0,
+      idempotencyKey: input.idempotencyKey?.slice(0, 80),
+    };
+    data.botJobs.unshift(job);
+    return { ok: true as const, jobId: job.id };
+  });
+}
+
+export async function runDueBotJobs() {
+  return mutateStore((data) => {
+    ensureOfficialBot(data);
+    const now = Date.now();
+    let ran = 0;
+    for (const job of data.botJobs ?? []) {
+      if (job.status !== "queued" || job.runAt > now) continue;
+      if (job.attempts >= 3) {
+        job.status = "failed";
+        continue;
+      }
+      job.attempts += 1;
+      const bot = liveBot(data, job.botId);
+      const chat = bot ? chatOf(data, job.botId, job.userId) : undefined;
+      if (!bot || !chat || chat.stoppedAt) {
+        job.status = "failed";
+        continue;
+      }
+      if (job.kind === "notify" && !bot.perms.sendNotification) {
+        job.status = "failed";
+        continue;
+      }
+      pushMessage(data, chat, "bot", job.text, job.kind === "notify" ? "notification" : "text");
+      job.status = "done";
+      ran += 1;
+    }
+    return { ok: true as const, ran };
+  });
+}
+
+export async function retryWebhooks(ownerUserId: string, botId: string) {
+  return mutateStore((data) => {
+    const bot = data.bots.find((b) => b.id === botId && b.ownerUserId === ownerUserId);
+    if (!bot) return { ok: false as const, status: 404, error: "ربات نیست." };
+    const jobs = (data.botWebhookJobs ?? []).filter((j) => j.botId === botId && j.attempts < 5);
+    for (const j of jobs) {
+      j.attempts += 1;
+      j.nextAt = Date.now() + Math.min(60_000, 2 ** j.attempts * 1000);
+      j.lastError = j.attempts >= 5 ? "max retries" : `retry scheduled (timeout ${bot.webhookTimeoutMs ?? BOT_WEBHOOK_TIMEOUT_MS}ms)`;
+    }
+    bot.webhookLastStatus = jobs.length ? "retrying" : "idle";
+    bot.health = (bot.webhookFailCount ?? 0) > 5 ? "degraded" : "ok";
+    return { ok: true as const, queued: jobs.length };
+  });
+}
+
+export async function reviewBot(userId: string, botId: string, stars: number, body: string) {
+  return mutateStore((data) => {
+    if (!data.bots.some((b) => b.id === botId && b.status === "active")) return { ok: false as const, status: 404, error: "ربات نیست." };
+    const flood = hitRateLimit(data, `bot:rev:${userId}`, 3_600_000, 8);
+    if (!flood.allowed) return { ok: false as const, status: 429, error: "ثبت نظر محدود شد." };
+    const text = body.trim().slice(0, 280);
+    const spam = /(http|buy now|free crypto|otp|password)/i.test(text);
+    data.botReviews = (data.botReviews ?? []).filter((r) => !(r.botId === botId && r.userId === userId));
+    data.botReviews.unshift({
+      id: randomId(),
+      botId,
+      userId,
+      stars: Math.max(1, Math.min(5, Math.floor(stars))),
+      body: text,
+      createdAt: Date.now(),
+      hidden: spam,
+    });
+    return { ok: true as const, hidden: spam };
+  });
+}
+
+export async function connectedBots(userId: string) {
+  const data = await readStoreSnapshot();
+  const chats = (data.botChats ?? []).filter((c) => c.userId === userId && !c.stoppedAt);
+  const logs = (data.botAccessLogs ?? []).filter((l) => l.userId === userId).slice(0, 40);
+  return {
+    ok: true as const,
+    bots: chats.map((c) => {
+      const b = data.bots.find((x) => x.id === c.botId);
+      return {
+        id: c.botId,
+        name: b?.name ?? "Bot",
+        username: b?.username ?? "",
+        notify: c.notify,
+        startedAt: c.startedAt,
+        status: b?.status ?? "deleted",
+      };
+    }),
+    logs: logs.map((l) => ({ action: l.action, at: l.at, botId: l.botId })),
+    export: chats.map((c) => ({ botId: c.botId, startedAt: c.startedAt, notify: c.notify })),
+  };
+}
+
+export async function adminBotStatus(actorId: string, botId: string, status: BotStatus) {
+  return mutateStore((data) => {
+    const actor = data.users.find((u) => u.id === actorId);
+    const handle = actor?.username?.toLowerCase() ?? "";
+    if (handle !== "nixo" && handle !== "nixo_ops") return { ok: false as const, status: 403, error: "فقط ایمنی نیکسو." };
+    const bot = data.bots.find((b) => b.id === botId);
+    if (!bot || bot.id === OFFICIAL_ID) return { ok: false as const, status: 404, error: "ربات قابل تغییر نیست." };
+    bot.status = status;
+    bot.updatedAt = Date.now();
+    if (status !== "active") {
+      bot.tokenRevokedAt = Date.now();
+      bot.tokenHash = hashOtp(mintBotToken(), newSalt());
+      bot.health = "down";
+    }
+    log(data, botId, "auth", `admin:${status}`);
+    return { ok: true as const };
+  });
+}
+
+export async function updateBotProfile(
+  ownerUserId: string,
+  botId: string,
+  patch: { name?: string; description?: string; startMessage?: string; privacyUrl?: string; termsUrl?: string; category?: BotCategory },
+) {
+  return mutateStore((data) => {
+    const bot = data.bots.find((b) => b.id === botId && b.ownerUserId === ownerUserId && b.status !== "deleted");
+    if (!bot) return { ok: false as const, status: 404, error: "ربات نیست." };
+    if (typeof patch.name === "string") bot.name = patch.name.trim().slice(0, 40);
+    if (typeof patch.description === "string") bot.description = patch.description.trim().slice(0, 280);
+    if (typeof patch.startMessage === "string") bot.startMessage = patch.startMessage.trim().slice(0, 500);
+    if (typeof patch.privacyUrl === "string") bot.privacyUrl = patch.privacyUrl.slice(0, 200);
+    if (typeof patch.termsUrl === "string") bot.termsUrl = patch.termsUrl.slice(0, 200);
+    if (patch.category && BOT_CATEGORIES.some((c) => c.id === patch.category)) bot.category = patch.category;
+    bot.updatedAt = Date.now();
+    return { ok: true as const, bot: publicBot(bot, ownerUserId) };
+  });
+}
+
+export async function publishBotVersion(ownerUserId: string, botId: string, version: string) {
+  return mutateStore((data) => {
+    const bot = data.bots.find((b) => b.id === botId && b.ownerUserId === ownerUserId);
+    if (!bot) return { ok: false as const, status: 404, error: "ربات نیست." };
+    const v = version.trim().slice(0, 16) || "1.0.1";
+    bot.versions = bot.versions ?? [];
+    bot.versions.unshift({ version: v, startMessage: bot.startMessage, commands: bot.commands.map((c) => ({ ...c })), at: Date.now() });
+    bot.versions = bot.versions.slice(0, 12);
+    bot.version = v;
+    bot.updatedAt = Date.now();
+    log(data, botId, "auth", `version ${v}`);
+    return { ok: true as const, version: v };
+  });
+}
+
+export async function rollbackBotVersion(ownerUserId: string, botId: string, version: string) {
+  return mutateStore((data) => {
+    const bot = data.bots.find((b) => b.id === botId && b.ownerUserId === ownerUserId);
+    if (!bot) return { ok: false as const, status: 404, error: "ربات نیست." };
+    const snap = (bot.versions ?? []).find((x) => x.version === version);
+    if (!snap) return { ok: false as const, status: 404, error: "نسخه نیست." };
+    bot.startMessage = snap.startMessage;
+    bot.commands = snap.commands.map((c) => ({ ...c }));
+    bot.version = snap.version;
+    bot.updatedAt = Date.now();
+    log(data, botId, "auth", `rollback ${version}`);
+    return { ok: true as const, version: bot.version };
+  });
+}
+
+export async function removeBotPlacement(adminId: string, botId: string, groupId?: string, channelId?: string) {
+  return mutateStore((data) => {
+    const place = data.botPlacements.find((p) => p.botId === botId && (groupId ? p.groupId === groupId : p.channelId === channelId));
+    if (!place) return { ok: false as const, status: 404, error: "ربات در این فضا نیست." };
+    if (place.addedBy !== adminId) {
+      if (groupId) {
+        const group = data.groups.find((g) => g.id === groupId);
+        const me = group?.members.find((m) => m.key === adminId && !m.leftAt);
+        if (!me || (me.role !== "owner" && me.role !== "admin")) return { ok: false as const, status: 403, error: "فقط Admin." };
+      }
+    }
+    data.botPlacements = data.botPlacements.filter((p) => p.id !== place.id);
+    if (groupId) {
+      const group = data.groups.find((g) => g.id === groupId);
+      if (group) {
+        const mem = group.members.find((m) => m.key === `bot:${botId}` && !m.leftAt);
+        if (mem) mem.leftAt = Date.now();
+      }
+    }
+    return { ok: true as const };
+  });
 }
 
 export async function tryReadPrivateChat() {
