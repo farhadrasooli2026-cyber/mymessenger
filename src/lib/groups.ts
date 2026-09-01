@@ -5,7 +5,7 @@ import { canAddToGroup } from "@/lib/privacy";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { GroupMember, GroupMessage, GroupRecord, StoreData } from "@/lib/store";
-import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf, canUseSticker } from "@/lib/stickers";
+import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf, canUseSticker, historicalStickerView, replayReactionNonce, rememberReactionNonce, putReactionCache, type ReactionIntent } from "@/lib/stickers";
 import { validateVoiceDuration, VOICE_SEND_PER_MIN } from "@/lib/voice";
 import { declaredExtAllowed, scanNamedFile } from "@/lib/files";
 import { emitNotification } from "@/lib/notify";
@@ -221,6 +221,7 @@ export function publicGroupMessage(m: GroupMessage, viewerId?: string, data?: St
   return {
     ...m,
     reactions: viewerId && data ? publicReactionView(data, m.reactions, viewerId) : m.reactions,
+    ...(m.kind === "sticker" && viewerId && data ? historicalStickerView(data, m.stickerId, viewerId) : {}),
   };
 }
 
@@ -1141,6 +1142,8 @@ export async function sendGroupMessage(
       return { ok: true as const, message: publicGroupMessage(msg, userId, data) };
     }
     if (kind === "sticker") {
+      const sendLimit = hitRateLimit(data, `stsend:${userId}`, 60_000, 30);
+      if (!sendLimit.allowed) return { ok: false as const, error: "ارسال استیکر محدود شد.", status: 429 };
       const use = canUseSticker(data, userId, String(payload.stickerId ?? ""));
       if (!use.ok) return { ok: false as const, error: use.error, status: use.status };
       const msg: GroupMessage = {
@@ -1264,23 +1267,37 @@ export async function sendGroupMessage(
   });
 }
 
-export async function reactToMessage(userId: string, groupId: string, messageId: string, emoji: string) {
+export async function reactToMessage(
+  userId: string,
+  groupId: string,
+  messageId: string,
+  emoji: string,
+  extra?: { intent?: ReactionIntent; clientNonce?: string },
+) {
   return mutateStore((data) => {
-    const limit = hitRateLimit(data, `react:${userId}`, 60_000, 40);
-    if (!limit.allowed) return { ok: false as const, error: "واکنش محدود شد.", status: 429 };
-    const flood = hitRateLimit(data, `reactflood:${userId}`, 8_000, 12);
-    if (!flood.allowed) return { ok: false as const, error: "ارسال پیاپی واکنش محدود شد.", status: 429 };
+    const nonce = typeof extra?.clientNonce === "string" ? extra.clientNonce.trim().slice(0, 80) : "";
+    const nonceKey = nonce.length >= 8 ? `g:${userId}:${groupId}:${messageId}:${nonce}` : null;
     const group = data.groups.find((g) => g.id === groupId && !g.deletedAt);
     if (!group || !findMember(group, userId)) return { ok: false as const, error: "اجازه نداری.", status: 403 };
     if (group.reactionsEnabled === false) return { ok: false as const, error: "واکنش در این گروه خاموش است.", status: 403 };
     const msg = data.groupMessages.find((m) => m.id === messageId && m.groupId === groupId);
     if (!msg) return { ok: false as const, error: "پیام یافت نشد.", status: 404 };
+    const replay = replayReactionNonce(data, nonceKey);
+    if (replay) {
+      return { ok: true as const, reactions: publicReactionView(data, msg.reactions, userId), action: replay.action, idempotent: true as const };
+    }
+    const limit = hitRateLimit(data, `react:${userId}`, 60_000, 40);
+    if (!limit.allowed) return { ok: false as const, error: "واکنش محدود شد.", status: 429 };
+    const flood = hitRateLimit(data, `reactflood:${userId}`, 8_000, 12);
+    if (!flood.allowed) return { ok: false as const, error: "ارسال پیاپی واکنش محدود شد.", status: 429 };
     const allowed = allowedReactionSet(group.allowedReactions);
-    const applied = applyUserReaction(msg.reactions, userId, emoji, allowed);
+    const applied = applyUserReaction(msg.reactions, userId, emoji, allowed, { intent: extra?.intent });
     if (!applied.ok) return { ok: false as const, error: applied.error, status: 400 };
     msg.reactions = applied.rows;
-    prefsOf(data, userId).emojiRecent = [emoji.trim().slice(0, 8), ...prefsOf(data, userId).emojiRecent.filter((e) => e !== emoji)].slice(0, 32);
-    if (applied.action !== "remove" && msg.senderKey !== userId && msg.senderKey !== "system") {
+    putReactionCache(data, `g:${groupId}:${messageId}`, applied.rows);
+    if (nonceKey) rememberReactionNonce(data, nonceKey, applied.action);
+    prefsOf(data, userId).emojiRecent = [emoji.trim().slice(0, 24), ...prefsOf(data, userId).emojiRecent.filter((e) => e !== emoji)].slice(0, 32);
+    if (applied.action !== "remove" && applied.action !== "noop" && msg.senderKey !== userId && msg.senderKey !== "system") {
       const lock = data.notifyPrefs?.find((p) => p.userId === msg.senderKey);
       emitNotification(data, {
         userId: msg.senderKey,

@@ -3,10 +3,12 @@ import { requireActiveUser } from "@/lib/auth";
 import {
   createPack,
   deleteOwnedSticker,
+  deleteOwnedPack,
   exportStickerData,
   installPack,
   patchStickerPrefs,
   reportSticker,
+  reportReaction,
   sharePack,
   snapshotStickers,
   toggleFavoriteSticker,
@@ -29,7 +31,8 @@ export async function GET(request: Request) {
     if (!limited.allowed) return jsonError("جستجو محدود شد.", 429);
   }
   const suggest = url.searchParams.get("suggest") ?? undefined;
-  const snap = await snapshotStickers(user.id, q, suggest);
+  const pack = url.searchParams.get("pack") ?? undefined;
+  const snap = await snapshotStickers(user.id, q, suggest, pack || undefined);
   return json(snap);
 }
 
@@ -54,7 +57,10 @@ export async function POST(request: Request) {
     return json(result);
   }
   if (action === "createPack") {
-    const result = await createPack(user.id, String(body.name ?? ""), body.privacy === "private" ? "private" : "public");
+    const result = await createPack(user.id, String(body.name ?? ""), body.privacy === "private" ? "private" : "public", {
+      groupId: typeof body.groupId === "string" ? body.groupId : undefined,
+      channelId: typeof body.channelId === "string" ? body.channelId : undefined,
+    });
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
   }
@@ -73,6 +79,21 @@ export async function POST(request: Request) {
     const result = await deleteOwnedSticker(user.id, String(body.stickerId ?? ""));
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
+  }
+  if (action === "deletePack") {
+    const result = await deleteOwnedPack(user.id, String(body.packId ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (action === "reportReaction") {
+    const type = body.type === "group" || body.type === "channel" ? body.type : "chat";
+    const result = await reportReaction(
+      user.id,
+      { type, id: String(body.targetId ?? ""), messageId: String(body.messageId ?? "") },
+      String(body.reason ?? "abuse"),
+    );
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true });
   }
   if (action === "share") {
     const result = await sharePack(user.id, String(body.packId ?? ""), typeof body.memberId === "string" ? body.memberId : undefined);

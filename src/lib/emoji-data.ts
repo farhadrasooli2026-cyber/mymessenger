@@ -1,13 +1,42 @@
 export const DEFAULT_REACTIONS = ["❤️", "👍", "😂", "😮", "😢", "🔥", "🎉", "🙏"] as const;
 
-export type EmojiEntry = { e: string; n: string; k: string[] };
+export type EmojiEntry = { e: string; n: string; k: string[]; tone?: boolean };
 
-export type EmojiCategory = { id: string; label: string; items: EmojiEntry[] };
+export type EmojiCategory = { id: string; label: string; labelFa: string; items: EmojiEntry[] };
+
+export const SKIN_TONES = [
+  { id: "default", modifier: "", swatch: "#f5d0c5", label: "پیش‌فرض" },
+  { id: "1f3fb", modifier: "\u{1F3FB}", swatch: "#fadcbc", label: "روشن" },
+  { id: "1f3fc", modifier: "\u{1F3FC}", swatch: "#e0bb95", label: "متوسط روشن" },
+  { id: "1f3fd", modifier: "\u{1F3FD}", swatch: "#bf8f68", label: "متوسط" },
+  { id: "1f3fe", modifier: "\u{1F3FE}", swatch: "#9b643d", label: "متوسط تیره" },
+  { id: "1f3ff", modifier: "\u{1F3FF}", swatch: "#594539", label: "تیره" },
+] as const;
+
+const SKIN_RE = /[\u{1F3FB}-\u{1F3FF}]/gu;
+
+export function normalizeEmoji(value: string): string {
+  return value.normalize("NFC").trim();
+}
+
+export function stripSkinTone(emoji: string): string {
+  return normalizeEmoji(emoji).replace(SKIN_RE, "").replace(/\uFE0F/g, "");
+}
+
+export function applySkinTone(emoji: string, modifier: string): string {
+  const base = stripSkinTone(emoji);
+  if (!modifier) return normalizeEmoji(emoji);
+  if (!TONEABLE.has(base) && !TONEABLE.has(emoji)) return normalizeEmoji(emoji);
+  return normalizeEmoji(base + modifier);
+}
+
+export const TONEABLE = new Set(["👍", "👎", "👏", "🙌", "🙏", "✌️", "🤞", "👋", "💪", "🫶", "🧑", "👩", "👨", "👶", "🧓"]);
 
 export const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     id: "smileys",
     label: "Smileys",
+    labelFa: "صورت‌ها",
     items: [
       { e: "😀", n: "grinning", k: ["happy", "smile", "خوشحال"] },
       { e: "😃", n: "smiley", k: ["happy", "خوشحال"] },
@@ -46,18 +75,19 @@ export const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     id: "gestures",
     label: "Gestures",
+    labelFa: "ژست‌ها",
     items: [
-      { e: "👍", n: "thumbs up", k: ["ok", "like", "تأیید"] },
-      { e: "👎", n: "thumbs down", k: ["no"] },
-      { e: "👏", n: "clap", k: ["bravo"] },
-      { e: "🙌", n: "raised hands", k: ["hooray"] },
-      { e: "🙏", n: "pray", k: ["please", "thanks", "ممنون"] },
+      { e: "👍", n: "thumbs up", k: ["ok", "like", "تأیید"], tone: true },
+      { e: "👎", n: "thumbs down", k: ["no"], tone: true },
+      { e: "👏", n: "clap", k: ["bravo"], tone: true },
+      { e: "🙌", n: "raised hands", k: ["hooray"], tone: true },
+      { e: "🙏", n: "pray", k: ["please", "thanks", "ممنون"], tone: true },
       { e: "🤝", n: "handshake", k: ["deal"] },
-      { e: "✌️", n: "victory", k: ["peace"] },
-      { e: "🤞", n: "crossed fingers", k: ["luck"] },
-      { e: "👋", n: "wave", k: ["hi", "سلام"] },
-      { e: "💪", n: "muscle", k: ["strong"] },
-      { e: "🫶", n: "heart hands", k: ["love"] },
+      { e: "✌️", n: "victory", k: ["peace"], tone: true },
+      { e: "🤞", n: "crossed fingers", k: ["luck"], tone: true },
+      { e: "👋", n: "wave", k: ["hi", "سلام"], tone: true },
+      { e: "💪", n: "muscle", k: ["strong"], tone: true },
+      { e: "🫶", n: "heart hands", k: ["love"], tone: true },
       { e: "❤️", n: "red heart", k: ["love", "قلب"] },
       { e: "🧡", n: "orange heart", k: ["love"] },
       { e: "💛", n: "yellow heart", k: ["love"] },
@@ -76,18 +106,20 @@ export const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     id: "people",
     label: "People",
+    labelFa: "افراد",
     items: [
-      { e: "👋", n: "wave", k: ["hi"] },
-      { e: "🧑", n: "person", k: ["person"] },
-      { e: "👩", n: "woman", k: ["woman"] },
-      { e: "👨", n: "man", k: ["man"] },
-      { e: "👶", n: "baby", k: ["baby"] },
-      { e: "🧓", n: "older", k: ["elder"] },
+      { e: "👋", n: "wave", k: ["hi"], tone: true },
+      { e: "🧑", n: "person", k: ["person"], tone: true },
+      { e: "👩", n: "woman", k: ["woman"], tone: true },
+      { e: "👨", n: "man", k: ["man"], tone: true },
+      { e: "👶", n: "baby", k: ["baby"], tone: true },
+      { e: "🧓", n: "older", k: ["elder"], tone: true },
     ],
   },
   {
     id: "nature",
     label: "Nature",
+    labelFa: "طبیعت",
     items: [
       { e: "🐶", n: "dog", k: ["dog", "سگ"] },
       { e: "🐱", n: "cat", k: ["cat", "گربه"] },
@@ -105,6 +137,7 @@ export const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     id: "food",
     label: "Food",
+    labelFa: "خوراکی",
     items: [
       { e: "🍎", n: "apple", k: ["fruit"] },
       { e: "🍕", n: "pizza", k: ["food"] },
@@ -118,6 +151,7 @@ export const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     id: "travel",
     label: "Travel",
+    labelFa: "سفر",
     items: [
       { e: "🏠", n: "house", k: ["home"] },
       { e: "✈️", n: "airplane", k: ["travel"] },
@@ -129,6 +163,7 @@ export const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     id: "objects",
     label: "Objects",
+    labelFa: "اشیا",
     items: [
       { e: "💡", n: "bulb", k: ["idea"] },
       { e: "📱", n: "phone", k: ["phone"] },
@@ -141,6 +176,7 @@ export const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     id: "symbols",
     label: "Symbols",
+    labelFa: "نمادها",
     items: [
       { e: "✅", n: "check", k: ["ok"] },
       { e: "❌", n: "x", k: ["no"] },
@@ -163,8 +199,15 @@ export function searchEmoji(q: string): EmojiEntry[] {
 }
 
 export function isLikelyEmoji(value: string): boolean {
-  const t = value.trim();
-  if (!t || t.length > 8) return false;
+  const t = normalizeEmoji(value);
+  if (!t || t.length > 24) return false;
   if (/[\u0000-\u001f<>&"'`]/.test(t)) return false;
-  return /\p{Extended_Pictographic}|\p{Emoji_Presentation}|[\u200d\ufe0f]/u.test(t) || DEFAULT_REACTIONS.includes(t as (typeof DEFAULT_REACTIONS)[number]);
+  return /\p{Extended_Pictographic}|\p{Emoji_Presentation}|[\u200d\ufe0f\u{1F3FB}-\u{1F3FF}]/u.test(t) || DEFAULT_REACTIONS.includes(t as (typeof DEFAULT_REACTIONS)[number]);
+}
+
+export function reactionAllowed(allowed: string[], emoji: string): boolean {
+  const safe = normalizeEmoji(emoji);
+  if (allowed.includes(safe)) return true;
+  const base = stripSkinTone(safe);
+  return allowed.includes(base);
 }

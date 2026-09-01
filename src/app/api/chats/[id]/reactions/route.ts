@@ -10,7 +10,10 @@ export async function POST(request: Request, ctx: Ctx) {
   const { id } = await ctx.params;
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return jsonError("درخواست نامعتبر است.");
-  const result = await reactOnDm(user.id, id, String(body.messageId ?? ""), String(body.emoji ?? ""));
+  const result = await reactOnDm(user.id, id, String(body.messageId ?? ""), String(body.emoji ?? ""), {
+    intent: body.intent === "add" || body.intent === "remove" || body.intent === "toggle" ? body.intent : undefined,
+    clientNonce: typeof body.clientNonce === "string" ? body.clientNonce : undefined,
+  });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, reactions: result.reactions, action: result.action });
 }

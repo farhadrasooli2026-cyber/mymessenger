@@ -100,7 +100,7 @@ export function StickerPicker({
   return (
     <div className="rounded-2xl border border-white/10 bg-[#0b1f1c] p-3 text-emerald-50" role="dialog" aria-label="Sticker picker">
       <div className="mb-2 flex gap-2">
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search stickers" aria-label="Search stickers" className="h-9 bg-black/30" />
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجوی استیکر و بسته" aria-label="جستجوی استیکر" className="h-9 bg-black/30" />
         <Button type="button" size="sm" variant="secondary" onClick={() => void load(q)}>
           Search
         </Button>
@@ -118,7 +118,7 @@ export function StickerPicker({
         <>
           {suggestions.filter(Boolean).length > 0 && (
             <div className="mb-2">
-              <p className="text-[11px] text-emerald-100/60">Suggestions</p>
+              <p className="text-[11px] text-emerald-100/60">پیشنهاد</p>
               <div className="flex gap-2 overflow-x-auto">
                 {suggestions.filter(Boolean).map((s) => (
                   <button key={s!.id} type="button" onClick={() => setPreview(s!)}>
@@ -131,7 +131,7 @@ export function StickerPicker({
           )}
           <div className="mb-2 flex gap-1 overflow-x-auto text-[11px]">
             <button type="button" className="rounded-full bg-white/10 px-2 py-1" onClick={() => { setPackId(""); setSearch(null); }}>
-              Recent
+              اخیر
             </button>
             {packs.map((p) => (
               <button
@@ -149,7 +149,7 @@ export function StickerPicker({
           </div>
           <div className="grid max-h-48 grid-cols-4 gap-2 overflow-y-auto">
             {(packId === "" && !search ? (recent.filter(Boolean) as Sticker[]) : grid).length === 0 ? (
-              <p className="col-span-4 py-6 text-center text-sm text-emerald-100/60">No results found</p>
+              <p className="col-span-4 py-6 text-center text-sm text-emerald-100/60">نتیجه‌ای نیست</p>
             ) : (
               (packId === "" && !search ? (recent.filter(Boolean) as Sticker[]) : grid).map((s) => (
                 <button key={s.id} type="button" className="rounded-xl bg-black/20 p-1" onClick={() => setPreview(s)} aria-label={s.name}>
@@ -160,7 +160,7 @@ export function StickerPicker({
             )}
           </div>
           {favorites.filter(Boolean).length > 0 && (
-            <p className="mt-2 text-[11px] text-emerald-100/55">{favorites.filter(Boolean).length} favorites</p>
+            <p className="mt-2 text-[11px] text-emerald-100/55">{favorites.filter(Boolean).length} علاقه‌مندی</p>
           )}
         </>
       )}

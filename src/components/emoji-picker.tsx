@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { EMOJI_CATEGORIES, searchEmoji } from "@/lib/emoji-data";
+import { applySkinTone, EMOJI_CATEGORIES, searchEmoji, SKIN_TONES } from "@/lib/emoji-data";
 import { cn } from "@/lib/utils";
 
 type Prefs = { emojiRecent?: string[]; emojiFavorites?: string[] };
@@ -20,15 +20,20 @@ export function EmojiPicker({
 }) {
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("smileys");
+  const [tone, setTone] = useState("");
   const results = useMemo(() => (q.trim() ? searchEmoji(q) : EMOJI_CATEGORIES.find((c) => c.id === cat)?.items ?? []), [q, cat]);
 
+  function pick(item: { e: string; tone?: boolean }) {
+    onPick(item.tone ? applySkinTone(item.e, tone) : item.e);
+  }
+
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#0b1f1c] p-3 text-emerald-50" role="dialog" aria-label="Emoji picker">
+    <div className="rounded-2xl border border-white/10 bg-[#0b1f1c] p-3 text-emerald-50" role="dialog" aria-label="انتخاب ایموجی">
       <input
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Search emoji"
-        aria-label="Search emoji"
+        placeholder="جستجوی ایموجی"
+        aria-label="جستجوی ایموجی"
         className="mb-2 h-9 w-full rounded-lg bg-black/30 px-3 text-sm"
       />
       <div className="mb-2 flex flex-wrap gap-1 text-[11px]">
@@ -42,26 +47,39 @@ export function EmojiPicker({
               setQ("");
             }}
           >
-            {c.label}
+            {c.labelFa}
           </button>
+        ))}
+      </div>
+      <div className="mb-2 flex items-center gap-1" aria-label="رنگ پوست">
+        {SKIN_TONES.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            title={t.label}
+            aria-label={t.label}
+            className={cn("h-5 w-5 rounded-full border", tone === t.modifier ? "border-amber-300" : "border-white/20")}
+            style={{ background: t.swatch }}
+            onClick={() => setTone(t.modifier)}
+          />
         ))}
       </div>
       {!q && (recent?.length || favorites?.length) ? (
         <div className="mb-2 space-y-1">
           {favorites && favorites.length > 0 && (
-            <p className="text-[11px] text-emerald-100/60">Favorites</p>
+            <p className="text-[11px] text-emerald-100/60">علاقه‌مندی</p>
           )}
           <div className="flex flex-wrap gap-1">
             {(favorites ?? []).map((e) => (
-              <button key={`f-${e}`} type="button" className="text-xl" aria-label={`Favorite ${e}`} onClick={() => onPick(e)}>
+              <button key={`f-${e}`} type="button" className="text-xl" aria-label={`علاقه‌مندی ${e}`} onClick={() => onPick(e)}>
                 {e}
               </button>
             ))}
           </div>
-          {recent && recent.length > 0 && <p className="text-[11px] text-emerald-100/60">Recently used</p>}
+          {recent && recent.length > 0 && <p className="text-[11px] text-emerald-100/60">اخیر</p>}
           <div className="flex flex-wrap gap-1">
             {(recent ?? []).map((e) => (
-              <button key={`r-${e}`} type="button" className="text-xl" aria-label={`Recent ${e}`} onClick={() => onPick(e)}>
+              <button key={`r-${e}`} type="button" className="text-xl" aria-label={`اخیر ${e}`} onClick={() => onPick(e)}>
                 {e}
               </button>
             ))}
@@ -70,7 +88,7 @@ export function EmojiPicker({
       ) : null}
       <div className="grid max-h-48 grid-cols-8 gap-1 overflow-y-auto">
         {results.length === 0 ? (
-          <p className="col-span-8 py-6 text-center text-sm text-emerald-100/60">No results found</p>
+          <p className="col-span-8 py-6 text-center text-sm text-emerald-100/60">نتیجه‌ای نیست</p>
         ) : (
           results.map((item) => (
             <button
@@ -79,17 +97,19 @@ export function EmojiPicker({
               className="rounded p-1 text-xl hover:bg-white/10"
               aria-label={item.n}
               title={item.n}
-              onClick={() => onPick(item.e)}
+              onClick={() => pick(item)}
               onContextMenu={(ev) => {
                 ev.preventDefault();
-                onFavorite?.(item.e, !(favorites ?? []).includes(item.e));
+                const shown = item.tone ? applySkinTone(item.e, tone) : item.e;
+                onFavorite?.(shown, !(favorites ?? []).includes(shown));
               }}
             >
-              {item.e}
+              {item.tone ? applySkinTone(item.e, tone) : item.e}
             </button>
           ))
         )}
       </div>
+      <p className="mt-2 text-[10px] text-emerald-100/45">اگر دستگاه این ایموجی را ندارد، شکل جایگزین سیستم‌عامل دیده می‌شود. نگه‌داشتن برای Favorite.</p>
     </div>
   );
 }

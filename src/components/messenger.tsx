@@ -128,6 +128,7 @@ type Message = {
     | null;
   stickerId?: string | null;
   stickerUrl?: string;
+  stickerMissing?: boolean;
   reactions?: PublicReaction[];
   replyToId?: string | null;
   state?: "sent" | "delivered" | "read" | "deleted" | "failed";
@@ -163,6 +164,7 @@ type WireMsg = {
     | null;
   stickerId?: string | null;
   stickerUrl?: string | null;
+  stickerMissing?: boolean;
   reactions?: PublicReaction[];
   replyToId?: string | null;
   state?: "sent" | "delivered" | "read" | "deleted";
@@ -209,6 +211,7 @@ async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> 
         kind: "sticker",
         stickerId: raw.stickerId,
         stickerUrl: raw.stickerUrl ?? undefined,
+        stickerMissing: Boolean(raw.stickerMissing),
         reactions: raw.reactions,
         forwarded: raw.forwarded,
         ...meta(raw),
@@ -495,11 +498,13 @@ export function Messenger({
   const reactOn = useCallback(async (messageId: string, emoji: string) => {
     if (!activeId) return;
     const key = `nixo-react-q:${userId}`;
-    const send = async () => {
+    const nonce =
+      typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `r-${Date.now()}-${Math.random()}`;
+    const send = async (clientNonce: string) => {
       const res = await fetch(`/api/chats/${activeId}/reactions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageId, emoji }),
+        body: JSON.stringify({ messageId, emoji, clientNonce, intent: "toggle" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "واکنش ارسال نشد.");
@@ -512,13 +517,13 @@ export function Messenger({
     };
     try {
       if (typeof navigator !== "undefined" && !navigator.onLine) throw new Error("offline");
-      await send();
+      await send(nonce);
     } catch {
       setFailedReact((prev) => ({ ...prev, [messageId]: emoji }));
       try {
-        const q = JSON.parse(sessionStorage.getItem(key) || "[]") as { messageId: string; emoji: string; threadId: string }[];
+        const q = JSON.parse(sessionStorage.getItem(key) || "[]") as { messageId: string; emoji: string; threadId: string; clientNonce?: string }[];
         if (!q.some((x) => x.messageId === messageId && x.emoji === emoji && x.threadId === activeId)) {
-          q.push({ messageId, emoji, threadId: activeId });
+          q.push({ messageId, emoji, threadId: activeId, clientNonce: nonce });
           sessionStorage.setItem(key, JSON.stringify(q.slice(-40)));
         }
       } catch {
@@ -585,7 +590,7 @@ export function Messenger({
       })
       .catch(() => undefined);
     try {
-      const q = JSON.parse(sessionStorage.getItem(`nixo-react-q:${userId}`) || "[]") as { messageId: string; emoji: string; threadId: string }[];
+      const q = JSON.parse(sessionStorage.getItem(`nixo-react-q:${userId}`) || "[]") as { messageId: string; emoji: string; threadId: string; clientNonce?: string }[];
       if (q.length) {
         void (async () => {
           const left: typeof q = [];
@@ -593,7 +598,12 @@ export function Messenger({
             const res = await fetch(`/api/chats/${item.threadId}/reactions`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ messageId: item.messageId, emoji: item.emoji }),
+              body: JSON.stringify({
+                messageId: item.messageId,
+                emoji: item.emoji,
+                clientNonce: item.clientNonce,
+                intent: "toggle",
+              }),
             });
             if (!res.ok) left.push(item);
           }
@@ -1785,7 +1795,9 @@ export function Messenger({
                       >
                         {msg.kind === "sticker" ? (
                           <div className="p-2">
-                            {msg.stickerUrl ? (
+                            {msg.stickerMissing ? (
+                              <p className="px-3 py-2 text-sm opacity-70">استیکر حذف شده</p>
+                            ) : msg.stickerUrl ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img src={msg.stickerUrl} alt="sticker" className="h-24 w-24" />
                             ) : (
@@ -2403,6 +2415,12 @@ export function Messenger({
             </Link>
             <Link href="/app/settings/live" className="block text-sm text-amber-200">
               تنظیمات → Live
+            </Link>
+            <Link href="/app/stickers" className="block text-sm text-amber-200">
+              ایموجی و استیکر
+            </Link>
+            <Link href="/app/settings/stickers" className="block text-sm text-amber-200">
+              تنظیمات → استیکر و ایموجی
             </Link>
             <Link href="/app/spaces" className="block text-sm text-amber-200">
               گروه و کانال

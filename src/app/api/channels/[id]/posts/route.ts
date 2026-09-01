@@ -44,7 +44,10 @@ export async function POST(request: Request, ctx: Ctx) {
     return json({ ok: true, pinIds: result.pinIds });
   }
   if (body.action === "react") {
-    const result = await reactPost(user.id, id, String(body.postId ?? ""), String(body.emoji ?? "❤️"));
+    const result = await reactPost(user.id, id, String(body.postId ?? ""), String(body.emoji ?? "❤️"), {
+      intent: body.intent === "add" || body.intent === "remove" || body.intent === "toggle" ? body.intent : undefined,
+      clientNonce: typeof body.clientNonce === "string" ? body.clientNonce : undefined,
+    });
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true, reactions: result.reactions });
   }

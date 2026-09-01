@@ -11,7 +11,10 @@ export async function POST(request: Request, ctx: Ctx) {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   const action = body?.action;
   if (action === "react") {
-    const result = await reactToMessage(user.id, id, messageId, String(body?.emoji ?? "❤️"));
+    const result = await reactToMessage(user.id, id, messageId, String(body?.emoji ?? "❤️"), {
+      intent: body?.intent === "add" || body?.intent === "remove" || body?.intent === "toggle" ? body.intent : undefined,
+      clientNonce: typeof body?.clientNonce === "string" ? body.clientNonce : undefined,
+    });
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true, reactions: result.reactions });
   }

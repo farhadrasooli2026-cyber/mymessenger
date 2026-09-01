@@ -83,6 +83,8 @@ type GMsg = {
   deleted?: boolean;
   text?: string;
   stickerId?: string;
+  stickerUrl?: string | null;
+  stickerMissing?: boolean;
   durationMs?: number;
   blobId?: string;
   chunkCount?: number;
@@ -436,7 +438,14 @@ export function GroupPane({
                     <p className="text-[10px] opacity-70">{msg.senderName}</p>
                     {msg.replyToId && <p className="text-[10px] opacity-60">پاسخ</p>}
                     {msg.kind === "sticker" ? (
-                      <p>استیکر</p>
+                      msg.stickerMissing ? (
+                        <p className="opacity-70">استیکر حذف شده</p>
+                      ) : msg.stickerUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={msg.stickerUrl} alt="" className="h-24 w-24" />
+                      ) : (
+                        <p>استیکر</p>
+                      )
                     ) : msg.kind === "photo" || msg.kind === "video" || msg.kind === "file" ? (
                       <MediaBubble
                         msg={{

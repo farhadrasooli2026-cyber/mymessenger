@@ -8,10 +8,14 @@ import { encryptText, generateThreadKey } from "./e2ee";
 import { listThreads, sendMessage } from "./chat";
 import { createGroup, getGroup, reactToMessage, sendGroupMessage } from "./groups";
 import { createChannel, reactPost } from "./channels";
+import { applySkinTone, isLikelyEmoji } from "./emoji-data";
 import {
   createPack,
+  deleteOwnedPack,
+  deleteOwnedSticker,
   installPack,
   reactOnDm,
+  sendDmSticker,
   snapshotStickers,
   uploadSticker,
   validateStickerUpload,
@@ -159,5 +163,98 @@ describe("NIXO reactions stickers emoji", () => {
     });
     const r = await reactPost(a, ch.channel.id, "post1", "👍");
     expect(r.ok).toBe(false);
+  });
+
+  it("applies fitzpatrick skin tone without breaking search", () => {
+    const toned = applySkinTone("👍", "\u{1F3FB}");
+    expect(toned).not.toBe("👍");
+    expect(isLikelyEmoji(toned)).toBe(true);
+  });
+
+  it("does not install a private pack by guessing pack id", async () => {
+    const a = await activeUser("st_priv_a");
+    const b = await activeUser("st_priv_b");
+    const pack = await createPack(a, "خصوصی من", "private");
+    expect(pack.ok).toBe(true);
+    if (!pack.ok) return;
+    const stolen = await installPack(b, pack.pack.id, true);
+    expect(stolen.ok).toBe(false);
+    const snap = await snapshotStickers(b);
+    expect(snap.prefs.installedPackIds.includes(pack.pack.id)).toBe(false);
+  });
+
+  it("keeps historical sticker after soft-delete and blocks new send", async () => {
+    const a = await activeUser("st_del_a");
+    const threads = await listThreads(a);
+    const thread = threads[0];
+    expect(thread).toBeTruthy();
+    const pack = await createPack(a, "بسته حذف", "public");
+    expect(pack.ok).toBe(true);
+    if (!pack.ok) return;
+    const up = await uploadSticker(a, pack.pack.id, { name: "چهره", dataUrl: PNG, kind: "static" });
+    expect(up.ok).toBe(true);
+    if (!up.ok) return;
+    const sent = await sendDmSticker(a, thread.id, up.sticker!.id);
+    expect(sent.ok).toBe(true);
+    const gone = await deleteOwnedSticker(a, up.sticker!.id);
+    expect(gone.ok).toBe(true);
+    const again = await sendDmSticker(a, thread.id, up.sticker!.id);
+    expect(again.ok).toBe(false);
+    const listed = await mutateStore((data) => data.messages.filter((m) => m.ownerUserId === a && m.stickerId === up.sticker!.id));
+    expect(listed.length).toBeGreaterThan(0);
+  });
+
+  it("replays the same reaction clientNonce without toggling twice", async () => {
+    const a = await activeUser("st_nonce");
+    const threads = await listThreads(a);
+    const thread = threads[0];
+    const envelope = await encryptText(await generateThreadKey(), "nonce react");
+    const sent = await sendMessage(a, thread.id, { ...envelope, enc: "e2ee-v1" });
+    expect(sent.ok).toBe(true);
+    if (!sent.ok) return;
+    const msg = sent.messages[sent.messages.length - 1]!;
+    const first = await reactOnDm(a, thread.id, msg.id, "🔥", { intent: "add", clientNonce: "react-nonce-aaaa" });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.action).toBe("add");
+    const retry = await reactOnDm(a, thread.id, msg.id, "🔥", { intent: "add", clientNonce: "react-nonce-aaaa" });
+    expect(retry.ok).toBe(true);
+    if (!retry.ok) return;
+    expect(retry.idempotent).toBe(true);
+    expect(retry.reactions.filter((r) => r.emoji === "🔥" && r.mine).length).toBe(1);
+    const addAgain = await reactOnDm(a, thread.id, msg.id, "🔥", { intent: "add", clientNonce: "react-nonce-bbbb" });
+    expect(addAgain.ok).toBe(true);
+    if (!addAgain.ok) return;
+    expect(addAgain.action).toBe("noop");
+  });
+
+  it("soft-deletes a pack without destroying prior sticker message rows", async () => {
+    const a = await activeUser("st_packdel");
+    const pack = await createPack(a, "برای حذف", "public");
+    expect(pack.ok).toBe(true);
+    if (!pack.ok) return;
+    const up = await uploadSticker(a, pack.pack.id, { name: "چهره", dataUrl: PNG, kind: "static" });
+    expect(up.ok).toBe(true);
+    if (!up.ok) return;
+    const threads = await listThreads(a);
+    await sendDmSticker(a, threads[0]!.id, up.sticker!.id);
+    const del = await deleteOwnedPack(a, pack.pack.id);
+    expect(del.ok).toBe(true);
+    const snap = await snapshotStickers(a);
+    expect(snap.packs.some((p) => p.id === pack.pack.id)).toBe(false);
+    const rows = await mutateStore((data) => data.messages.filter((m) => m.stickerId === up.sticker!.id));
+    expect(rows.length).toBeGreaterThan(0);
+  });
+
+  it("rejects group custom emoji pack from a stranger", async () => {
+    const a = await activeUser("st_gpack_a");
+    const b = await activeUser("st_gpack_b");
+    const g = await createGroup(a, { name: "گروه ایموجی", memberKeys: [] });
+    expect(g.ok).toBe(true);
+    if (!g.ok) return;
+    const ok = await createPack(a, "ایموجی گروه", "private", { groupId: g.group.id });
+    expect(ok.ok).toBe(true);
+    const stolen = await createPack(b, "دزدی", "private", { groupId: g.group.id });
+    expect(stolen.ok).toBe(false);
   });
 });

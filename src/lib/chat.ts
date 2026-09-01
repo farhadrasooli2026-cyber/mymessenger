@@ -10,7 +10,7 @@ import { DELETE_EVERYONE_MS, VOICE_CIPHER_MAX, VOICE_MAX_MS, VOICE_SEND_PER_MIN,
 import { MEDIA_MAX_CHUNKS, MEDIA_MAX_BYTES } from "@/lib/media";
 import { deleteMediaBlob } from "@/lib/media-files";
 import { emitNotification } from "@/lib/notify";
-import { publicReactionView, signStickerFile } from "@/lib/stickers";
+import { publicReactionView, historicalStickerView } from "@/lib/stickers";
 import { publishChatLive } from "@/lib/chat-live";
 import { clampLimit, decodeCursor, encodeCursor } from "@/lib/db/query";
 import {
@@ -175,7 +175,11 @@ export function publicMessage(message: ChatMessage, userId: string, now = Date.n
     captureCount: live.captureCount ?? 0,
     stickerId: live.kind === "sticker" ? live.stickerId ?? null : null,
     stickerUrl:
-      live.kind === "sticker" && live.stickerId ? `/api/stickers/file/${live.stickerId}?t=${signStickerFile(live.stickerId, userId)}` : null,
+      live.kind === "sticker" && live.stickerId
+        ? historicalStickerView(data ?? ({} as StoreData), live.stickerId, userId).stickerUrl
+        : null,
+    stickerMissing:
+      live.kind === "sticker" ? historicalStickerView(data ?? ({} as StoreData), live.stickerId, userId).stickerMissing : false,
     reactions: publicReactionView((data ?? ({} as unknown as StoreData)), live.reactions, userId),
     clientNonce: live.clientNonce ?? null,
     replyToId: live.replyToId ?? null,

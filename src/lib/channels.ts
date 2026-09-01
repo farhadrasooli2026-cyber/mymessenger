@@ -5,7 +5,7 @@ import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { ChannelPost, ChannelStaff, PubChannelRecord, StoreData } from "@/lib/store";
 import { sniffVoiceBytes, validateVoiceDuration, VOICE_UPLOAD_MAX } from "@/lib/voice";
 import { FILE_MAX_BYTES, maxBytesForKind, sanitizeFileName, scanNamedFile, sniffFileBytes } from "@/lib/files";
-import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf } from "@/lib/stickers";
+import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf, replayReactionNonce, rememberReactionNonce, putReactionCache, type ReactionIntent } from "@/lib/stickers";
 import { canChannelInvite } from "@/lib/privacy";
 import { emitNotification } from "@/lib/notify";
 import { enqueueSearchIndexSync } from "@/lib/search";
@@ -1134,10 +1134,16 @@ export async function pinPost(userId: string, channelId: string, postId: string,
   });
 }
 
-export async function reactPost(userId: string, channelId: string, postId: string, emoji: string) {
+export async function reactPost(
+  userId: string,
+  channelId: string,
+  postId: string,
+  emoji: string,
+  extra?: { intent?: ReactionIntent; clientNonce?: string },
+) {
   return mutateStore((data) => {
-    const limit = hitRateLimit(data, `react:${userId}`, 60_000, 40);
-    if (!limit.allowed) return { ok: false as const, error: "واکنش محدود شد.", status: 429 };
+    const nonce = typeof extra?.clientNonce === "string" ? extra.clientNonce.trim().slice(0, 80) : "";
+    const nonceKey = nonce.length >= 8 ? `c:${userId}:${channelId}:${postId}:${nonce}` : null;
     const channel = data.pubChannels.find((c) => c.id === channelId && channelListed(c));
     if (!channel) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
     if (!channel.reactionsEnabled) return { ok: false as const, error: "واکنش در این کانال خاموش است.", status: 403 };
@@ -1145,12 +1151,22 @@ export async function reactPost(userId: string, channelId: string, postId: strin
     if (!allowed && channel.visibility === "private") return { ok: false as const, error: "اجازه نداری.", status: 403 };
     const post = data.channelPosts.find((p) => p.id === postId && p.channelId === channelId && !p.deleted);
     if (!post) return { ok: false as const, error: "پست یافت نشد.", status: 404 };
+    const replay = replayReactionNonce(data, nonceKey);
+    if (replay) {
+      return { ok: true as const, reactions: publicReactionView(data, post.reactions, userId), action: replay.action, idempotent: true as const };
+    }
+    const limit = hitRateLimit(data, `react:${userId}`, 60_000, 40);
+    if (!limit.allowed) return { ok: false as const, error: "واکنش محدود شد.", status: 429 };
+    const flood = hitRateLimit(data, `reactflood:${userId}`, 8_000, 12);
+    if (!flood.allowed) return { ok: false as const, error: "ارسال پیاپی واکنش محدود شد.", status: 429 };
     const set = allowedReactionSet(channel.allowedReactions);
-    const applied = applyUserReaction(post.reactions, userId, emoji, set);
+    const applied = applyUserReaction(post.reactions, userId, emoji, set, { intent: extra?.intent });
     if (!applied.ok) return { ok: false as const, error: applied.error, status: 400 };
     post.reactions = applied.rows;
-    prefsOf(data, userId).emojiRecent = [emoji.trim().slice(0, 8), ...prefsOf(data, userId).emojiRecent.filter((e) => e !== emoji)].slice(0, 32);
-    if (applied.action !== "remove" && post.authorKey !== userId) {
+    putReactionCache(data, `c:${channelId}:${postId}`, applied.rows);
+    if (nonceKey) rememberReactionNonce(data, nonceKey, applied.action);
+    prefsOf(data, userId).emojiRecent = [emoji.trim().slice(0, 24), ...prefsOf(data, userId).emojiRecent.filter((e) => e !== emoji)].slice(0, 32);
+    if (applied.action !== "remove" && applied.action !== "noop" && post.authorKey !== userId) {
       const lock = data.notifyPrefs?.find((p) => p.userId === post.authorKey);
       emitNotification(data, {
         userId: post.authorKey,

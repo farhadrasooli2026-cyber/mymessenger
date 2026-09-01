@@ -26,6 +26,8 @@ type Pack = {
   owner: boolean;
   privacy: string;
   shareToken: string | null;
+  groupId?: string | null;
+  channelId?: string | null;
 };
 
 export function StickerSettings() {
@@ -34,6 +36,8 @@ export function StickerSettings() {
   const [error, setError] = useState<string | null>(null);
   const [packName, setPackName] = useState("");
   const [token, setToken] = useState("");
+  const [uploadPack, setUploadPack] = useState("");
+  const [uploadName, setUploadName] = useState("استیکر");
 
   function load() {
     fetch("/api/stickers", { cache: "no-store" })
@@ -143,6 +147,11 @@ export function StickerSettings() {
                     Remove
                   </Button>
                 )}
+                {p.owner && !p.official && (
+                  <Button type="button" size="sm" variant="ghost" className="text-rose-200" onClick={() => void act({ action: "deletePack", packId: p.id })}>
+                    Delete pack
+                  </Button>
+                )}
                 {p.owner && p.shareToken && (
                   <Button
                     type="button"
@@ -180,6 +189,44 @@ export function StickerSettings() {
               Add pack
             </Button>
           </div>
+        </section>
+
+        <section className="space-y-2 rounded-2xl bg-white/5 p-4 text-sm">
+          <h2 className="font-medium">آپلود استیکر (PNG/WEBP)</h2>
+          <select
+            className="h-9 w-full rounded-lg bg-black/30 px-2 text-xs"
+            value={uploadPack}
+            onChange={(e) => setUploadPack(e.target.value)}
+          >
+            <option value="">بستهٔ مالکیت تو</option>
+            {packs.filter((p) => p.owner && !p.official).map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <Input value={uploadName} onChange={(e) => setUploadName(e.target.value)} placeholder="نام استیکر" className="h-9 bg-black/20" />
+          <input
+            type="file"
+            accept="image/png,image/webp"
+            className="text-xs"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (!file || !uploadPack) return;
+              const reader = new FileReader();
+              reader.onload = () => {
+                void act({
+                  action: "upload",
+                  packId: uploadPack,
+                  name: uploadName,
+                  dataUrl: String(reader.result ?? ""),
+                  kind: file.type.includes("webp") ? "animated" : "static",
+                });
+              };
+              reader.readAsDataURL(file);
+            }}
+          />
+          <p className="text-[11px] text-emerald-100/55">سقف ۳۲ تا ۵۱۲ پیکسل. SVG و اجرایی رد می‌شوند. نوع واقعی فایل روی سرور چک می‌شود.</p>
         </section>
 
         <section className="space-y-2 rounded-2xl bg-white/5 p-4 text-sm">

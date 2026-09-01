@@ -1433,6 +1433,8 @@ export type StickerPack = {
   memberIds: string[];
   createdAt: number;
   deletedAt?: number;
+  groupId?: string;
+  channelId?: string;
 };
 
 export type StickerItem = {
@@ -1447,6 +1449,7 @@ export type StickerItem = {
   w: number;
   h: number;
   bytes: number;
+  deletedAt?: number;
 };
 
 export type StickerPrefs = {
@@ -1892,6 +1895,9 @@ export type StoreData = {
   stickers: StickerItem[];
   stickerPrefs: StickerPrefs[];
   stickerReports: StickerModeration[];
+  reactionIdempotency: { key: string; at: number; action: string }[];
+  reactionCountCache: { key: string; counts: Record<string, number>; at: number }[];
+  stickerAnalytics: { reactions: number; stickersSent: number; packsInstalled: number; customOps: number };
   fileAccessLogs: { id: string; userId: string; action: string; target: string; at: number }[];
   mediaJobs: MediaJob[];
   vaultObjects: VaultObject[];
@@ -2017,6 +2023,9 @@ const EMPTY: StoreData = {
   stickers: [],
   stickerPrefs: [],
   stickerReports: [],
+  reactionIdempotency: [],
+  reactionCountCache: [],
+  stickerAnalytics: { reactions: 0, stickersSent: 0, packsInstalled: 0, customOps: 0 },
   fileAccessLogs: [],
   mediaJobs: [],
   vaultObjects: [],
@@ -2211,10 +2220,30 @@ async function readStore(): Promise<StoreData> {
       reservedUsernames: Array.isArray(parsed.reservedUsernames) ? parsed.reservedUsernames : [],
       inboxMetas: Array.isArray(parsed.inboxMetas) ? parsed.inboxMetas.map(hydrateInboxMeta) : [],
       chatFolders: Array.isArray(parsed.chatFolders) ? parsed.chatFolders.map(hydrateChatFolder) : [],
-      stickerPacks: Array.isArray(parsed.stickerPacks) ? parsed.stickerPacks : [],
-      stickers: Array.isArray(parsed.stickers) ? parsed.stickers : [],
+      stickerPacks: Array.isArray(parsed.stickerPacks)
+        ? parsed.stickerPacks.map((p) => ({
+            ...p,
+            groupId: typeof p.groupId === "string" ? p.groupId : undefined,
+            channelId: typeof p.channelId === "string" ? p.channelId : undefined,
+            deletedAt: typeof p.deletedAt === "number" ? p.deletedAt : undefined,
+          }))
+        : [],
+      stickers: Array.isArray(parsed.stickers)
+        ? parsed.stickers.map((s) => ({
+            ...s,
+            deletedAt: typeof s.deletedAt === "number" ? s.deletedAt : undefined,
+          }))
+        : [],
       stickerPrefs: Array.isArray(parsed.stickerPrefs) ? parsed.stickerPrefs : [],
       stickerReports: Array.isArray(parsed.stickerReports) ? parsed.stickerReports : [],
+      reactionIdempotency: Array.isArray(parsed.reactionIdempotency) ? parsed.reactionIdempotency : [],
+      reactionCountCache: Array.isArray(parsed.reactionCountCache) ? parsed.reactionCountCache : [],
+      stickerAnalytics: {
+        reactions: parsed.stickerAnalytics?.reactions ?? 0,
+        stickersSent: parsed.stickerAnalytics?.stickersSent ?? 0,
+        packsInstalled: parsed.stickerAnalytics?.packsInstalled ?? 0,
+        customOps: parsed.stickerAnalytics?.customOps ?? 0,
+      },
       fileAccessLogs: Array.isArray(parsed.fileAccessLogs) ? parsed.fileAccessLogs : [],
       mediaJobs: Array.isArray(parsed.mediaJobs) ? parsed.mediaJobs : [],
       vaultObjects: Array.isArray(parsed.vaultObjects) ? parsed.vaultObjects : [],
