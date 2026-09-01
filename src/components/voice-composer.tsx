@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { encryptText, loadOrCreateThreadKey } from "@/lib/e2ee";
-import { VOICE_BITRATE, VOICE_MAX_MS, VOICE_MIN_MS, formatClock, pickRecorderMime } from "@/lib/voice";
+import { VOICE_MAX_MS, VOICE_MIN_MS, VOICE_RETRY_MAX, blobLooksEmpty, formatClock, pickRecorderMime, voiceBitrate } from "@/lib/voice";
 import { DisappearPicker, msFromChoice, type TimerChoice } from "@/components/disappear-picker";
 
 type Phase = "idle" | "holding" | "locked" | "paused" | "preview" | "denied";
@@ -55,6 +55,7 @@ export function VoiceComposer({
   } | null>(null);
   const [sending, setSending] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
+  const [retryCount, setRetryCount] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
 
   const recRef = useRef<MediaRecorder | null>(null);
@@ -132,7 +133,7 @@ export function VoiceComposer({
       source.connect(analyser);
       analyserRef.current = analyser;
       const mime = pickRecorderMime();
-      const rec = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: VOICE_BITRATE });
+      const rec = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: voiceBitrate() });
       chunksRef.current = [];
       rec.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
@@ -187,8 +188,8 @@ export function VoiceComposer({
   async function finishToPreview() {
     lockedRef.current = true;
     const blob = await collectBlob();
-    if (!blob || elapsedRef.current < VOICE_MIN_MS) {
-      toast.error("ضبط خیلی کوتاه بود.");
+    if (!blob || elapsedRef.current < VOICE_MIN_MS || blobLooksEmpty(blob.size)) {
+      toast.error("ضبط خیلی کوتاه یا خالی بود.");
       resetAll();
       return;
     }
@@ -199,8 +200,8 @@ export function VoiceComposer({
 
   async function sendBlob() {
     const blob = blobRef.current ?? (await collectBlob());
-    if (!blob || elapsedRef.current < VOICE_MIN_MS) {
-      toast.error("ضبط خیلی کوتاه بود.");
+    if (!blob || elapsedRef.current < VOICE_MIN_MS || blobLooksEmpty(blob.size)) {
+      toast.error("ضبط خیلی کوتاه یا خالی بود.");
       resetAll();
       return;
     }
@@ -237,11 +238,13 @@ export function VoiceComposer({
       });
       setUploadPct(100);
       if (!res.ok) {
+        setRetryCount((n) => n + 1);
         setRetry({ envelope, durationMs: elapsedRef.current, viewOnce, disappearAfterMs });
         toast.error("ارسال نشد. دوباره تلاش کن.");
         return;
       }
       setRetry(null);
+      setRetryCount(0);
       resetAll();
       onSent();
     } catch (err) {
@@ -258,6 +261,10 @@ export function VoiceComposer({
 
   async function retrySend() {
     if (!retry || !retry.envelope.ciphertext) return;
+    if (retryCount >= VOICE_RETRY_MAX) {
+      toast.error("تعداد تلاش دوباره به سقف رسید.");
+      return;
+    }
     setSending(true);
     try {
       const res = await fetch(sendPath ?? `/api/chats/${threadId}`, {
@@ -273,10 +280,12 @@ export function VoiceComposer({
         }),
       });
       if (!res.ok) {
+        setRetryCount((n) => n + 1);
         toast.error("ارسال نشد.");
         return;
       }
       setRetry(null);
+      setRetryCount(0);
       resetAll();
       onSent();
     } finally {
@@ -364,8 +373,8 @@ export function VoiceComposer({
             <Button type="button" size="sm" variant="ghost" className="h-7 text-white" onClick={() => setRetry(null)}>
               انصراف
             </Button>
-            <Button type="button" size="sm" className="h-7 bg-amber-300 text-[#102824]" disabled={sending} onClick={() => void retrySend()}>
-              تلاش دوباره
+            <Button type="button" size="sm" className="h-7 bg-amber-300 text-[#102824]" disabled={sending || retryCount >= VOICE_RETRY_MAX} onClick={() => void retrySend()}>
+              تلاش دوباره {retryCount}/{VOICE_RETRY_MAX}
             </Button>
           </div>
         </div>

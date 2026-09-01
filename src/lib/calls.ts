@@ -26,12 +26,14 @@ export type PublicCall = {
   endedAt: number | null;
   durationMs: number;
   declineWithMessage: boolean;
+  endReason?: CallRecord["endReason"];
 };
 
 function expireRinging(call: CallRecord, now: number, data?: StoreData): CallRecord {
   if (call.status === "ringing" && now - call.createdAt >= CALL_RING_MS) {
     call.status = "missed";
     call.endedAt = call.createdAt + CALL_RING_MS;
+    call.endReason = "timeout";
     if (data && call.direction === "in") {
       emitNotification(data, {
         userId: call.ownerUserId,
@@ -71,6 +73,7 @@ export function publicCall(call: CallRecord, now = Date.now()): PublicCall {
     endedAt: call.endedAt ?? null,
     durationMs,
     declineWithMessage: Boolean(call.declineWithMessage),
+    endReason: call.endReason,
   };
 }
 
@@ -142,7 +145,7 @@ export async function startOutgoing(userId: string, threadId: string, kind: Call
       return { ok: false as const, error: "تماس با این شخص محدود شده است.", status: 403 };
     }
     if (busyCall(data, userId)) {
-      return { ok: false as const, error: "یک تماس دیگر در جریان است.", status: 409 };
+      return { ok: false as const, error: "یک تماس دیگر در جریان است.", status: 409, busy: true as const };
     }
     const flood = hitRateLimit(data, `callout:${userId}`, CALL_FLOOD_WINDOW_MS, CALL_FLOOD_MAX);
     if (!flood.allowed) return { ok: false as const, error: "تماس پیاپی محدود شد.", status: 429 };
@@ -208,7 +211,7 @@ export async function startIncomingDemo(userId: string, kind: CallKind) {
 export async function actOnCall(
   userId: string,
   callId: string,
-  action: "accept" | "connect" | "decline" | "end" | "message-decline" | "end-current-accept",
+  action: "accept" | "connect" | "decline" | "end" | "message-decline" | "end-current-accept" | "cancel" | "fail",
 ) {
   return mutateStore((data) => {
     const call = data.calls.find((c) => c.id === callId && c.ownerUserId === userId);
@@ -239,6 +242,18 @@ export async function actOnCall(
       }
       call.status = "active";
       call.connectedAt = now;
+    } else if (action === "cancel") {
+      if (call.direction !== "out" || call.status !== "ringing") {
+        return { ok: false as const, error: "این تماس قابل لغو نیست.", status: 400 };
+      }
+      call.status = "ended";
+      call.endedAt = now;
+      call.endReason = "cancel";
+    } else if (action === "fail") {
+      call.status = "ended";
+      call.endedAt = now;
+      call.endReason = "failed";
+      if (call.connectedAt) call.durationMs = now - call.connectedAt;
     } else if (action === "decline" || action === "message-decline") {
       if (call.status !== "ringing" && call.status !== "queued") {
         return { ok: false as const, error: "تماس در حال زنگ نیست.", status: 400 };
@@ -246,13 +261,19 @@ export async function actOnCall(
       call.status = call.direction === "in" ? "declined" : "ended";
       call.endedAt = now;
       call.declineWithMessage = action === "message-decline";
+      call.endReason = call.direction === "in" ? "declined" : "cancel";
     } else if (action === "end") {
       if (call.status === "active") {
         call.durationMs = call.connectedAt ? now - call.connectedAt : 0;
+        call.endReason = "hangup";
       }
-      if (call.status === "ringing" && call.direction === "in") call.status = "missed";
-      else if (call.status === "ringing") call.status = "ended";
-      else call.status = "ended";
+      if (call.status === "ringing" && call.direction === "in") {
+        call.status = "missed";
+        call.endReason = "timeout";
+      } else if (call.status === "ringing") {
+        call.status = "ended";
+        call.endReason = "cancel";
+      } else call.status = "ended";
       call.endedAt = now;
     }
     return { ok: true as const, call: publicCall(call, now) };

@@ -16,7 +16,9 @@ export async function POST(request: Request, ctx: Ctx) {
     action !== "decline" &&
     action !== "end" &&
     action !== "message-decline" &&
-    action !== "end-current-accept"
+    action !== "end-current-accept" &&
+    action !== "cancel" &&
+    action !== "fail"
   ) {
     return jsonError("عملیات نامعتبر است.");
   }

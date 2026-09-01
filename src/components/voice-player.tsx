@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { decryptText, loadOrCreateThreadKey, type CipherEnvelope } from "@/lib/e2ee";
 import {
+  classifyAudioLabel,
   formatClock,
   loadPlayHead,
   parseVoiceInner,
@@ -104,7 +105,8 @@ export function VoicePlayer({
   const [infoOpen, setInfoOpen] = useState(false);
   const [loading, setLoading] = useState(() => Boolean(msg.ciphertext && msg.enc === "e2ee-v1" && !msg.expired));
   const [err, setErr] = useState("");
-  const [sink, setSink] = useState<"speaker" | "earpiece">("speaker");
+  const [sink, setSink] = useState<"speaker" | "earpiece" | "headphones" | "bluetooth">("speaker");
+  const [volume, setVolume] = useState(1);
   const [spent, setSpent] = useState(Boolean(msg.expired) || msg.enc !== "e2ee-v1" || !msg.ciphertext);
   const saveOk = voiceSaveAllowed() && !msg.viewOnce && !msg.expired;
   const queue = useVoiceQueue();
@@ -206,6 +208,37 @@ export function VoicePlayer({
     }
   }, [spent, speed, deleteMode, msg.viewOnce, msg.expireFrom, msg.id, msg.sender, threadId, senderLabel]);
 
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    try {
+      navigator.mediaSession.setActionHandler("play", () => void playNow());
+      navigator.mediaSession.setActionHandler("pause", () => {
+        audioRef.current?.pause();
+        setPlaying(false);
+      });
+      navigator.mediaSession.setActionHandler("seekbackward", () => {
+        const a = audioRef.current;
+        if (a) a.currentTime = Math.max(0, a.currentTime - 5);
+      });
+      navigator.mediaSession.setActionHandler("seekforward", () => {
+        const a = audioRef.current;
+        if (a) a.currentTime = Math.min(a.duration || 0, a.currentTime + 5);
+      });
+    } catch {
+      /* optional */
+    }
+    return () => {
+      try {
+        navigator.mediaSession.setActionHandler("play", null);
+        navigator.mediaSession.setActionHandler("pause", null);
+        navigator.mediaSession.setActionHandler("seekbackward", null);
+        navigator.mediaSession.setActionHandler("seekforward", null);
+      } catch {
+        /* optional */
+      }
+    };
+  }, [playNow]);
+
   async function toggle() {
     const el = audioRef.current;
     if (!el || spent) return;
@@ -225,10 +258,25 @@ export function VoicePlayer({
 
   useEffect(() => {
     const a = audioRef.current;
+    if (a) a.volume = volume;
+  }, [volume]);
+
+  useEffect(() => {
+    const a = audioRef.current;
     if (!a || !("setSinkId" in a)) return;
     const sinkId = sink === "earpiece" ? "communications" : "default";
     void (a as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }).setSinkId?.(sinkId).catch(() => undefined);
   }, [sink]);
+
+  useEffect(() => {
+    void navigator.mediaDevices
+      ?.enumerateDevices?.()
+      .then((devs) => {
+        const out = devs.find((d) => d.kind === "audiooutput" && d.label);
+        if (out) setSink(classifyAudioLabel(out.label));
+      })
+      .catch(() => undefined);
+  }, []);
 
   async function remove(scope: "me" | "everyone") {
     if (deleteMode === "group" && groupId) {
@@ -367,6 +415,18 @@ export function VoicePlayer({
         <span className="w-10 text-[10px] tabular-nums" dir="ltr">
           {durationLabel}
         </span>
+        <label className="flex w-16 items-center gap-1 text-[10px]" dir="ltr">
+          <span className="sr-only">Volume</span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={volume}
+            aria-label="Volume"
+            onChange={(e) => setVolume(Number(e.target.value))}
+          />
+        </label>
       </div>
       <div className="flex items-center justify-between gap-2 text-[10px]">
         <div className="flex gap-1">
@@ -395,8 +455,8 @@ export function VoicePlayer({
             viewedAt={msg.viewedAt}
             viewOnce={msg.viewOnce}
           />
-          <button type="button" onClick={() => setSink((v) => (v === "speaker" ? "earpiece" : "speaker"))} aria-label="تغییر مسیر پخش">
-            {sink === "speaker" ? "بلندگو" : "گوشی"}
+          <button type="button" onClick={() => setSink((v) => (v === "speaker" ? "earpiece" : v === "earpiece" ? "headphones" : v === "headphones" ? "bluetooth" : "speaker"))} aria-label="تغییر مسیر پخش">
+            {sink === "speaker" ? "بلندگو" : sink === "earpiece" ? "گوشی" : sink === "headphones" ? "هدفون" : "بلوتوث"}
           </button>
           <button type="button" onClick={() => setInfoOpen((v) => !v)} aria-label="اطلاعات پیام صوتی">
             <Info className="size-3.5" />

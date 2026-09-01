@@ -10,6 +10,12 @@ export function callStatusFa(status: CallStatusUi, direction: CallDirectionUi, k
   if (status === "missed") return kind === "video" ? "تماس تصویری بی‌پاسخ" : "تماس صوتی بی‌پاسخ";
   if (status === "declined") return "رد شد";
   return "پایان‌یافته";
+  if (status === "ringing" && direction === "in") return "تماس ورودی";
+  if (status === "ringing") return "در حال زنگ…";
+  if (status === "active") return "متصل";
+  if (status === "missed") return kind === "video" ? "تماس تصویری بی‌پاسخ" : "تماس صوتی بی‌پاسخ";
+  if (status === "declined") return "رد شد";
+  return "پایان‌یافته";
 }
 
 export function callKindFa(kind: CallKindUi): string {

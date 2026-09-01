@@ -150,6 +150,16 @@ function hydrateUser(user: UserRecord): UserRecord {
     typingThreadId: user.typingThreadId ?? "",
     recordingUntil: user.recordingUntil ?? 0,
     deletionRequestedAt: user.deletionRequestedAt ?? null,
+    prefs: { ...defaultUserFields().prefs, ...(user.prefs ?? {}), consents: { ...defaultUserFields().prefs.consents, ...(user.prefs?.consents ?? {}) } },
+    appLockHash: user.appLockHash,
+    appLockSalt: user.appLockSalt,
+    restrictedPeerKeys: Array.isArray(user.restrictedPeerKeys) ? user.restrictedPeerKeys : [],
+    privacyMentions: user.privacyMentions ?? "everyone",
+    mentionAllowIds: Array.isArray(user.mentionAllowIds) ? user.mentionAllowIds : [],
+    privacyBirthday: user.privacyBirthday ?? "nobody",
+    birthdayAllowIds: Array.isArray(user.birthdayAllowIds) ? user.birthdayAllowIds : [],
+    privacyStoryMentions: user.privacyStoryMentions ?? "everyone",
+    storyMentionAllowIds: Array.isArray(user.storyMentionAllowIds) ? user.storyMentionAllowIds : [],
     accountStatus: user.accountStatus === "pending_deletion" || user.accountStatus === "closed" ? user.accountStatus : "active",
     deletionFinalizeAt: user.deletionFinalizeAt ?? null,
     backupPrefs: user.backupPrefs ?? {
@@ -470,6 +480,16 @@ export type UserRecord = {
   typingThreadId: string;
   recordingUntil: number;
   deletionRequestedAt: number | null;
+  prefs: import("@/lib/prefs-types").UserPrefs;
+  appLockHash?: string;
+  appLockSalt?: string;
+  restrictedPeerKeys: string[];
+  privacyMentions: Visibility;
+  mentionAllowIds: string[];
+  privacyBirthday: Visibility;
+  birthdayAllowIds: string[];
+  privacyStoryMentions: Visibility;
+  storyMentionAllowIds: string[];
   accountStatus?: "active" | "pending_deletion" | "closed";
   deletionFinalizeAt?: number | null;
   backupPrefs?: BackupPrefs;
@@ -898,6 +918,16 @@ export type CallRecord = {
   endedAt?: number | null;
   durationMs?: number;
   declineWithMessage?: boolean;
+  endReason?: "hangup" | "cancel" | "timeout" | "failed" | "busy" | "declined";
+};
+
+export type CallSignal = {
+  id: string;
+  callId: string;
+  fromUserId: string;
+  type: "offer" | "answer" | "ice" | "hangup" | "reconnect" | "quality";
+  body: string;
+  createdAt: number;
 };
 
 export type GroupCallParticipant = {
@@ -1560,6 +1590,7 @@ export type StoreData = {
   notifications: NotifyRecord[];
   notifyPrefs: NotifyPrefs[];
   groupCalls: GroupCallRoom[];
+  callSignals: CallSignal[];
   contacts: ContactRecord[];
   contactInvites: ContactInvite[];
   contactRequests: ContactRequest[];
@@ -1661,6 +1692,7 @@ const EMPTY: StoreData = {
   notifications: [],
   notifyPrefs: [],
   groupCalls: [],
+  callSignals: [],
   contacts: [],
   contactInvites: [],
   contactRequests: [],
@@ -1811,6 +1843,7 @@ async function readStore(): Promise<StoreData> {
       notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
       notifyPrefs: Array.isArray(parsed.notifyPrefs) ? parsed.notifyPrefs : [],
       groupCalls: Array.isArray(parsed.groupCalls) ? parsed.groupCalls : [],
+      callSignals: Array.isArray(parsed.callSignals) ? parsed.callSignals : [],
       contacts: Array.isArray(parsed.contacts) ? parsed.contacts : [],
       contactInvites: Array.isArray(parsed.contactInvites) ? parsed.contactInvites : [],
       contactRequests: Array.isArray(parsed.contactRequests) ? parsed.contactRequests : [],
@@ -1927,6 +1960,7 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.musicClaims = (data.musicClaims ?? []).filter((s) => s.userId !== uid);
   data.backups = (data.backups ?? []).filter((b) => b.userId !== uid);
   data.calls = (data.calls ?? []).filter((c) => c.ownerUserId !== uid && c.peerKey !== uid);
+  data.callSignals = (data.callSignals ?? []).filter((s) => s.fromUserId !== uid);
   data.userStories = (data.userStories ?? []).filter((s) => s.ownerUserId !== uid);
   for (const d of data.devices ?? []) {
     if (d.userId === uid && !d.revokedAt) d.revokedAt = now;

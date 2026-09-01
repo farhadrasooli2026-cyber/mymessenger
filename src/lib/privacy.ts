@@ -118,9 +118,13 @@ export function snapshotPrivacy(user: UserRecord) {
     syncedCount: user.syncedContactHashes.length,
     contactOsPermission: user.contactOsPermission,
     contactNotifyJoin: user.contactNotifyJoin,
-    locationEnabled: user.locationEnabled,
-    lastSeenAt: user.lastSeenAt,
-    deletionRequestedAt: user.deletionRequestedAt,
+    privacyBirthday: user.privacyBirthday ?? "nobody",
+    privacyMentions: user.privacyMentions ?? "everyone",
+    privacyStoryMentions: user.privacyStoryMentions ?? "everyone",
+    mentionAllowIds: user.mentionAllowIds,
+    birthdayAllowIds: user.birthdayAllowIds,
+    storyMentionAllowIds: user.storyMentionAllowIds,
+    restrictedPeerKeys: user.restrictedPeerKeys ?? [],
   };
 }
 
@@ -137,7 +141,8 @@ export function privacyCheckup(user: UserRecord) {
     { id: "messages", label: "پیام مستقیم", value: user.privacyMessages, warn: user.privacyMessages === "everyone" },
     { id: "calls", label: "تماس", value: user.callPrivacy, warn: user.callPrivacy === "everyone" },
     { id: "groups", label: "افزودن به گروه", value: user.privacyGroups, warn: user.privacyGroups === "everyone" },
-    { id: "stories", label: "استوری", value: user.defaultStoryPrivacy, warn: user.defaultStoryPrivacy === "everyone" },
+    { id: "mentions", label: "منشن", value: user.privacyMentions ?? "everyone", warn: (user.privacyMentions ?? "everyone") === "everyone" },
+    { id: "birthday", label: "تولد", value: user.privacyBirthday ?? "nobody", warn: user.privacyBirthday === "everyone" },
   ];
   return items;
 }
@@ -209,6 +214,9 @@ export async function updatePrivacy(userId: string, patch: Record<string, unknow
       ["groupAllowIds", "groupAllowIds"],
       ["communityAllowIds", "communityAllowIds"],
       ["channelAllowIds", "channelAllowIds"],
+      ["mentionAllowIds", "mentionAllowIds"],
+      ["birthdayAllowIds", "birthdayAllowIds"],
+      ["storyMentionAllowIds", "storyMentionAllowIds"],
     ];
     for (const [key, field] of lists) {
       const next = ids(patch[key]);
@@ -225,6 +233,12 @@ export async function updatePrivacy(userId: string, patch: Record<string, unknow
     if (patch.contactOsPermission === "allow" || patch.contactOsPermission === "deny" || patch.contactOsPermission === "limited" || patch.contactOsPermission === "unknown") {
       me.contactOsPermission = patch.contactOsPermission;
     }
+    const ment = vis4(patch.privacyMentions);
+    if (ment) me.privacyMentions = ment;
+    const bday = vis4(patch.privacyBirthday);
+    if (bday) me.privacyBirthday = bday;
+    const sm = vis4(patch.privacyStoryMentions);
+    if (sm) me.privacyStoryMentions = sm;
     if (typeof patch.locationEnabled === "boolean") me.locationEnabled = patch.locationEnabled;
     me.lastSeenAt = Date.now();
     return { ok: true as const, settings: snapshotPrivacy(me), checkup: privacyCheckup(me) };

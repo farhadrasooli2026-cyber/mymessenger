@@ -103,12 +103,25 @@ export function CallStage({
     }
     const onIce = () => {
       const st = session.pcLocal.iceConnectionState;
-      if (st === "disconnected" || st === "failed") setPhase("reconnect");
-      else if (st === "checking") setPhase("poor");
-      else if (st === "connected" || st === "completed") setPhase("active");
+      if (st === "disconnected" || st === "failed") {
+        setPhase("reconnect");
+        void fetch(`/api/calls/${call.id}/signal`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "reconnect", body: st }),
+        });
+      } else if (st === "checking") setPhase("poor");
+      else if (st === "connected" || st === "completed") {
+        setPhase("active");
+        void fetch(`/api/calls/${call.id}/signal`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "quality", body: `ice:${st}` }),
+        });
+      }
     };
     session.pcLocal.addEventListener("iceconnectionstatechange", onIce);
-  }, []);
+  }, [call.id]);
 
   async function mediaForConnect() {
     try {
@@ -178,7 +191,7 @@ export function CallStage({
     }
   }, [incoming, hideLockInfo, call.peerName, call.kind]);
 
-  async function hang(action: "end" | "decline" | "message-decline") {
+  async function hang(action: "end" | "decline" | "message-decline" | "cancel" | "fail") {
     setBusy(true);
     await fetch(`/api/calls/${call.id}`, {
       method: "POST",
@@ -386,8 +399,8 @@ export function CallStage({
 
       <div className="space-y-3 px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-3">
         <p className="text-center text-[11px] leading-5 text-emerald-100/55">
-          سیگنال تماس روی سرور است؛ صدا و تصویر در این برش با WebRTC روی همین دستگاه حلقه می‌شود و نیکسو رسانه را نمی‌بیند.
-          تماس خصوصی برای سرور قابل شنیدن یا دیدن نیست. نیکسو جایگزین تماس اضطراری سیستم‌عامل نیست.
+          سیگنال تماس با نشست احرازشده روی سرور است؛ صدا و تصویر در این برش با WebRTC روی همین دستگاه حلقه می‌شود و نیکسو رسانه را نمی‌بیند.
+          Echo Cancellation، Noise Suppression و Automatic Gain Control در صورت پشتیبانی مرورگر فعال است. نیکسو جایگزین تماس اضطراری سیستم‌عامل نیست.
         </p>
         <p className="text-center text-[10px] text-emerald-100/40">
           ضبط تماس فعال نیست. اگر بعداً اضافه شود، قبل از ضبط اطلاع‌رسانی واضح و رضایت لازم است.
@@ -450,8 +463,8 @@ export function CallStage({
               type="button"
               className="h-14 min-w-14 rounded-full bg-rose-500 text-white"
               disabled={busy}
-              onClick={() => void hang("end")}
-              aria-label="پایان تماس"
+              onClick={() => void hang(phase === "ringing" && call.direction === "out" ? "cancel" : "end")}
+              aria-label={phase === "ringing" && call.direction === "out" ? "لغو تماس" : "پایان تماس"}
             >
               <PhoneOff className="size-6" />
             </Button>

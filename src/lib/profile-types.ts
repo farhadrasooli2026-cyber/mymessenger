@@ -1,5 +1,6 @@
 import type { Appearance } from "@/lib/appearance-types";
 import { defaultAppearance } from "@/lib/appearance-types";
+import { defaultUserPrefs } from "@/lib/prefs-types";
 
 export type Visibility3 = "everyone" | "contacts" | "nobody";
 export type Visibility = "everyone" | "contacts" | "nobody" | "selected";
@@ -103,6 +104,14 @@ export function defaultUserFields(): {
   typingThreadId: string;
   recordingUntil: number;
   deletionRequestedAt: number | null;
+  prefs: import("@/lib/prefs-types").UserPrefs;
+  restrictedPeerKeys: string[];
+  privacyMentions: Visibility;
+  mentionAllowIds: string[];
+  privacyBirthday: Visibility;
+  birthdayAllowIds: string[];
+  privacyStoryMentions: Visibility;
+  storyMentionAllowIds: string[];
 } {
   return {
     usernameHistory: [],
@@ -173,5 +182,13 @@ export function defaultUserFields(): {
     typingThreadId: "",
     recordingUntil: 0,
     deletionRequestedAt: null,
+    prefs: defaultUserPrefs(),
+    restrictedPeerKeys: [],
+    privacyMentions: "everyone",
+    mentionAllowIds: [],
+    privacyBirthday: "nobody",
+    birthdayAllowIds: [],
+    privacyStoryMentions: "everyone",
+    storyMentionAllowIds: [],
   };
 }

@@ -150,7 +150,28 @@ export function clearVoicePlayCache() {
   }
 }
 
-export const VOICE_SPEEDS = [0.5, 1, 1.5, 2] as const;
+export const VOICE_RETRY_MAX = 3;
+export const VOICE_EMPTY_BYTES = 64;
+
+export function voiceBitrate(quality?: string, dataSaver?: boolean): number {
+  if (dataSaver || quality === "standard") return 16_000;
+  if (quality === "original" || quality === "high") return 48_000;
+  return VOICE_BITRATE;
+}
+
+export function blobLooksEmpty(size: number): boolean {
+  return size < VOICE_EMPTY_BYTES;
+}
+
+export type AudioRoute = "speaker" | "earpiece" | "headphones" | "bluetooth";
+
+export function classifyAudioLabel(label: string): AudioRoute {
+  const l = label.toLowerCase();
+  if (l.includes("bluetooth") || l.includes("airpod") || l.includes("headset")) return "bluetooth";
+  if (l.includes("headphone") || l.includes("earphone") || l.includes("wired")) return "headphones";
+  if (l.includes("earpiece") || l.includes("communication")) return "earpiece";
+  return "speaker";
+}
 
 export function shouldAutoDownloadVoice(
   prefs: { autoDownloadVoice?: string; dataSaver?: boolean } | null,
