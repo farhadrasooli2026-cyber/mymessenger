@@ -23,6 +23,7 @@ type Item = {
   pushState: string;
   state?: string;
   collapsedCount?: number;
+  silent?: boolean;
 };
 
 export function NotifyBell({ onOpen }: { onOpen?: (href: string, target?: { type: string; id: string }) => void }) {
@@ -61,7 +62,7 @@ export function NotifyBell({ onOpen }: { onOpen?: (href: string, target?: { type
       vibration: data.prefs?.vibration !== false,
       vibrationPattern: data.vibrationPattern,
     };
-    const n = data.counts?.total ?? 0;
+    const n = data.counts?.total ?? data.badge ?? 0;
     if (data.prefs?.badge !== false && typeof document !== "undefined") {
       document.title = n > 0 ? `NIXO (${n})` : "NIXO نیکسو — اتصال. تبادل. فراتر از مرزها.";
     }
@@ -247,9 +248,27 @@ export function NotifyBell({ onOpen }: { onOpen?: (href: string, target?: { type
                     <p className="truncate text-xs text-emerald-100/70">{n.body || n.senderName}</p>
                     <p className="text-[10px] text-emerald-100/45">
                       {n.kind} · {new Date(n.createdAt).toLocaleString("fa-IR")}
-                      {n.suppressed ? " · بی‌صدا" : ""} · {n.state ?? n.pushState}
+                      {n.suppressed ? " · بی‌صدا" : ""}
+                      {n.silent ? " · silent" : ""} · {n.state ?? n.pushState}
                     </p>
                   </button>
+                  {n.target?.type === "story" && (
+                    <form
+                      className="mt-1 flex gap-1"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const input = e.currentTarget.elements.namedItem("qreply") as HTMLInputElement;
+                        void act("reply", { id: n.id, body: input?.value ?? "" }).then(() => {
+                          if (input) input.value = "";
+                        });
+                      }}
+                    >
+                      <input name="qreply" placeholder="پاسخ سریع استوری" className="h-7 flex-1 rounded bg-black/30 px-2 text-[11px]" />
+                      <button type="submit" className="text-[10px] text-amber-200">
+                        ارسال
+                      </button>
+                    </form>
+                  )}
                   <div className="mt-1 flex gap-2 text-[10px]">
                     <button type="button" className="text-amber-200" onClick={() => void act("read", { id: n.id })}>
                       Mark as Read

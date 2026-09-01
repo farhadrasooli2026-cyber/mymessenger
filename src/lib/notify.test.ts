@@ -147,7 +147,7 @@ describe("NIXO notifications", () => {
     });
     expect(sent.ok).toBe(true);
     const mentions = await listNotifications(fan, "groups");
-    expect(mentions.items.some((i) => i.kind === "mention")).toBe(true);
+    expect(mentions.items.some((i) => i.kind === "group_mention")).toBe(true);
     expect(mentions.items.every((i) => !i.body.includes("AAAAAAAA"))).toBe(true);
   });
 
@@ -342,5 +342,61 @@ describe("NIXO notifications", () => {
       collapsedCount: 1,
     });
     expect(JSON.stringify(payload)).not.toMatch(/password|token|session|secret/i);
+  });
+
+  it("keeps unread security alerts after delete-all and isolates quick-reply by owner", async () => {
+    const user = await activeUser("nt_sec80");
+    const other = await activeUser("nt_sec80b");
+    await mutateStore((data) => {
+      appendAudit(data, user, "new_device", { detail: "دستگاه تازه" });
+      emitNotification(data, {
+        userId: user,
+        category: "messages",
+        kind: "message",
+        title: "عادی",
+        body: "hi",
+        sourceId: "chat:z",
+        target: { type: "chat", id: "tz" },
+      });
+    });
+    const { deleteNotify, actOnNotification } = await import("./notify");
+    await deleteNotify(user, "all");
+    const after = await listNotifications(user);
+    expect(after.items.some((i) => i.category === "security" && !i.read)).toBe(true);
+    expect(after.items.some((i) => i.kind === "message")).toBe(false);
+    const stolen = await actOnNotification(other, after.items[0]?.id ?? "x", "reply", "سلام");
+    expect(stolen.ok).toBe(false);
+    const { createStory } = await import("./stories");
+    const story = await createStory(user, { kind: "text", body: "برای پاسخ", allowReplies: true });
+    expect(story.ok).toBe(true);
+    if (!story.ok) return;
+    let nid = "";
+    await mutateStore((data) => {
+      const rec = emitNotification(data, {
+        userId: user,
+        category: "stories",
+        kind: "story_reply",
+        reply: true,
+        title: "پاسخ",
+        body: "استوری",
+        sourceId: `story:${story.story.id}`,
+        target: { type: "story", id: story.story.id },
+      });
+      nid = rec?.id ?? "";
+    });
+    const e2ee = await actOnNotification(user, nid, "reply", "ممنون");
+    expect(e2ee.ok).toBe(true);
+    const chatNote = await mutateStore((data) =>
+      emitNotification(data, {
+        userId: user,
+        category: "messages",
+        kind: "message",
+        title: "Ali",
+        sourceId: "chat:q",
+        target: { type: "chat", id: "synthetic-q" },
+      }),
+    );
+    const blockedReply = await actOnNotification(user, chatNote?.id ?? "", "reply", "نه");
+    expect(blockedReply.ok).toBe(false);
   });
 });

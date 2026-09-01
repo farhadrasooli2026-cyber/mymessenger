@@ -9,6 +9,7 @@ import {
   muteTarget,
   setOverride,
   updateNotifyPrefs,
+  actOnNotification,
 } from "@/lib/notify";
 import { NOTIFY_CATEGORIES, type NotifyCategory } from "@/lib/notify-types";
 
@@ -83,6 +84,11 @@ export async function POST(request: Request) {
       }),
     );
   }
+  if (action === "reply") {
+    const result = await actOnNotification(user.id, String(body.id ?? ""), "reply", String(body.body ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
   return jsonError("اقدام نامعتبر است.", 400);
 }
 
@@ -92,6 +98,7 @@ export async function DELETE(request: Request) {
   const url = new URL(request.url);
   const all = url.searchParams.get("all") === "1";
   const id = url.searchParams.get("id");
-  const result = await deleteNotify(user.id, all ? "all" : id ? [id] : []);
+  const includeSecurity = url.searchParams.get("security") === "1";
+  const result = await deleteNotify(user.id, all ? "all" : id ? [id] : [], { includeSecurity });
   return json(result);
 }

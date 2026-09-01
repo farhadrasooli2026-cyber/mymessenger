@@ -277,13 +277,26 @@ export function NotifySettings() {
 
 function PushDevices() {
   const [tokens, setTokens] = useState<
-    { id: string; platform: string; permission: string; endpointTail: string; invalid: boolean; current?: boolean }[]
+    {
+      id: string;
+      platform: string;
+      permission: string;
+      endpointTail: string;
+      invalid: boolean;
+      current?: boolean;
+      devicePrefs?: { sound: boolean; vibration: boolean; badge: boolean; enabled: boolean };
+    }[]
   >([]);
+  const [metrics, setMetrics] = useState<{ successRate?: number; failed?: number; retries?: number; avgLatencyMs?: number; queued?: number } | null>(null);
 
   function load() {
     fetch("/api/notify/push", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => setTokens(d.tokens ?? []))
+      .catch(() => undefined);
+    fetch("/api/notify?snapshot=1", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setMetrics(d.metrics ?? null))
       .catch(() => undefined);
   }
 
@@ -297,7 +310,8 @@ function PushDevices() {
       <p className="text-[11px] text-emerald-100/55">توکن کامل نمایش داده نمی‌شود. لغو دستگاه، Push را قطع می‌کند نه نشست ورود را.</p>
       {tokens.length === 0 ? <p className="text-xs opacity-60">دستگاهی ثبت نشده. از زنگوله «اجازهٔ مرورگر» را بزن.</p> : null}
       {tokens.map((t) => (
-        <div key={t.id} className="flex items-center justify-between text-xs">
+        <div key={t.id} className="space-y-1 rounded-lg bg-black/20 p-2 text-xs">
+          <div className="flex items-center justify-between">
           <span>
             {t.platform} · …{t.endpointTail} · {t.permission}
             {t.current ? " · این دستگاه" : ""}
@@ -315,8 +329,28 @@ function PushDevices() {
           >
             لغو
           </Button>
+          </div>
+          <label className="flex items-center gap-2 text-[11px]">
+            اعلان این دستگاه
+            <input
+              type="checkbox"
+              checked={t.devicePrefs?.enabled !== false}
+              onChange={(e) => {
+                void fetch("/api/notify/push", {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ id: t.id, enabled: e.target.checked }),
+                }).then(() => load());
+              }}
+            />
+          </label>
         </div>
       ))}
+      {metrics ? (
+        <p className="text-[11px] text-emerald-100/55">
+          صف {metrics.queued ?? 0} · موفقیت {Math.round((metrics.successRate ?? 1) * 100)}% · شکست {metrics.failed ?? 0} · Retry {metrics.retries ?? 0} · تأخیر {metrics.avgLatencyMs ?? 0}ms
+        </p>
+      ) : null}
     </section>
   );
 }

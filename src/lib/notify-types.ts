@@ -12,6 +12,7 @@ export const NOTIFY_CATEGORIES = [
   "bots",
   "ai",
   "lives",
+  "friends",
 ] as const;
 
 export type NotifyCategory = (typeof NOTIFY_CATEGORIES)[number];
@@ -37,13 +38,18 @@ export const NOTIFY_KINDS = [
   "follow",
   "story",
   "story_reply",
+  "story_mention",
   "channel_post",
+  "channel_mention",
   "group_invite",
   "group_join",
+  "group_mention",
+  "incoming_call",
   "incoming_voice",
   "incoming_video",
   "missed",
   "security",
+  "security_alert",
   "system",
 ] as const;
 
@@ -179,7 +185,7 @@ export type NotifyTarget = {
 
 export type NotifyPriority = "low" | "normal" | "high" | "critical";
 export type NotifyLifecycle = "pending" | "processing" | "sent" | "delivered" | "failed" | "read" | "dismissed";
-export type PushJobStatus = "queued" | "running" | "sent" | "delivered" | "failed" | "dead";
+export type PushJobStatus = "queued" | "running" | "sent" | "delivered" | "failed" | "dead" | "expired";
 export type PushPlatform = "web" | "mobile" | "desktop";
 
 export type DeviceNotifyPrefs = {
@@ -214,6 +220,8 @@ export type NotifyRecord = {
   groupKey?: string;
   collapsedCount?: number;
   locale?: string;
+  silent?: boolean;
+  openUntil?: number | null;
 };
 
 export type PushToken = {
@@ -281,6 +289,12 @@ export const NOTIFY_TEMPLATES: Record<"fa" | "en", Record<string, string>> = {
     friend_accepted: "دوستی پذیرفته شد",
     follow: "دنبال‌کننده جدید",
     story: "استوری جدید",
+    story_reply: "پاسخ استوری",
+    story_mention: "منشن در استوری",
+    channel_mention: "منشن در کانال",
+    group_mention: "منشن در گروه",
+    incoming_call: "تماس ورودی",
+    security_alert: "هشدار امنیتی",
     group_invite: "دعوت به گروه",
     group_join: "عضویت در گروه",
     default: "اعلان نیکسو",
@@ -298,6 +312,12 @@ export const NOTIFY_TEMPLATES: Record<"fa" | "en", Record<string, string>> = {
     friend_accepted: "Friend request accepted",
     follow: "New follower",
     story: "New story",
+    story_reply: "Story reply",
+    story_mention: "Mentioned in a story",
+    channel_mention: "Mentioned in a channel",
+    group_mention: "Mentioned in a group",
+    incoming_call: "Incoming call",
+    security_alert: "Security alert",
     group_invite: "Group invite",
     group_join: "Joined a group",
     default: "NIXO notification",
@@ -317,5 +337,6 @@ export const CATEGORY_FA: Record<NotifyCategory, string> = {
   stories: "استوری",
   bots: "ربات",
   ai: "هوش مصنوعی",
-  lives: "پخش زنده",
+    lives: "پخش زنده",
+  friends: "دوستان",
 };

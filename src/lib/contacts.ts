@@ -769,7 +769,7 @@ export async function sendRequest(userId: string, targetId: string) {
     bumpRel(data, userId, targetId);
     emitNotification(data, {
       userId: targetId,
-      category: "system",
+      category: "friends",
       kind: "friend-request",
       title: "درخواست دوستی",
       body: "یک کاربر نیکسو درخواست دوستی فرستاده است.",
@@ -839,7 +839,7 @@ export async function resolveRequest(userId: string, requestId: string, action: 
     relationshipAudit(data, userId, "friend-accept");
     emitNotification(data, {
       userId: req.fromUserId,
-      category: "system",
+      category: "friends",
       kind: "friend-accepted",
       title: "درخواست دوستی پذیرفته شد",
       body: "حالا در فهرست دوستان هستید.",

@@ -1,5 +1,5 @@
 import "server-only";
-import { hmacIdentifier, randomId } from "@/lib/crypto-utils";
+import { encryptText, hmacIdentifier, randomId } from "@/lib/crypto-utils";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, type StoreData } from "@/lib/store";
 import {
@@ -101,7 +101,12 @@ function destinationAllowed(data: StoreData, input: EmitNotifyInput) {
   }
   if (input.target.type === "call") {
     const call = data.calls.find((c) => c.id === input.target.id);
-    if (call && call.ownerUserId !== input.userId) return false;
+    const group = (data.groupCalls ?? []).find((c) => c.id === input.target.id);
+    if (call && call.ownerUserId !== input.userId && call.peerKey !== input.userId) return false;
+    if (!call && group && !group.participants.some((p) => p.userId === input.userId && !p.leftAt && !p.kicked)) return false;
+    if (!call && !group && input.target.id) {
+      /* synthetic / demo ids still allowed for in-app tests */
+    }
   }
   if (input.target.type === "story") {
     const story = (data.userStories ?? []).find((s) => s.id === input.target.id);
@@ -156,8 +161,10 @@ export function authorizedNotifyHref(data: StoreData, userId: string, target: No
   }
   if (target.type === "call") {
     const call = data.calls.find((c) => c.id === target.id);
-    if (!call) return "/app/calls";
-    return call.ownerUserId === userId ? "/app/calls" : null;
+    const group = (data.groupCalls ?? []).find((c) => c.id === target.id);
+    if (call) return call.ownerUserId === userId || call.peerKey === userId ? "/app/calls" : null;
+    if (group) return group.participants.some((p) => p.userId === userId && !p.leftAt && !p.kicked) ? "/app/calls" : null;
+    return "/app/calls";
   }
   if (target.type === "story") {
     const story = (data.userStories ?? []).find((s) => s.id === target.id);
@@ -184,6 +191,12 @@ export function drainPushJobs(data: StoreData, now = Date.now()) {
   for (const job of queued.slice(0, 80)) {
     const rec = (data.notifications ?? []).find((n) => n.id === job.notificationId && n.userId === job.userId);
     const token = data.pushTokens.find((t) => t.id === job.tokenId && t.userId === job.userId && !t.revokedAt && !t.invalidAt);
+    if (now - job.createdAt > PUSH_KEEP_MS) {
+      job.status = "expired";
+      if (rec && rec.pushState === "pending") rec.pushState = "failed";
+      continue;
+    }
+    const deviceLive = (data.devices ?? []).some((d) => d.id === token?.deviceSessionId && d.userId === job.userId && !d.revokedAt);
     job.status = "running";
     if (rec) rec.state = "processing";
     const started = Date.now();
@@ -194,6 +207,12 @@ export function drainPushJobs(data: StoreData, now = Date.now()) {
     }
     if (!token) {
       retryOrDead(data, job, rec, now, "token_missing");
+      continue;
+    }
+    if (!deviceLive) {
+      token.revokedAt = now;
+      token.endpoint = "";
+      retryOrDead(data, job, rec, now, "device_revoked");
       continue;
     }
     if (token.permission !== "granted" || token.devicePrefs?.enabled === false) {
@@ -253,19 +272,23 @@ export function securePushPayload(rec: NotifyRecord) {
     priority: rec.priority,
     collapseKey: rec.groupKey,
     badge: rec.readAt ? 0 : 1,
+    silent: Boolean(rec.silent),
   };
 }
 
 function payloadHasSecrets(payload: Record<string, unknown>) {
   const blob = JSON.stringify(payload).toLowerCase();
-  return /password|session|secret|refresh.?token|bearer |otp|private.?key/.test(blob);
+  return /password|session|secret|refresh.?token|bearer |otp|private.?key|api.?key|encryption.?key/.test(blob);
 }
 
 function enqueuePushJobs(data: StoreData, rec: NotifyRecord) {
   if (rec.suppressed) return;
   data.pushTokens ??= [];
   data.pushJobs ??= [];
-  const tokens = data.pushTokens.filter((t) => t.userId === rec.userId && !t.revokedAt && !t.invalidAt);
+  const tokens = data.pushTokens.filter((t) => {
+    if (t.userId !== rec.userId || t.revokedAt || t.invalidAt) return false;
+    return (data.devices ?? []).some((d) => d.id === t.deviceSessionId && d.userId === rec.userId && !d.revokedAt);
+  });
   if (tokens.length === 0) {
     rec.pushState = "push_unsupported";
     rec.state = rec.readAt ? "read" : "pending";
@@ -363,8 +386,27 @@ function overrideOf(prefs: NotifyPrefs, type: NotifyPrefs["overrides"][number]["
 
 function categoryEnabled(prefs: NotifyPrefs, category: NotifyRecord["category"]) {
   if (category === "security") return prefs.enabled.security !== false;
+  if (category === "friends") return prefs.enabled.friends !== false && prefs.friends !== false;
   const map = prefs.enabled as Record<string, boolean>;
   return map[category] !== false;
+}
+
+export function normalizeNotifyKind(category: NotifyRecord["category"], kind: string, flags?: { mention?: boolean; reply?: boolean }) {
+  const raw = kind.slice(0, 40);
+  if (raw === "incoming_voice" || raw === "incoming_video") return raw;
+  if (raw.startsWith("incoming")) return "incoming_call";
+  if (category === "security") return raw === "security" ? "security_alert" : raw;
+  if (flags?.mention || raw === "mention") {
+    if (category === "groups") return "group_mention";
+    if (category === "channels") return "channel_mention";
+    if (category === "stories") return "story_mention";
+    return "mention";
+  }
+  if (flags?.reply || raw === "reply") {
+    if (category === "stories") return "story_reply";
+    return "reply";
+  }
+  return raw;
 }
 
 export type EmitNotifyInput = {
@@ -387,6 +429,7 @@ export type EmitNotifyInput = {
   forceSuppress?: boolean;
   actorUserId?: string;
   eventId?: string;
+  silent?: boolean;
 };
 
 function socialKind(kind: string) {
@@ -428,9 +471,11 @@ export function emitNotification(data: StoreData, input: EmitNotifyInput): Notif
   }
   const prefs = prefsOf(data, input.userId);
   const now = Date.now();
-  const incomingCall = input.category === "calls" && input.kind.startsWith("incoming");
+  const incomingCall = input.category === "calls" && (input.kind.startsWith("incoming") || input.kind === "incoming_call");
   const security = input.category === "security";
   const allowDnd = Boolean(input.allowDuringDnd || (incomingCall && prefs.dndAllowCalls) || security);
+  const kind = normalizeNotifyKind(input.category, input.kind, { mention: input.mention, reply: input.reply });
+  const silent = Boolean(input.silent) || (prefs.sounds.message === "silent" && !incomingCall && !security);
 
   if (!security && prefs.globalEnabled === false) return null;
   if (!security && !categoryEnabled(prefs, input.category)) {
@@ -438,7 +483,7 @@ export function emitNotification(data: StoreData, input: EmitNotifyInput): Notif
   }
   if (input.mention && !prefs.mentions && !security) return null;
   if (input.reply && !prefs.replies && !security) return null;
-  if (input.kind === "reaction" && !prefs.reactions && !security) return null;
+  if (kind === "reaction" && !prefs.reactions && !security) return null;
   if (input.kind === "admin" && !prefs.groupAdmin && !security) return null;
   if (socialKind(input.kind) && (prefs.friends === false || prefs.enabled.friends === false)) return null;
 
@@ -476,11 +521,11 @@ export function emitNotification(data: StoreData, input: EmitNotifyInput): Notif
   const title =
     prefs.lockScreen === "hidden" && !security
       ? "NIXO"
-      : sanitizeNotifyText(locale === "en" ? NOTIFY_TEMPLATES.en[input.kind] || rawTitle : rawTitle, 80);
+      : sanitizeNotifyText(locale === "en" ? NOTIFY_TEMPLATES.en[kind] || rawTitle : rawTitle, 80);
   const body = security ? sanitizeNotifyText(input.body || input.title, 180) : sanitizeNotifyText(previewBody(prefs, input), 140);
 
   const eventId = (input.eventId || randomId()).slice(0, 120);
-  const groupKey = `${input.userId}:${input.kind}:${input.target.type}:${input.target.id}`;
+  const groupKey = `${input.userId}:${kind}:${input.target.type}:${input.target.id}`;
   data.notifications ??= [];
   if (input.eventId) {
     const existingEvent = data.notifications.find((n) => n.userId === input.userId && n.eventId === eventId && n.deletedAt == null);
@@ -507,26 +552,28 @@ export function emitNotification(data: StoreData, input: EmitNotifyInput): Notif
     eventId,
     userId: input.userId,
     category: input.category,
-    kind: input.kind.slice(0, 40),
+    kind,
     title,
     body,
     senderName: senderSafe,
     photoUrl: input.photoUrl ?? null,
-    priority: resolvePriority(input, incomingCall, security),
+    priority: resolvePriority({ ...input, kind }, incomingCall, security),
     e2ee: Boolean(input.e2ee),
     suppressed,
     reason,
-    readAt: suppressed ? now : null,
+    readAt: suppressed && !security ? now : null,
     dismissedAt: null,
     deletedAt: null,
     createdAt: now,
     sourceId: input.sourceId.slice(0, 80),
     target: { type: input.target.type, id: input.target.id, href },
     pushState: suppressed ? "suppressed" : "push_unsupported",
-    state: suppressed ? "dismissed" : "pending",
+    state: suppressed && !security ? "dismissed" : "pending",
     groupKey,
     collapsedCount: 1,
     locale,
+    silent,
+    openUntil: security ? null : now + 14 * 24 * 60 * 60_000,
   };
 
   data.notifications.unshift(rec);
@@ -566,7 +613,8 @@ export function publicNotify(n: NotifyRecord, data?: StoreData) {
     state: n.state ?? (n.readAt ? "read" : n.suppressed ? "dismissed" : "pending"),
     collapsedCount: n.collapsedCount ?? 1,
     eventId: n.eventId,
-    vibration: VIBRATION_PATTERNS[n.priority === "high" || n.priority === "critical" ? "call" : "nixo"],
+    silent: Boolean(n.silent),
+    vibration: VIBRATION_PATTERNS[n.silent ? "silent" : n.priority === "high" || n.priority === "critical" ? "call" : "nixo"],
   };
 }
 
@@ -576,7 +624,7 @@ export function countsOf(data: StoreData, userId: string) {
   return {
     total: rows.length,
     messages: by("messages"),
-    mentions: rows.filter((n) => n.kind === "mention").length,
+    mentions: rows.filter((n) => n.kind === "mention" || n.kind.endsWith("_mention")).length,
     calls: by("calls"),
     security: by("security"),
     stories: by("stories"),
@@ -600,7 +648,7 @@ export async function listNotifications(
       .filter((n) => category === "all" || n.category === category)
       .filter((n) => !extra?.kind || n.kind === extra.kind)
       .filter((n) => !extra?.unread || !n.readAt)
-      .filter((n) => !extra?.mentions || n.kind === "mention")
+      .filter((n) => !extra?.mentions || n.kind === "mention" || n.kind.endsWith("_mention"))
       .filter((n) => !extra?.security || n.category === "security")
       .filter((n) => !extra?.from || n.createdAt >= extra.from)
       .filter((n) => !extra?.to || n.createdAt <= extra.to)
@@ -617,6 +665,7 @@ export async function listNotifications(
       counts: countsOf(data, userId),
       prefs,
       metrics: pushMetrics(data, userId),
+      badge: prefs.badge === false ? 0 : countsOf(data, userId).total,
       vibrationPattern: VIBRATION_PATTERNS[prefs.vibrationPattern],
       note: "Push سیستم‌عامل در این برش وب به Notification API مرورگر و صف nixo-web / nixo-local محدود است؛ بدنهٔ E2EE، رمز، نشست و توکن هرگز داخل Push Payload نیست. Deep Link فقط پس از Authorization سمت سرور باز می‌شود.",
     };
@@ -626,13 +675,17 @@ export async function listNotifications(
 function pushMetrics(data: StoreData, userId: string) {
   const jobs = (data.pushJobs ?? []).filter((j) => j.userId === userId);
   const sent = jobs.filter((j) => j.status === "sent" || j.status === "delivered").length;
-  const failed = jobs.filter((j) => j.status === "failed").length;
+  const failed = jobs.filter((j) => j.status === "failed" || j.status === "dead").length;
   const queued = jobs.filter((j) => j.status === "queued" || j.status === "running").length;
+  const expired = jobs.filter((j) => j.status === "expired").length;
   const lat = jobs.map((j) => j.latencyMs ?? 0).filter((n) => n > 0);
+  const retries = jobs.reduce((sum, j) => sum + (j.attempts ?? 0), 0);
   return {
     queued,
     sent,
     failed,
+    expired,
+    retries,
     successRate: sent + failed === 0 ? 1 : sent / (sent + failed),
     avgLatencyMs: lat.length ? Math.round(lat.reduce((a, b) => a + b, 0) / lat.length) : 0,
     tokens: (data.pushTokens ?? []).filter((t) => t.userId === userId && !t.revokedAt && !t.invalidAt).length,
@@ -748,13 +801,16 @@ export async function dismissNotify(userId: string, ids: string[] | "all") {
   });
 }
 
-export async function deleteNotify(userId: string, ids: string[] | "all") {
+export async function deleteNotify(userId: string, ids: string[] | "all", opts?: { includeSecurity?: boolean }) {
   return mutateStore((data) => {
     const now = Date.now();
     if (ids === "all") {
       for (const n of data.notifications ?? []) {
-        if (n.userId === userId) n.deletedAt = now;
+        if (n.userId !== userId) continue;
+        if (!opts?.includeSecurity && n.category === "security" && !n.readAt) continue;
+        n.deletedAt = now;
       }
+      pushAudit(data, userId, "delete_all", "center");
     } else {
       for (const n of data.notifications ?? []) {
         if (n.userId === userId && ids.includes(n.id)) n.deletedAt = now;
@@ -774,6 +830,7 @@ export async function getNotifySnapshot(userId: string) {
       prefs,
       devices: (data.devices ?? []).filter((d) => d.userId === userId && !d.revokedAt).length,
       metrics: pushMetrics(data, userId),
+      badge: prefs.badge === false ? 0 : countsOf(data, userId).total,
       tokens: publicTokens(data, userId),
     };
   });
@@ -803,6 +860,7 @@ export async function openNotification(userId: string, notifyId: string) {
     if (!href) return { ok: false as const, error: "اعلان یافت نشد.", status: 404 as const };
     n.readAt = n.readAt ?? Date.now();
     n.state = "read";
+    pushAudit(data, userId, "open", n.id);
     return { ok: true as const, href, target: { type: n.target.type, id: n.target.id } };
   });
 }
@@ -841,7 +899,7 @@ export async function registerPushToken(
       existing.deviceSessionId = sessionId;
       existing.permission = permission;
       existing.invalidAt = permission === "denied" ? now : null;
-      existing.endpoint = endpoint;
+      existing.endpoint = sealPushEndpoint(endpoint);
       existing.devicePrefs = devicePrefs;
       pushAudit(data, userId, "token_rotate", existing.id);
       return { ok: true as const, token: publicTokens(data, userId, sessionId).find((t) => t.id === existing.id), rotated: true as const };
@@ -853,7 +911,7 @@ export async function registerPushToken(
       platform: input.platform === "mobile" || input.platform === "desktop" ? input.platform : "web",
       endpointHash: hash,
       endpointTail: endpoint.slice(-8),
-      endpoint,
+      endpoint: sealPushEndpoint(endpoint),
       permission,
       devicePrefs,
       createdAt: now,
@@ -880,4 +938,56 @@ export async function revokePushToken(userId: string, tokenId: string) {
 
 export async function listPushTokens(userId: string, currentSessionId?: string) {
   return mutateStore((data) => ({ ok: true as const, tokens: publicTokens(data, userId, currentSessionId) }));
+}
+
+function sealPushEndpoint(plain: string) {
+  try {
+    return encryptText(plain);
+  } catch {
+    return "";
+  }
+}
+
+export async function updateDeviceNotifyPrefs(userId: string, tokenId: string, patch: Partial<PushToken["devicePrefs"]>) {
+  return mutateStore((data) => {
+    const token = (data.pushTokens ?? []).find((t) => t.id === tokenId && t.userId === userId && !t.revokedAt);
+    if (!token) return { ok: false as const, error: "توکن یافت نشد.", status: 404 as const };
+    token.devicePrefs = {
+      sound: patch.sound ?? token.devicePrefs?.sound !== false,
+      vibration: patch.vibration ?? token.devicePrefs?.vibration !== false,
+      badge: patch.badge ?? token.devicePrefs?.badge !== false,
+      enabled: patch.enabled ?? token.devicePrefs?.enabled !== false,
+    };
+    pushAudit(data, userId, "device_prefs", tokenId);
+    return { ok: true as const, token: publicTokens(data, userId).find((t) => t.id === tokenId) };
+  });
+}
+
+export async function actOnNotification(userId: string, notifyId: string, action: "reply", body: string) {
+  const text = body.trim().slice(0, 400);
+  if (action !== "reply") return { ok: false as const, error: "اقدام نامعتبر است.", status: 400 as const };
+  if (!text) return { ok: false as const, error: "پاسخ خالی است.", status: 400 as const };
+  const gate = await mutateStore((data) => {
+    const flood = hitRateLimit(data, `notifyact:${userId}`, 60_000, 20);
+    if (!flood.allowed) return { ok: false as const, error: "اقدام اعلان محدود شد.", status: 429 as const };
+    const n = (data.notifications ?? []).find((row) => row.id === notifyId && row.userId === userId && !row.deletedAt);
+    if (!n) return { ok: false as const, error: "اعلان یافت نشد.", status: 404 as const };
+    const href = authorizedNotifyHref(data, userId, n.target);
+    if (!href) return { ok: false as const, error: "اعلان یافت نشد.", status: 404 as const };
+    if (n.target.type === "chat" || n.target.type === "group") {
+      return { ok: false as const, error: "پاسخ سریع به پیام E2EE از اعلان ممکن نیست؛ از گفتگو بفرست.", status: 403 as const };
+    }
+    if (n.target.type !== "story") {
+      return { ok: false as const, error: "این اعلان پاسخ سریع ندارد.", status: 400 as const };
+    }
+    n.readAt = n.readAt ?? Date.now();
+    n.state = "read";
+    pushAudit(data, userId, "quick_reply", n.id);
+    return { ok: true as const, storyId: n.target.id };
+  });
+  if (!gate.ok) return gate;
+  const { replyStory } = await import("@/lib/stories");
+  const replied = await replyStory(userId, gate.storyId, text);
+  if (!replied.ok) return { ok: false as const, error: replied.error, status: replied.status };
+  return { ok: true as const, via: "story" as const };
 }
