@@ -30,11 +30,22 @@ export async function POST(request: Request, ctx: Ctx) {
     action !== "recover" &&
     action !== "mute" &&
     action !== "unmute" &&
-    action !== "handoff"
+    action !== "handoff" &&
+    action !== "cam-on" &&
+    action !== "cam-off" &&
+    action !== "share-start" &&
+    action !== "share-stop" &&
+    action !== "voice-fallback" &&
+    action !== "retry-video"
   ) {
     return jsonError("عملیات نامعتبر است.");
   }
-  const result = await actOnCall(user.id, id, action, { deviceId: typeof (body as { deviceId?: string })?.deviceId === "string" ? (body as { deviceId: string }).deviceId : undefined });
+  const result = await actOnCall(
+    user.id,
+    id,
+    action as Parameters<typeof actOnCall>[2],
+    { deviceId: typeof (body as { deviceId?: string })?.deviceId === "string" ? (body as { deviceId: string }).deviceId : undefined },
+  );
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, call: result.call, mediaToken: "mediaToken" in result ? result.mediaToken : undefined });
 }

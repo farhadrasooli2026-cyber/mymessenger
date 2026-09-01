@@ -39,6 +39,7 @@ export async function POST(request: Request, ctx: Ctx) {
       micMuted: body?.micMuted,
       sharing: body?.sharing,
       speaking: body?.speaking,
+      voiceFallback: (body as { voiceFallback?: boolean })?.voiceFallback,
     });
     if (!r.ok) return jsonError(r.error, r.status);
     return json({ ok: true, call: r.call });
@@ -60,7 +61,8 @@ export async function POST(request: Request, ctx: Ctx) {
           action === "unmute" ||
           action === "cap" ||
           action === "host" ||
-          action === "invite"
+          action === "invite" ||
+          action === "cam-on"
         ? action
         : null;
   if (!mapped) return jsonError("عملیات نامعتبر است.");

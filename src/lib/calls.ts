@@ -51,6 +51,12 @@ export type PublicCall = {
   connectionState: "connecting" | "connected" | "reconnecting" | "disconnected" | "failed";
   micMuted: boolean;
   peerMicMuted: boolean;
+  camOff: boolean;
+  peerCamOff: boolean;
+  sharing: boolean;
+  peerSharing: boolean;
+  voiceFallback: boolean;
+  videoState: "camera-off" | "camera-on" | "connecting" | "connected" | "reconnecting" | "disconnected" | "failed";
   speakerMode: boolean;
   participantId: string;
 };
@@ -68,9 +74,23 @@ export function liveMediaToken(call: CallRecord, now = Date.now()): string | nul
   return call.mediaSecret;
 }
 
-function twinPeerMuted(data: StoreData, call: CallRecord): boolean {
+function twinFlags(data: StoreData, call: CallRecord) {
   const other = twins(data, call).find((c) => c.ownerUserId !== call.ownerUserId);
-  return Boolean(other?.micMuted);
+  return {
+    peerMicMuted: Boolean(other?.micMuted),
+    peerCamOff: Boolean(other?.camOff),
+    peerSharing: Boolean(other?.sharing),
+  };
+}
+
+function videoStateOf(call: CallRecord): PublicCall["videoState"] {
+  if (call.status === "ended" && call.endReason === "failed") return "failed";
+  if (call.status === "ended" || call.status === "declined" || call.status === "missed") return "disconnected";
+  if (call.reconnecting) return "reconnecting";
+  if (call.status === "ringing" || call.status === "queued") return "connecting";
+  if (call.camOff || call.voiceFallback) return "camera-off";
+  if (call.status === "active") return "camera-on";
+  return "connecting";
 }
 
 function noteMissedInChat(data: StoreData, call: CallRecord, now: number) {
@@ -203,7 +223,7 @@ function ensurePeerThread(data: StoreData, fromId: string, toUser: { id: string;
   return thread;
 }
 
-export function publicCall(call: CallRecord, now = Date.now(), extras?: { peerMicMuted?: boolean }): PublicCall {
+export function publicCall(call: CallRecord, now = Date.now(), extras?: { peerMicMuted?: boolean; peerCamOff?: boolean; peerSharing?: boolean }): PublicCall {
   expireCallTimers(call, now);
   const durationMs =
     call.durationMs ??
@@ -232,6 +252,12 @@ export function publicCall(call: CallRecord, now = Date.now(), extras?: { peerMi
     connectionState: call.connectionState ?? (call.status === "active" ? (call.reconnecting ? "reconnecting" : "connected") : call.status === "ringing" ? "connecting" : call.endReason === "failed" ? "failed" : "disconnected"),
     micMuted: Boolean(call.micMuted),
     peerMicMuted: Boolean(extras?.peerMicMuted),
+    camOff: Boolean(call.camOff),
+    peerCamOff: Boolean(extras?.peerCamOff),
+    sharing: Boolean(call.sharing),
+    peerSharing: Boolean(extras?.peerSharing),
+    voiceFallback: Boolean(call.voiceFallback),
+    videoState: videoStateOf(call),
     speakerMode: call.speakerMode !== false,
     participantId: call.participantId ?? call.id,
   };
@@ -264,7 +290,7 @@ export async function listCalls(userId: string, filter?: string) {
     const now = Date.now();
     let rows = data.calls
       .filter((c) => c.ownerUserId === userId && !c.hiddenAt)
-      .map((c) => publicCall(expireCallTimers(c, now, data), now, { peerMicMuted: twinPeerMuted(data, c) }));
+      .map((c) => publicCall(expireCallTimers(c, now, data), now, twinFlags(data, c)));
     if (filter === "missed") rows = rows.filter((c) => c.status === "missed");
     else if (filter === "incoming") rows = rows.filter((c) => c.direction === "in");
     else if (filter === "outgoing") rows = rows.filter((c) => c.direction === "out");
@@ -290,8 +316,8 @@ export async function activeCall(userId: string) {
   });
   const user = data.users.find((u) => u.id === userId);
   return {
-    call: live ? publicCall(live, now, { peerMicMuted: twinPeerMuted(data, live) }) : null,
-    waiting: waiting ? publicCall(waiting, now, { peerMicMuted: twinPeerMuted(data, waiting) }) : null,
+    call: live ? publicCall(live, now, twinFlags(data, live)) : null,
+    waiting: waiting ? publicCall(waiting, now, twinFlags(data, waiting)) : null,
     mediaToken: live ? liveMediaToken(live, now) : null,
     lowDataCalls: Boolean(user?.lowDataCalls),
     hideCallOnLockScreen: Boolean(user?.hideCallOnLockScreen),
@@ -367,6 +393,8 @@ export async function startOutgoing(userId: string, threadId: string, kind: Call
       reconnects: 0,
       connectionState: "connecting",
       participantId: randomId(),
+      camOff: kind !== "video",
+      voiceFallback: false,
     };
     data.calls.push(call);
     appendCallEvent(data, { userId, callId: call.id, kind: "created" });
@@ -391,6 +419,8 @@ export async function startOutgoing(userId: string, threadId: string, kind: Call
         reconnects: 0,
         connectionState: peerBusy ? "disconnected" : "connecting",
         participantId: randomId(),
+        camOff: kind !== "video",
+        voiceFallback: false,
       };
       data.calls.push(incoming);
       appendCallEvent(data, { userId: peerUser.id, callId: incoming.id, kind: "incoming" });
@@ -459,7 +489,26 @@ export async function startIncomingDemo(userId: string, kind: CallKind) {
 export async function actOnCall(
   userId: string,
   callId: string,
-  action: "accept" | "connect" | "decline" | "end" | "message-decline" | "end-current-accept" | "cancel" | "fail" | "reconnect" | "recover" | "mute" | "unmute" | "handoff",
+  action:
+    | "accept"
+    | "connect"
+    | "decline"
+    | "end"
+    | "message-decline"
+    | "end-current-accept"
+    | "cancel"
+    | "fail"
+    | "reconnect"
+    | "recover"
+    | "mute"
+    | "unmute"
+    | "handoff"
+    | "cam-on"
+    | "cam-off"
+    | "share-start"
+    | "share-stop"
+    | "voice-fallback"
+    | "retry-video",
   extra?: { deviceId?: string },
 ) {
   return mutateStore((data) => {
@@ -477,7 +526,7 @@ export async function actOnCall(
     };
     const pack = (c: CallRecord) => ({
       ok: true as const,
-      call: publicCall(c, now, { peerMicMuted: twinPeerMuted(data, c) }),
+      call: publicCall(c, now, twinFlags(data, c)),
       mediaToken: liveMediaToken(c, now),
     });
     if (action === "mute" || action === "unmute") {
@@ -485,6 +534,31 @@ export async function actOnCall(
         return { ok: false as const, error: "تماس فعال نیست.", status: 400 };
       }
       call.micMuted = action === "mute";
+      note(action);
+      return pack(call);
+    }
+    if (action === "cam-on" || action === "cam-off" || action === "retry-video" || action === "voice-fallback") {
+      if (call.status !== "active" && call.status !== "ringing") {
+        return { ok: false as const, error: "تماس فعال نیست.", status: 400 };
+      }
+      if (action === "voice-fallback") {
+        call.camOff = true;
+        call.voiceFallback = true;
+        call.sharing = false;
+      } else if (action === "cam-off") {
+        call.camOff = true;
+      } else {
+        call.camOff = false;
+        call.voiceFallback = false;
+      }
+      note(action === "retry-video" ? "retry_video" : action === "voice-fallback" ? "voice_fallback" : action);
+      return pack(call);
+    }
+    if (action === "share-start" || action === "share-stop") {
+      if (call.status !== "active" && call.status !== "ringing") {
+        return { ok: false as const, error: "تماس فعال نیست.", status: 400 };
+      }
+      call.sharing = action === "share-start";
       note(action);
       return pack(call);
     }

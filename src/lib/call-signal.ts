@@ -102,7 +102,7 @@ export async function postCallSignal(
       callId: access.room,
       fromUserId: userId,
       type,
-      body: type === "quality" ? body.replace(/[^\d.,:\-a-z]/gi, "").slice(0, 80) : body,
+      body: type === "quality" ? body.replace(/[^\d.,:\-a-z]/gi, "").slice(0, 120) : body,
       nonce: nonce || undefined,
       createdAt: Date.now(),
     };
@@ -125,15 +125,28 @@ export async function postCallSignal(
   });
 }
 
-function parseQuality(body: string): { rttMs: number; loss: number; jitterMs: number } | null {
+function parseQuality(body: string): {
+  rttMs: number;
+  loss: number;
+  jitterMs: number;
+  framesDecoded?: number;
+  bitrateKbps?: number;
+  frozen?: boolean;
+} | null {
   const rtt = /rtt=(\d{1,6})/.exec(body);
   const loss = /loss=(\d{1,3})/.exec(body);
   const jitter = /jitter=(\d{1,6})/.exec(body);
   if (!rtt || !loss || !jitter) return null;
+  const frames = /fr=(\d{1,8})/.exec(body);
+  const br = /br=(\d{1,6})/.exec(body);
+  const fz = /fz=([01])/.exec(body);
   return {
     rttMs: Number(rtt[1]),
     loss: Math.min(100, Number(loss[1])),
     jitterMs: Number(jitter[1]),
+    framesDecoded: frames ? Number(frames[1]) : undefined,
+    bitrateKbps: br ? Number(br[1]) : undefined,
+    frozen: fz ? fz[1] === "1" : undefined,
   };
 }
 
@@ -183,6 +196,7 @@ export async function callQualitySummary(userId: string) {
     ended: ended.length,
     failed,
     video,
+    frozen: samples.filter((q) => q.frozen).length,
   };
 }
 

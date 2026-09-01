@@ -102,6 +102,34 @@ describe("1:1 video calls and WebRTC signaling rooms", () => {
     expect(accepted.ok).toBe(true);
     if (!accepted.ok) return;
     expect(accepted.call.status).toBe("active");
+    expect(accepted.call.videoState).toBe("camera-on");
+
+    const cam = await actOnCall(b, incoming!.id, "cam-off");
+    expect(cam.ok).toBe(true);
+    if (!cam.ok) return;
+    expect(cam.call.camOff).toBe(true);
+    expect(cam.call.status).toBe("active");
+    const peerSees = await actOnCall(a, started.call.id, "mute");
+    expect(peerSees.ok).toBe(true);
+    if (peerSees.ok) expect(peerSees.call.peerCamOff).toBe(true);
+
+    const share = await actOnCall(a, started.call.id, "share-start");
+    expect(share.ok).toBe(true);
+    if (share.ok) expect(share.call.sharing).toBe(true);
+    const bShare = await actOnCall(b, incoming!.id, "cam-on");
+    expect(bShare.ok).toBe(true);
+    if (bShare.ok) expect(bShare.call.peerSharing).toBe(true);
+
+    const fallback = await actOnCall(a, started.call.id, "voice-fallback");
+    expect(fallback.ok).toBe(true);
+    if (fallback.ok) {
+      expect(fallback.call.voiceFallback).toBe(true);
+      expect(fallback.call.videoState).toBe("camera-off");
+      expect(fallback.call.status).toBe("active");
+    }
+    const retry = await actOnCall(a, started.call.id, "retry-video");
+    expect(retry.ok).toBe(true);
+    if (retry.ok) expect(retry.call.voiceFallback).toBe(false);
     const aLive = await listCalls(a, "video");
     expect(aLive.some((c) => c.id === started.call.id && c.status === "active")).toBe(true);
 

@@ -1183,6 +1183,8 @@ export type CallRecord = {
   reconnecting?: boolean;
   reconnectStartedAt?: number;
   sharing?: boolean;
+  camOff?: boolean;
+  voiceFallback?: boolean;
   connectionState?: "connecting" | "connected" | "reconnecting" | "disconnected" | "failed";
   micMuted?: boolean;
   speakerMode?: boolean;
@@ -1206,6 +1208,9 @@ export type CallQualitySample = {
   loss: number;
   jitterMs: number;
   at: number;
+  framesDecoded?: number;
+  bitrateKbps?: number;
+  frozen?: boolean;
 };
 
 export type CallEvent = {
@@ -1242,6 +1247,8 @@ export type GroupCallParticipant = {
   sharing?: boolean;
   speakingAt?: number;
   state?: CallParticipantState;
+  videoState?: "camera-off" | "camera-on" | "connecting" | "connected" | "reconnecting" | "disconnected" | "failed";
+  voiceFallback?: boolean;
   deviceId?: string | null;
 };
 

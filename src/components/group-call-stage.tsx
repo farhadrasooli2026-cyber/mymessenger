@@ -41,7 +41,21 @@ export type PublicGroupCallUi = {
   createdAt: number;
   inviteToken: string | boolean | null;
   roomToken?: string;
-  participants: { id?: string; userId: string; name: string; role: string; state?: string; mutedByHost: boolean; camOff?: boolean; micMuted?: boolean; sharing?: boolean; speaking?: boolean; me: boolean }[];
+  participants: {
+    id?: string;
+    userId: string;
+    name: string;
+    role: string;
+    state?: string;
+    mutedByHost: boolean;
+    camOff?: boolean;
+    micMuted?: boolean;
+    sharing?: boolean;
+    speaking?: boolean;
+    videoState?: string;
+    voiceFallback?: boolean;
+    me: boolean;
+  }[];
   iAmHost: boolean;
   canModerate: boolean;
   activeSpeakerId?: string | null;
@@ -71,6 +85,7 @@ export function GroupCallStage({
   const [phase, setPhase] = useState<"active" | "poor" | "reconnect">("active");
   const [elapsed, setElapsed] = useState(0);
   const [addOpen, setAddOpen] = useState(false);
+  const [layout, setLayout] = useState<"speaker" | "grid">("speaker");
   const localRef = useRef<HTMLVideoElement>(null);
   const loopRef = useRef<LoopSession | null>(null);
   const stopShareRef = useRef<(() => void) | null>(null);
@@ -111,6 +126,11 @@ export function GroupCallStage({
           return;
         }
         loopRef.current = session;
+        if (session.voiceFallback && room.kind === "video") {
+          setCamOff(true);
+          toast.message("دوربین در دسترس نیست. تماس گروهی با صدا ادامه دارد.");
+          void act("media", { camOff: true, voiceFallback: true });
+        }
         if (localRef.current) {
           localRef.current.srcObject = session.local;
           void localRef.current.play().catch(() => undefined);
@@ -182,6 +202,7 @@ export function GroupCallStage({
       return;
     }
     try {
+      toast.message("فقط پنجره یا صفحه‌ای که خودت انتخاب می‌کنی فرستاده می‌شود.");
       const stop = await shareScreen(loopRef.current);
       stopShareRef.current = () => {
         stop();
@@ -215,7 +236,61 @@ export function GroupCallStage({
     <div className="fixed inset-0 z-50 flex flex-col bg-[#071614] text-emerald-50">
       {room.kind === "video" && (
         <div className="relative min-h-0 flex-1 bg-black">
-          <video ref={localRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+          <video
+            ref={localRef}
+            autoPlay
+            muted
+            playsInline
+            className={cn(layout === "speaker" ? "h-full w-full object-cover" : "absolute bottom-3 right-3 z-10 h-28 w-20 rounded-xl object-cover", camOff && "opacity-30")}
+          />
+          {layout === "grid" && (
+            <div className="grid h-full grid-cols-2 content-start gap-1 overflow-auto p-2">
+              {room.participants.map((p) => (
+                <div
+                  key={p.id ?? p.userId}
+                  className={cn(
+                    "relative aspect-video overflow-hidden rounded-xl bg-[#102824]",
+                    (p.speaking || room.activeSpeakerId === p.userId) && "ring-2 ring-amber-300",
+                  )}
+                >
+                  <div className="grid h-full place-items-center text-2xl">{p.name.slice(0, 1)}</div>
+                  <p className="absolute bottom-1 right-2 text-[10px]">
+                    {p.name}
+                    {p.camOff || p.voiceFallback ? " · دوربین خاموش" : ""}
+                    {p.micMuted ? " · بی‌صدا" : ""}
+                    {p.sharing ? " · اشتراک" : ""}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+          {layout === "speaker" && (
+            <div className="absolute bottom-3 left-3 flex max-w-[70%] gap-1 overflow-x-auto">
+              {room.participants.map((p) => (
+                <div
+                  key={p.id ?? p.userId}
+                  className={cn(
+                    "grid size-12 shrink-0 place-items-center rounded-lg bg-[#102824] text-xs",
+                    (p.speaking || room.activeSpeakerId === p.userId) && "ring-2 ring-amber-300",
+                  )}
+                  title={p.name}
+                >
+                  {p.name.slice(0, 1)}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="absolute right-3 top-3 z-20 flex gap-1 text-[10px]">
+            <button type="button" className={cn("rounded-full px-2 py-0.5", layout === "speaker" ? "bg-amber-300 text-[#102824]" : "bg-white/15")} onClick={() => setLayout("speaker")}>
+              گوینده
+            </button>
+            <button type="button" className={cn("rounded-full px-2 py-0.5", layout === "grid" ? "bg-amber-300 text-[#102824]" : "bg-white/15")} onClick={() => setLayout("grid")}>
+              شبکه
+            </button>
+          </div>
+          {!camOff ? <span className="absolute left-3 top-3 rounded-full bg-rose-500/90 px-2 py-0.5 text-[10px]">دوربین روشن</span> : null}
+          {!muted ? <span className="absolute left-3 top-10 rounded-full bg-emerald-600/90 px-2 py-0.5 text-[10px]">میکروفون روشن</span> : null}
+          {sharing ? <span className="absolute left-3 top-[4.5rem] rounded-full bg-amber-300 px-2 py-0.5 text-[10px] text-[#102824]">اشتراک صفحه</span> : null}
         </div>
       )}
       {room.kind === "voice" && (

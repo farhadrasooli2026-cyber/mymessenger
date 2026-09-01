@@ -138,6 +138,9 @@ describe("group calls and second-line", () => {
     if (transferred.ok) expect(transferred.call.hostUserId).toBe(a);
     const steal = await moderateGroupCall(host, started.call.id, "host", { targetId: host });
     expect(steal.ok).toBe(false);
+    const forceCam = await moderateGroupCall(a, started.call.id, "cam-on", { targetId: host });
+    expect(forceCam.ok).toBe(false);
+    if (!forceCam.ok) expect(forceCam.status).toBe(403);
   });
 
   it("queues a second incoming call and supports end-current-accept", async () => {

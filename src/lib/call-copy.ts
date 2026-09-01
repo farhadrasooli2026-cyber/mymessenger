@@ -46,6 +46,17 @@ export function formatCallWhen(ts: number): string {
   }).format(ts);
 }
 
+export function videoStateFa(state: string): string {
+  if (state === "camera-off") return "دوربین خاموش";
+  if (state === "camera-on") return "دوربین روشن";
+  if (state === "connecting") return "در حال اتصال تصویر";
+  if (state === "connected") return "تصویر متصل";
+  if (state === "reconnecting") return "بازیابی تصویر";
+  if (state === "disconnected") return "تصویر قطع";
+  if (state === "failed") return "تصویر ناموفق";
+  return state;
+}
+
 export function participantStateFa(state: string): string {
   if (state === "invited") return "دعوت‌شده";
   if (state === "ringing") return "زنگ";

@@ -112,6 +112,11 @@ export async function callCenterDashboard(userId: string) {
     },
     durationMs,
     failureRate: mine.length ? Math.round((failed / mine.length) * 100) : 0,
+    video: {
+      total: mine.filter((c) => c.kind === "video").length,
+      fallbacks: (data.callEvents ?? []).filter((e) => e.userId === userId && e.kind === "voice_fallback").length,
+      frozen: (data.callQuality ?? []).filter((q) => q.frozen && rooms.has(q.callId)).length,
+    },
     signaling: { samples: signals.length, region: config.callRegion },
     recording: CALL_RECORDING_POLICY,
     events: events.map((e) => ({ kind: e.kind, at: e.at, callId: e.callId.slice(0, 8) })),

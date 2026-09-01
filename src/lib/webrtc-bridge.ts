@@ -1,6 +1,6 @@
 /** Authenticated WebRTC between two NIXO clients. SDP/ICE go through /api/calls/:id/signal. */
 
-import { applyBitrate, type LoopSession } from "@/lib/webrtc-loop";
+import { acquireCallMedia, applyBitrate, type LoopSession } from "@/lib/webrtc-loop";
 
 type BridgeOpts = {
   callId: string;
@@ -35,22 +35,12 @@ async function postSignal(callId: string, type: string, body: string, token?: st
 }
 
 export async function startBridgedCall(opts: BridgeOpts): Promise<LoopSession & { stopPoll: () => void }> {
-  const local = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-      deviceId: opts.audioDeviceId ? { exact: opts.audioDeviceId } : undefined,
-    },
-    video: opts.video
-      ? {
-          facingMode: "user",
-          width: opts.lowData ? { ideal: 480 } : { ideal: 1280 },
-          height: opts.lowData ? { ideal: 360 } : { ideal: 720 },
-          frameRate: opts.lowData ? { ideal: 15, max: 24 } : { ideal: 30, max: 30 },
-        }
-      : false,
+  const acquired = await acquireCallMedia({
+    video: opts.video,
+    lowData: opts.lowData,
+    audioDeviceId: opts.audioDeviceId,
   });
+  const local = acquired.stream;
   const ice = await iceConfig();
   const pc = new RTCPeerConnection(ice);
   const remote = new MediaStream();
@@ -104,12 +94,13 @@ export async function startBridgedCall(opts: BridgeOpts): Promise<LoopSession & 
     if (offer.sdp) void postSignal(opts.callId, "offer", offer.sdp, opts.token);
   }
 
-  await applyBitrate(pc, opts.lowData, opts.quality ?? "auto");
+  await applyBitrate(pc, opts.lowData || acquired.voiceFallback, opts.quality ?? "auto");
   return {
     local,
     remote,
     pcLocal: pc,
     pcRemote: pc,
     stopPoll: () => window.clearInterval(poll),
+    voiceFallback: acquired.voiceFallback,
   };
 }

@@ -20,9 +20,12 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { callKindFa, callStatusFa, formatCallClock } from "@/lib/call-copy";
+import { callKindFa, callStatusFa, formatCallClock, videoStateFa } from "@/lib/call-copy";
 import {
   applyBitrate,
+  attachCamera,
+  cameraSettingsHint,
+  debugDeviceLabel,
   getMediaErrorMessage,
   listAudioOutputs,
   listAudioInputs,
@@ -34,6 +37,7 @@ import {
   stopLoop,
   stopStream,
   switchCamera,
+  watchVideoFreeze,
   type LoopSession,
 } from "@/lib/webrtc-loop";
 import { startBridgedCall } from "@/lib/webrtc-bridge";
@@ -53,6 +57,12 @@ export type LiveCall = {
   sessionId?: string | null;
   mediaToken?: string | null;
   peerMicMuted?: boolean;
+  camOff?: boolean;
+  peerCamOff?: boolean;
+  sharing?: boolean;
+  peerSharing?: boolean;
+  voiceFallback?: boolean;
+  videoState?: string;
 };
 
 export function CallStage({
@@ -105,7 +115,9 @@ export function CallStage({
   const [sharing, setSharing] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [metrics, setMetrics] = useState<{ rttMs: number; loss: number; jitterMs: number } | null>(null);
+  const [metrics, setMetrics] = useState<{ rttMs: number; loss: number; jitterMs: number; frozen?: boolean } | null>(null);
+  const [voiceFallback, setVoiceFallback] = useState(Boolean(call.voiceFallback));
+  const [frozen, setFrozen] = useState(false);
   const [cameras, setCameras] = useState<{ deviceId: string; label: string }[]>([]);
   const previewRef = useRef<MediaStream | null>(null);
   const incoming = call.direction === "in" && phase === "ringing";
@@ -181,19 +193,30 @@ export function CallStage({
             audioDeviceId,
           });
       attach(session);
-      return true;
+      return session.voiceFallback && call.kind === "video" ? "fallback" : "ok";
     } catch (err) {
       toast.error(getMediaErrorMessage(err));
-      return false;
+      return "fail";
     }
   }
 
   useEffect(() => {
     if (incoming) return;
-    void mediaForConnect().then((ok) => {
-      if (!ok) {
+    void mediaForConnect().then((r) => {
+      if (r === "fail") {
         setFailed(true);
         void hang("fail");
+        return;
+      }
+      if (r === "fallback") {
+        setVoiceFallback(true);
+        setCamOff(true);
+        toast.message("دوربین در دسترس نیست. تماس با صدا ادامه دارد.");
+        void fetch(`/api/calls/${call.id}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "voice-fallback" }),
+        });
       }
     });
     return () => {
@@ -285,6 +308,7 @@ export function CallStage({
       if (!sample) return;
       setMetrics(sample);
       if (sample.loss >= 8 || sample.rttMs >= 400) setPhase((p) => (p === "reconnect" ? p : "poor"));
+      if (sample.frozen) setFrozen(true);
       const nonce = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
       void fetch(`/api/calls/${call.id}/signal`, {
         method: "POST",
@@ -292,7 +316,7 @@ export function CallStage({
         body: JSON.stringify({
           type: "quality",
           nonce,
-          body: `rtt=${sample.rttMs},loss=${sample.loss},jitter=${sample.jitterMs}`,
+          body: `rtt=${sample.rttMs},loss=${sample.loss},jitter=${sample.jitterMs},fr=${sample.framesDecoded},br=${sample.bitrateKbps},fz=${sample.frozen ? 1 : 0},dev=${debugDeviceLabel()}`,
           token: mediaToken,
         }),
       });
@@ -366,11 +390,21 @@ export function CallStage({
 
   async function accept() {
     setBusy(true);
-    const ok = await mediaForConnect();
-    if (!ok) {
+    const media = await mediaForConnect();
+    if (media === "fail") {
       setBusy(false);
       await hang("fail");
       return;
+    }
+    if (media === "fallback") {
+      setVoiceFallback(true);
+      setCamOff(true);
+      toast.message("دوربین در دسترس نیست. تماس با صدا ادامه دارد.");
+      void fetch(`/api/calls/${call.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "voice-fallback" }),
+      });
     }
     const res = await fetch(`/api/calls/${call.id}`, {
       method: "POST",
@@ -407,6 +441,28 @@ export function CallStage({
     loopRef.current?.local.getVideoTracks().forEach((t) => {
       t.enabled = !next;
     });
+    void fetch(`/api/calls/${call.id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: next ? "cam-off" : "cam-on" }),
+    });
+  }
+
+  async function retryVideo() {
+    if (!loopRef.current) return;
+    try {
+      await attachCamera(loopRef.current, { lowData: quality === "saver" || lowData, facing, deviceId: undefined });
+      setVoiceFallback(false);
+      setCamOff(false);
+      void fetch(`/api/calls/${call.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "retry-video" }),
+      });
+      toast.success("دوربین دوباره روشن شد.");
+    } catch (err) {
+      toast.error(getMediaErrorMessage(err));
+    }
   }
 
   async function flipCam() {
@@ -454,15 +510,31 @@ export function CallStage({
       stopShareRef.current?.();
       stopShareRef.current = null;
       setSharing(false);
+      void fetch(`/api/calls/${call.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "share-stop" }),
+      });
       return;
     }
     try {
+      toast.message("فقط پنجره یا صفحه‌ای که خودت انتخاب می‌کنی فرستاده می‌شود.");
       const stop = await shareScreen(loopRef.current);
       stopShareRef.current = () => {
         stop();
         setSharing(false);
+        void fetch(`/api/calls/${call.id}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "share-stop" }),
+        });
       };
       setSharing(true);
+      void fetch(`/api/calls/${call.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "share-start" }),
+      });
     } catch {
       toast.error("اشتراک صفحه لغو شد یا مرورگر اجازه نداد.");
     }
@@ -471,8 +543,26 @@ export function CallStage({
   useEffect(() => {
     const session = loopRef.current;
     if (!session) return;
-    void applyBitrate(session.pcLocal, lowData, quality);
-  }, [lowData, quality]);
+    void applyBitrate(session.pcLocal, lowData || voiceFallback, quality);
+  }, [lowData, quality, voiceFallback]);
+
+  useEffect(() => {
+    const el = remoteRef.current;
+    if (!el || call.kind !== "video" || phase === "ringing") return;
+    return watchVideoFreeze(
+      el,
+      () => {
+        setFrozen(true);
+        toast.message("تصویر گیر کرده؛ در حال بازیابی…");
+        void fetch(`/api/calls/${call.id}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "reconnect" }),
+        });
+      },
+      () => setFrozen(false),
+    );
+  }, [call.id, call.kind, phase]);
 
   const statusText =
     phase === "reconnect"
@@ -527,14 +617,39 @@ export function CallStage({
       )}
       {call.kind === "video" && (
         <div className="relative min-h-0 flex-1 bg-black">
-          <video ref={remoteRef} autoPlay playsInline className="h-full w-full object-cover" />
           <video
-            ref={localRef}
+            ref={remoteRef}
             autoPlay
-            muted
             playsInline
-            className="absolute bottom-4 left-4 h-32 w-24 rounded-xl border border-white/20 object-cover"
+            className={cn("h-full w-full object-cover", (call.peerCamOff || voiceFallback) && "opacity-0")}
           />
+          {(call.peerCamOff || frozen || voiceFallback) && (
+            <div className="absolute inset-0 grid place-items-center bg-[#071614]">
+              <span
+                className="grid size-28 place-items-center rounded-[2rem] text-4xl font-semibold text-[#071614]"
+                style={{ background: call.peerColor }}
+              >
+                {call.peerName.slice(0, 1)}
+              </span>
+              <p className="mt-3 text-sm text-amber-200">
+                {frozen ? "تصویر گیر کرده" : call.peerCamOff ? "دوربین مخاطب خاموش است" : "تماس با صدا · Voice fallback"}
+              </p>
+            </div>
+          )}
+          <div className="absolute bottom-4 left-4 h-32 w-24 overflow-hidden rounded-xl border border-white/20">
+            <video ref={localRef} autoPlay muted playsInline className={cn("h-full w-full object-cover", (camOff || voiceFallback) && "hidden")} />
+            {(camOff || voiceFallback) && (
+              <div className="grid h-full w-full place-items-center bg-[#102824] text-xs">شما · دوربین خاموش</div>
+            )}
+          </div>
+          <div className="absolute right-3 top-20 flex flex-col gap-1 text-[10px]">
+            {!camOff && !voiceFallback ? (
+              <span className="rounded-full bg-rose-500/90 px-2 py-0.5">دوربین روشن</span>
+            ) : null}
+            {!muted ? <span className="rounded-full bg-emerald-600/90 px-2 py-0.5">میکروفون روشن</span> : null}
+            {sharing ? <span className="rounded-full bg-amber-300 px-2 py-0.5 text-[#102824]">اشتراک صفحه</span> : null}
+            {call.peerSharing ? <span className="rounded-full bg-white/20 px-2 py-0.5">مخاطب در حال اشتراک</span> : null}
+          </div>
         </div>
       )}
       {call.kind === "voice" && (
@@ -560,6 +675,7 @@ export function CallStage({
           <p className="text-lg font-semibold">{call.peerName}</p>
           <p className="text-xs text-amber-200">
             {statusText}
+            {call.videoState ? ` · ${videoStateFa(voiceFallback ? "camera-off" : call.videoState)}` : ""}
             {phase === "active" || phase === "poor" ? ` · ${formatCallClock(elapsed)}` : ""}
           </p>
         </div>
@@ -575,7 +691,16 @@ export function CallStage({
           {metrics
             ? ` · RTT ${metrics.rttMs}ms · Loss ${metrics.loss}% · Jitter ${metrics.jitterMs}ms`
             : ""}
+          {frozen ? " · Freeze" : ""}
         </p>
+        {voiceFallback && call.kind === "video" ? (
+          <div className="rounded-xl bg-amber-300/15 px-3 py-2 text-center text-[11px] text-amber-100">
+            {cameraSettingsHint()}
+            <button type="button" className="mt-1 block w-full text-emerald-200 underline" onClick={() => void retryVideo()}>
+              تلاش دوباره تصویر
+            </button>
+          </div>
+        ) : null}
         {failed ? (
           <div className="flex flex-col items-center gap-3">
             <p className="text-center text-sm text-amber-100">تماس برقرار نشد. بدون میکروفون تماس ناقص شروع نمی‌شود.</p>

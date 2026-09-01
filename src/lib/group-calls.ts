@@ -92,6 +92,14 @@ export function publicGroupCall(room: GroupCallRoom, userId: string) {
       micMuted: Boolean(p.micMuted),
       sharing: Boolean(p.sharing),
       speaking: Boolean(p.speakingAt && Date.now() - p.speakingAt < 2_500),
+      videoState: p.leftAt
+        ? "disconnected"
+        : p.state === "connecting"
+          ? "connecting"
+          : p.camOff || p.voiceFallback
+            ? "camera-off"
+            : "camera-on",
+      voiceFallback: Boolean(p.voiceFallback),
       me: p.userId === userId,
     })),
     activeSpeakerId: liveParts(room)
@@ -346,7 +354,7 @@ export async function addToGroupCall(actorId: string, callId: string, targetId: 
 export async function moderateGroupCall(
   actorId: string,
   callId: string,
-  action: "kick" | "mute" | "unmute" | "leave" | "end" | "link" | "revoke" | "cap" | "host" | "invite",
+  action: "kick" | "mute" | "unmute" | "leave" | "end" | "link" | "revoke" | "cap" | "host" | "invite" | "cam-on",
   extra?: { targetId?: string; maxParticipants?: number },
 ) {
   return mutateStore((data) => {
@@ -437,6 +445,9 @@ export async function moderateGroupCall(
       appendCallEvent(data, { userId: actorId, callId: room.id, kind: "invite" });
       return { ok: true as const, call: publicGroupCall(room, actorId) };
     }
+    if (action === "cam-on") {
+      return { ok: false as const, error: "Host نمی‌تواند دوربین شرکت‌کننده را روشن کند.", status: 403 };
+    }
     if (!canModerate(room, actorId)) return { ok: false as const, error: "اجازهٔ مدیریت تماس نداری.", status: 403 };
     if (action === "link") {
       room.inviteToken = randomId();
@@ -476,7 +487,7 @@ export async function moderateGroupCall(
   });
 }
 
-export async function setOwnCallMedia(userId: string, callId: string, patch: { camOff?: boolean; micMuted?: boolean; sharing?: boolean; speaking?: boolean }) {
+export async function setOwnCallMedia(userId: string, callId: string, patch: { camOff?: boolean; micMuted?: boolean; sharing?: boolean; speaking?: boolean; voiceFallback?: boolean }) {
   return mutateStore((data) => {
     expireAbandonedGroupCalls(data);
     const room = (data.groupCalls ?? []).find((c) => c.id === callId && c.status !== "ended");
@@ -486,7 +497,12 @@ export async function setOwnCallMedia(userId: string, callId: string, patch: { c
     if (typeof patch.camOff === "boolean") me.camOff = patch.camOff;
     if (typeof patch.micMuted === "boolean") me.micMuted = patch.micMuted;
     if (typeof patch.sharing === "boolean") me.sharing = patch.sharing;
+    if (typeof patch.voiceFallback === "boolean") {
+      me.voiceFallback = patch.voiceFallback;
+      if (patch.voiceFallback) me.camOff = true;
+    }
     if (patch.speaking) me.speakingAt = Date.now();
+    me.videoState = me.camOff || me.voiceFallback ? "camera-off" : "camera-on";
     return { ok: true as const, call: publicGroupCall(room, userId) };
   });
 }
