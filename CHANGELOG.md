@@ -7,11 +7,12 @@
 - ثبت‌نام OTP، چت E2EE، گروه، کانال، استوری، تماس محلی، اعلان، جستجو، Vault
 - ادمین، پایش، DR، عملکرد، کاتالوگ انتشار
 - Localization (`/api/i18n`) و دسترسی‌پذیری (`/api/a11y`, Settings → دسترسی‌پذیری)
+- تحلیل محصول (`/api/bi`, زبانهٔ تحلیل) جدا از پایش عملیاتی
 - Dependency اصلی: Next 16.3، React 19، Zod 4، Vitest 4، Tailwind 4
 
 ### API
 
-- `GET /api/health`, `/api/status`, `/api/version`, `/api/docs`, `/api/i18n`
+- `GET /api/health`, `/api/status`, `/api/version`, `/api/docs`, `/api/i18n`, `/api/bi`
 - SSE `/api/chats/:id/live`
 
 ### Breaking

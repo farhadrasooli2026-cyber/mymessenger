@@ -10,6 +10,7 @@ import { otpauthUrl, randomTotpSecret, totpValid } from "@/lib/totp";
 import { INCIDENT_PLAYBOOK, nextAuditChainHash, verifyAuditChain } from "@/lib/anti-abuse";
 import { emptySecurityMetrics, isNixoOpsHandle, sanitizeUserHtml, type SecurityMetrics } from "@/lib/security-core";
 import { countryFromApprox, impossibleTravel } from "@/lib/safe-web";
+import { trackBi } from "@/lib/bi";
 
 export const PASSWORD_MIN = 10;
 
@@ -17,7 +18,10 @@ function bumpSecMetrics(data: StoreData, patch: Partial<SecurityMetrics>) {
   data.securityMetrics ??= emptySecurityMetrics();
   const m = data.securityMetrics;
   if (patch.permissionDenies) m.permissionDenies += patch.permissionDenies;
-  if (patch.loginFails) m.loginFails += patch.loginFails;
+  if (patch.loginFails) {
+    m.loginFails += patch.loginFails;
+    trackBi({ name: "auth.login_fail", source: "security" });
+  }
   if (patch.incidents) m.incidents += patch.incidents;
   if (patch.tokenRevokes) m.tokenRevokes += patch.tokenRevokes;
   if (patch.lastAlertAt) m.lastAlertAt = patch.lastAlertAt;
@@ -270,6 +274,7 @@ export async function createDeviceSessionForUser(input: {
         detail: travel ? "ورود مشکوک: مکان ناسازگار در زمان کوتاه" : "ورود مشکوک: دستگاه جدید یا ناشناس",
       });
     }
+    trackBi({ name: "auth.login_success", source: "security", userId: input.userId });
     return { device, isNewDevice, suspicious, pending, refreshToken: refreshPlain };
   });
 }

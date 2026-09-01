@@ -46,6 +46,7 @@
 90. Documentation & Developer Experience: مرکز `/docs` هم‌نسخه با اپ، جستجو و فهرست. Markdown در `docs/`، CHANGELOG، ADR، قالب Bug/Feature، SECURITY.md، CONTRIBUTING. `npm run docs:check` مسیر API و env را با کد می‌سنجد. Secret واقعی در docs نیست.
 91. Localization & Internationalization: کاتالوگ fa/en/tr/ar/ru، `t()` با fallback فارسی، جمع و جنسیت، قالب Intl (DST، تقویم، اعداد arabext، ارز، KB/MB، km/mi)، BiDi و `dir=auto`، کوکی `nixo_lang`/`nixo_tz`، محدوده حساب یا دستگاه، `/api/i18n` با CSRF روی POST، ادمین `i18n.view`/`i18n.manage` بدون Secret، Provider none/mock که UGC خصوصی را بدون اجازه نمی‌فرستد. افزودن زبان فقط pack + ردیف کاتالوگ است. گردش کار: [`docs/I18N.md`](docs/I18N.md) و `/docs/i18n`.
 92. Accessibility: Skip link، Keyboard، Focus، Screen Reader Live Region، Contrast، Reduced Motion، اهداف لمسی، میانبر مستند، Preference در Settings → دسترسی‌پذیری و `/api/a11y`. هیچ کنترل تعاملی بدون نام. Authentication را دور نمی‌زند.
+93. Analytics & Business Intelligence: رویداد نسخه‌دار با اعتبارسنجی و Dedup، صف ناهمگام، Raw+Aggregate و Retention/حذف، Privacy by Design، رضایت و Opt-out جدا از تحلیل ضروری، رشد DAU/WAU/MAU، قیف، محصول، داشبوردهای RBAC در زبانهٔ تحلیل (`/api/bi`)، آزمایش A/B با Rollback، درآمد/هزینهٔ تجمیعی سندباکس. متن پیام و Secret وارد تحلیل نمی‌شود. شکست لوله قابلیت اصلی را قطع نمی‌کند. جزئیات [`docs/ANALYTICS.md`](docs/ANALYTICS.md).
 
 
 

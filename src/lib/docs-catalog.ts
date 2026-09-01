@@ -73,6 +73,7 @@ export const DOC_API_PATHS = [
   "/api/docs",
   "/api/i18n",
   "/api/a11y",
+  "/api/bi",
 ] as const;
 
 function page(p: Omit<DocPage, "headings">): DocPage {
@@ -94,7 +95,7 @@ export const DOC_PAGES: DocPage[] = [
 NIXO (نیکسو) پیام‌رسان و پلتفرم ارتباطی با تأکید بر حریم خصوصی، امنیت سمت سرور، و قابلیت گسترش است — نه کپی واتساپ یا تلگرام.
 
 ## این برش
-ثبت‌نام OTP، پروفایل، چت E2EE، گروه، کانال، استوری، تماس صوتی/تصویری محلی، اعلان، جستجو، Vault، ادمین، پایش، پشتیبان، عملکرد، انتشار، Localization، دسترسی‌پذیری.
+ثبت‌نام OTP، پروفایل، چت E2EE، گروه، کانال، استوری، تماس صوتی/تصویری محلی، اعلان، جستجو، Vault، ادمین، پایش، پشتیبان، عملکرد، انتشار، Localization، دسترسی‌پذیری، تحلیل محصول.
 
 ## آنچه این برش نیست
 کلید خصوصی روی سرور ذخیره نمی‌شود. تماس Relayed P2P کامل بین دو دستگاه جدا در این برش ادعا نمی‌شود. پرداخت کارت واقعی فعال نیست.
@@ -516,7 +517,7 @@ URL بدون نشست 401. Path traversal در نام فایل رد می‌شو�
 Ban نیاز به عبارت BAN و رمز.
 
 ## Analytics
-فقط تجمع بدون PII در زبانهٔ پایش.
+پایش عملیاتی: زبانهٔ پایش. هوش تجاری محصول: زبانهٔ **تحلیل** و \`/api/bi\` با مجوز \`analytics.view\`. متن پیام نیست.
 
 ## دسترسی‌پذیری
 Settings → دسترسی‌پذیری. Skip link، میانبر Alt+Shift+/، Live Region پیام/تماس، Contrast، کاهش حرکت. API \`/api/a11y\`. جزئیات \`docs/A11Y.md\` و /docs/a11y.`,
@@ -597,6 +598,27 @@ Contrast جفت‌های کروم در تست WCAG AA. وضعیت Error/Success 
 \`src/lib/a11y.test.ts\` در CI. Markup audit، Shortcut reserved، Persistence Preference.
 
 Accessibility Authentication را دور نمی‌زند.`,
+  }),
+  page({
+    slug: "analytics",
+    title: "تحلیل و هوش تجاری",
+    group: "عملیات",
+    owner: DOCS_OWNERS.platform,
+    summary: "رویداد نسخه‌دار، رضایت، تجمع بدون PII، داشبورد RBAC و لولهٔ ناهمگام.",
+    tags: ["analytics", "bi", "privacy", "dau", "funnel", "experiment"],
+    body: `مرکز: \`/app/admin\` زبانهٔ تحلیل. فایل: \`docs/ANALYTICS.md\`. API \`/api/bi\`.
+
+## حریم
+پیش‌فرض تحلیل محصول خاموش. شناسهٔ سوژه HMAC است. رمز، توکن، Secret، ciphertext و متن پیام وارد لوله نمی‌شوند. شکست لوله ورود یا پیام را قطع نمی‌کند.
+
+## رضایت
+Settings → مرکز حریم خصوصی. Opt-out رویداد محصول را حذف می‌کند. رویداد ضروری امنیت/پایداری جداست.
+
+## متریک
+DAU/WAU/MAU، Retention، Cohort، Churn، قیف ثبت‌نام، پیام (فقط پاکت)، تماس، جستجو، هزینهٔ برآوردی. تعریف هر عدد در پاسخ Dashboard است.
+
+## دسترسی
+\`analytics.view\` / \`analytics.manage\`. قابلیت اطمینان و امنیت تجمیعی نیازمند \`monitor\`. ادمین تحلیل به محتوای خصوصی نمی‌رسد.`,
   }),
   page({
     slug: "changelog",

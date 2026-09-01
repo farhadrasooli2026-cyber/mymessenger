@@ -18,6 +18,7 @@ import { hitRateLimit } from "@/lib/rate-limit";
 import { appendAudit, passwordMatches } from "@/lib/security";
 import { mutateStore, readStoreSnapshot, finalizeDueAccounts, type StoreData } from "@/lib/store";
 import { DELETION_PHRASE, DEACTIVATION_PHRASE } from "@/lib/account-types";
+import { trackBi } from "@/lib/bi";
 import { NIXO_LOCALES, TIMEZONES, defaultUserPrefs, type UserPrefs } from "@/lib/prefs-types";
 
 export const ACCOUNT_POLICY = {
@@ -269,6 +270,7 @@ export async function reactivateAccount(userId: string, ip: string) {
     user.accountStatus = "active";
     user.deactivatedAt = null;
     appendAudit(data, userId, "privacy", { ip, detail: "حساب دوباره فعال شد" });
+    trackBi({ name: "growth.reactivation", source: "account", userId });
     return { ok: true as const, accountStatus: user.accountStatus };
   });
 }

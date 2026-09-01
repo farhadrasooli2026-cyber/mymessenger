@@ -29,7 +29,7 @@ type Privacy = {
 };
 
 const CONSENT_LABEL: Record<ConsentKey, string> = {
-  analytics: "تحلیل محصول (اختیاری)",
+  analytics: "تحلیل محصول (اختیاری — پیش‌فرض خاموش)",
   contactSync: "همگام مخاطب با هش",
   location: "موقعیت تقریبی",
   marketing: "پیام‌های محصول",
@@ -232,7 +232,7 @@ export function PrivacySecurityCenter() {
 
         <section className="rounded-2xl bg-white/5 p-4 text-sm">
           <h2 className="font-medium">رضایت داده</h2>
-          <p className="mt-1 text-[11px] opacity-70">پیش‌فرض خاموش است. فقط دادهٔ ضروری حساب نگه داشته می‌شود.</p>
+          <p className="mt-1 text-[11px] opacity-70">پیش‌فرض خاموش است. فقط دادهٔ ضروری حساب نگه داشته می‌شود. تحلیل محصول جدا از شمارنده‌های امنیت/پایداری است؛ Opt-out متن پیام را به نیکسو نمی‌دهد چون متن اصلاً جمع نمی‌شود.</p>
           {(Object.keys(CONSENT_LABEL) as ConsentKey[]).map((key) => (
             <label key={key} className="mt-2 flex items-center gap-2 text-xs">
               <input

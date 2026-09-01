@@ -3,6 +3,7 @@ import { Vazirmatn, Noto_Sans, Noto_Sans_Arabic } from "next/font/google";
 import { cookies } from "next/headers";
 import { Toaster } from "@/components/ui/sonner";
 import { MonitorBeacon } from "@/components/monitor-beacon";
+import { BiBeacon } from "@/components/bi-beacon";
 import { I18nHtmlSync, I18nProvider } from "@/components/i18n-provider";
 import { A11yProvider } from "@/components/a11y-provider";
 import { ShortcutHelp } from "@/components/shortcut-help";
@@ -67,6 +68,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             {children}
             <ShortcutHelp />
             <MonitorBeacon />
+            <BiBeacon />
             <Toaster position="top-center" dir={dir} />
           </A11yProvider>
         </I18nProvider>

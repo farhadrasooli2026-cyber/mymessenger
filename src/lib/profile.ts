@@ -11,6 +11,7 @@ import { normalizeUsername, usernameIssue } from "@/lib/username";
 import { audienceAllows, canFindByUsername } from "@/lib/privacy";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { appendAudit } from "@/lib/security";
+import { trackBi } from "@/lib/bi";
 
 export const visibilitySchema = z.enum(["everyone", "contacts", "friends", "nobody", "selected"]);
 
@@ -202,6 +203,7 @@ export async function completeProfile(userId: string, input: ProfileInput) {
     user.status = "active";
     user.activatedAt = now;
     seedInbox(data, user.id, now);
+    trackBi({ name: "funnel.onboarding_complete", source: "profile", userId });
     return { ok: true as const, status: 200, user: publicProfile(user, userId) };
   });
 }

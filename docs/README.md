@@ -13,6 +13,7 @@
 | مشکلات شناخته | `/docs/troubleshooting` | [KNOWN_ISSUES.md](./KNOWN_ISSUES.md) |
 | Roadmap | `/docs/changelog` | [ROADMAP.md](./ROADMAP.md) |
 | دسترسی‌پذیری | `/docs/a11y` | [A11Y.md](./A11Y.md) |
+| تحلیل | `/docs/analytics` | [ANALYTICS.md](./ANALYTICS.md) |
 | زبان | `/docs/i18n` | [I18N.md](./I18N.md) |
 
 مالک کلی: platform. امنیت: safety. خودِ docs: platform.

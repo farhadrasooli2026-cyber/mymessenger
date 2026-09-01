@@ -70,6 +70,7 @@ import { emptyPerfPersist, hydratePerfPersist, type PerfPersist } from "@/lib/pe
 import { setShedLevel } from "@/lib/perf-mode";
 import { emptyDeployPersist, hydrateDeployPersist, type DeployPersist } from "@/lib/deploy-types";
 import { emptyI18nPersist, hydrateI18nPersist, type I18nPersist } from "@/lib/i18n/persist";
+import { emptyBiPersist, hydrateBiPersist, purgeBiSubjectFromPersist, type BiPersist } from "@/lib/bi-persist";
 import { currentDeployEnv } from "@/lib/env-config";
 import type {
   AdminAlert,
@@ -2149,6 +2150,7 @@ export type StoreData = {
   perf: PerfPersist;
   deploy: DeployPersist;
   i18n: I18nPersist;
+  bi: BiPersist;
   schemaMeta: import("@/lib/db/migrate").SchemaMeta;
   dbJobs: DbJob[];
   dbAudit: DbAudit[];
@@ -2311,6 +2313,7 @@ const EMPTY: StoreData = {
   perf: emptyPerfPersist(),
   deploy: emptyDeployPersist(process.env.VITEST ? "testing" : "development"),
   i18n: emptyI18nPersist(),
+  bi: emptyBiPersist(),
   schemaMeta: { version: 0, migratedAt: 0, env: process.env.VITEST ? "test" : "development" },
   dbJobs: [],
   dbAudit: [],
@@ -2577,6 +2580,7 @@ async function readStore(): Promise<StoreData> {
       perf: hydratePerfPersist(parsed.perf),
       deploy: hydrateDeployPersist(parsed.deploy, currentDeployEnv()),
       i18n: hydrateI18nPersist(parsed.i18n),
+      bi: hydrateBiPersist(parsed.bi),
       schemaMeta: hydrateSchemaMeta(parsed.schemaMeta),
       dbJobs: Array.isArray(parsed.dbJobs) ? parsed.dbJobs : [],
       dbAudit: Array.isArray(parsed.dbAudit) ? parsed.dbAudit : [],
@@ -2697,6 +2701,7 @@ function prune(data: StoreData, now: number): void {
   data.deploy.artifacts = data.deploy.artifacts.slice(0, 80);
   if (data.deploy.lock && data.deploy.lock.until < now) data.deploy.lock = null;
   data.i18n = hydrateI18nPersist(data.i18n);
+  data.bi = hydrateBiPersist(data.bi);
   for (const user of data.users) expireStaleRestriction(user, now);
   data.callEvents = (data.callEvents ?? []).filter((e) => now - e.at < 7 * 24 * 60 * 60 * 1000).slice(-4000);
   data.callSignals = (data.callSignals ?? []).filter((s) => now - s.createdAt < 10 * 60 * 1000).slice(-800);
@@ -2720,6 +2725,7 @@ export function finalizeDueAccounts(data: StoreData, now: number) {
 
 function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   const uid = user.id;
+  if (data.bi) data.bi = purgeBiSubjectFromPersist(data.bi, uid);
   data.closedAccounts = [
     { id: randomId(), closedAt: now, reason: "user_request" as const, userIdHint: uid.slice(0, 8) },
     ...(data.closedAccounts ?? []),

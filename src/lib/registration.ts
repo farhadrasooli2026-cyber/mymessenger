@@ -23,6 +23,7 @@ import {
   verifyIpLimit,
 } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
+import { trackBi } from "@/lib/bi";
 import type { StoreData } from "@/lib/store";
 import { defaultUserFields } from "@/lib/profile-types";
 
@@ -178,6 +179,7 @@ export async function startRegistration(input: z.infer<typeof startSchema>, ipHa
       createdAt: now,
     });
 
+    trackBi({ name: "funnel.register_start", source: "registration" });
     return {
       ok: true as const,
       status: 200,
@@ -314,6 +316,7 @@ export async function verifyOtp(challengeId: string, code: string, ipHash: strin
       if (user.status !== "active") user.status = "pending_profile";
     }
 
+    trackBi({ name: "funnel.register_verify", source: "registration", userId: user.id });
     return {
       ok: true as const,
       status: 200,

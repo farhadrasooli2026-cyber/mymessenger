@@ -15,6 +15,7 @@ const requiredMd = [
   "docs/ROADMAP.md",
   "docs/DEBT.md",
   "docs/I18N.md",
+  "docs/ANALYTICS.md",
   "docs/adr/0001-json-store.md",
   "CHANGELOG.md",
   "CONTRIBUTING.md",
