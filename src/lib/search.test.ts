@@ -335,6 +335,31 @@ describe("NIXO search and saved messages", () => {
     expect(denied.ok).toBe(false);
   });
 
+  it("applies operators, rejects injection, and keeps member search membership-bound", async () => {
+    const owner = await activeUser("sr_opown");
+    const fan = await activeUser("sr_opfan");
+    const stranger = await activeUser("sr_opstr");
+    const pub = await createChannel(owner, { name: "کانال عملگر", username: "nixo_op_pub", visibility: "public" });
+    expect(pub.ok).toBe(true);
+    if (!pub.ok) return;
+    await createPost(owner, pub.channel.id, { body: "لینک عمومی https://nixo.example/ops", kind: "text" });
+    const links = await globalSearch(fan, { q: "has:link nixo", kind: "messages" });
+    expect(links.ok && links.hits.some((h) => h.preview.includes("https://nixo.example"))).toBe(true);
+    const inject = await globalSearch(fan, { q: "$where" });
+    expect(inject.ok).toBe(false);
+    const g = await createGroup(owner, { name: "گروه اعضا سرچ", joinMode: "invite", memberKeys: [fan] });
+    expect(g.ok).toBe(true);
+    if (!g.ok) return;
+    const members = await globalSearch(owner, { q: "جستجو", kind: "members", groupId: g.group.id });
+    expect(members.ok && members.hits.some((h) => h.scope === "member")).toBe(true);
+    const leak = await globalSearch(stranger, { q: "جستجو", kind: "members", groupId: g.group.id });
+    expect(leak.ok && leak.hits.every((h) => h.scope !== "member")).toBe(true);
+    const stickers = await globalSearch(fan, { q: "nixo", kind: "stickers" });
+    expect(stickers.ok && stickers.hits.some((h) => h.kind === "sticker")).toBe(true);
+    const emoji = await globalSearch(fan, { q: "heart", kind: "emoji" });
+    expect(emoji.ok).toBe(true);
+  });
+
   it("folds Turkish letters for matching", async () => {
     expect(foldText("İstanbul")).toContain("stanbul");
     expect(blobMatches("fotoğraf mağaza", "fotograf")).toBe(true);

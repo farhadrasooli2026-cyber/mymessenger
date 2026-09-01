@@ -19,6 +19,8 @@ import {
 } from "@/lib/search-types";
 import { normalizeEmail, normalizePhone } from "@/lib/identifiers";
 import { audienceAllows, canFindByUsername, pairBlocked } from "@/lib/privacy";
+import { canSeePack, ensureOfficialPacks } from "@/lib/stickers";
+import { searchEmoji } from "@/lib/emoji-data";
 import {
   extractHashtags,
   extractMentions,
@@ -27,6 +29,7 @@ import {
   SEARCH_HIT_CAP,
   validateSearchQuery,
   type SearchFeed,
+  type SearchHasFilter,
   type SearchSort,
 } from "@/lib/search-query";
 
@@ -85,6 +88,7 @@ function publicIndexFingerprint(docs: SearchDoc[]) {
 }
 
 export function syncPublicSearchIndex(data: StoreData) {
+  ensureOfficialPacks(data);
   const docs: SearchDoc[] = [];
   for (const u of data.users) {
     if (u.status !== "active" || (u.accountStatus && u.accountStatus !== "active")) continue;
@@ -140,6 +144,20 @@ export function syncPublicSearchIndex(data: StoreData) {
       });
     }
   }
+  for (const pack of data.stickerPacks ?? []) {
+    if (!pack.official && pack.privacy !== "public") continue;
+    if (pack.deletedAt) continue;
+    docs.push({
+      id: `pack:${pack.id}`,
+      kind: "sticker",
+      entityId: pack.id,
+      title: pack.name,
+      preview: pack.description.slice(0, 80) || "sticker",
+      tags: pack.official ? ["official"] : ["public"],
+      public: true,
+      updatedAt: pack.createdAt,
+    });
+  }
   const fp = publicIndexFingerprint(docs);
   const prev = (data.searchDocs ?? []).length ? publicIndexFingerprint(data.searchDocs) : "";
   data.searchDocs = docs;
@@ -178,22 +196,58 @@ function needleOf(q: string) {
 }
 
 function isMediaKind(kind: SearchKind) {
-  return kind === "media" || kind === "photos" || kind === "videos" || kind === "gifs" || kind === "voice" || kind === "music";
+  return (
+    kind === "media" ||
+    kind === "photos" ||
+    kind === "images" ||
+    kind === "videos" ||
+    kind === "gifs" ||
+    kind === "voice" ||
+    kind === "audio" ||
+    kind === "music"
+  );
+}
+
+function canonicalKind(kind: SearchKind): SearchKind {
+  if (kind === "images") return "photos";
+  if (kind === "audio") return "voice";
+  return kind;
 }
 
 function matchesKind(kind: SearchKind, itemKind: string) {
-  if (kind === "all" || kind === "users" || kind === "groups" || kind === "channels" || kind === "communities" || kind === "chats") {
+  const k = canonicalKind(kind);
+  if (k === "all" || k === "users" || k === "groups" || k === "channels" || k === "communities" || k === "chats") {
     return true;
   }
-  if (kind === "messages" || kind === "hashtags" || kind === "mentions") {
+  if (k === "messages" || k === "hashtags" || k === "mentions") {
     return itemKind === "text" || itemKind === "message" || itemKind === "link" || itemKind === "poll" || itemKind === "file";
   }
-  if (kind === "photos" || kind === "gifs") return itemKind === "photo" || itemKind === "gif";
-  if (kind === "videos") return itemKind === "video";
-  if (kind === "files") return itemKind === "file" || itemKind === "pdf" || itemKind === "zip" || itemKind === "doc" || itemKind === "audio";
-  if (kind === "links") return itemKind === "link" || itemKind === "text";
-  if (kind === "voice" || kind === "music") return itemKind === "voice" || itemKind === "music" || itemKind === "audio";
-  if (kind === "media") return ["photo", "gif", "video", "voice", "file", "audio"].includes(itemKind);
+  if (k === "photos" || k === "gifs") return itemKind === "photo" || itemKind === "gif";
+  if (k === "videos") return itemKind === "video";
+  if (k === "files") return itemKind === "file" || itemKind === "pdf" || itemKind === "zip" || itemKind === "doc" || itemKind === "audio";
+  if (k === "links") return itemKind === "link" || itemKind === "text";
+  if (k === "voice" || k === "music") return itemKind === "voice" || itemKind === "music" || itemKind === "audio";
+  if (k === "media") return ["photo", "gif", "video", "voice", "file", "audio", "sticker"].includes(itemKind);
+  if (k === "stickers") return itemKind === "sticker";
+  return true;
+}
+
+function hasKindOk(has: SearchHasFilter | undefined, itemKind: string, blob: string) {
+  if (!has) return true;
+  if (has === "link") return /https?:\/\//i.test(blob);
+  if (has === "file") return itemKind === "file" || itemKind === "pdf" || itemKind === "zip" || itemKind === "doc";
+  if (has === "image") return itemKind === "photo" || itemKind === "gif";
+  if (has === "video") return itemKind === "video";
+  if (has === "audio") return itemKind === "voice" || itemKind === "audio" || itemKind === "music";
+  if (has === "media") return ["photo", "gif", "video", "voice", "file", "audio", "sticker"].includes(itemKind);
+  return true;
+}
+
+function sizeOk(bytes: number | undefined, min?: number, max?: number) {
+  if (min == null && max == null) return true;
+  if (bytes == null || bytes <= 0) return false;
+  if (min != null && bytes < min) return false;
+  if (max != null && bytes > max) return false;
   return true;
 }
 
@@ -236,6 +290,9 @@ export type SearchQuery = {
   sort?: SearchSort;
   feed?: SearchFeed;
   cursor?: string;
+  minSize?: number;
+  maxSize?: number;
+  has?: SearchHasFilter;
 };
 
 function contentMatches(blob: string, q: string, exactPhrase: string | null, kind: SearchKind) {
@@ -363,7 +420,82 @@ function resolveAuthorizedEntity(data: StoreData, userId: string, id: string, hi
       target: { type: "user", id: user.id },
     };
   }
+  const post = data.channelPosts.find((p) => p.id === id && !p.deleted);
+  if (post) {
+    const channel = data.pubChannels.find((c) => c.id === post.channelId);
+    if (!channel || !canSeeChannel(channel, userId)) return null;
+    if (post.status !== "published" && channel.ownerUserId !== userId && !channel.staff.some((s) => s.userId === userId)) return null;
+    return {
+      id: `cpost:${post.id}`,
+      scope: "channelPost",
+      title: channel.name,
+      preview: sanitizeSearchSnippet(post.caption || post.body || post.fileName || post.kind, 140),
+      sender: post.authorName,
+      chatName: channel.name,
+      date: post.publishedAt ?? post.createdAt,
+      kind: post.kind,
+      target: { type: "channel", id: channel.id, messageId: post.id },
+    };
+  }
+  const gmsg = data.groupMessages.find((m) => m.id === id && !m.deleted);
+  if (gmsg) {
+    const group = data.groups.find((g) => g.id === gmsg.groupId && !g.deletedAt);
+    if (!group || !group.members.some((m) => liveMember(m, userId))) return null;
+    return {
+      id: `gmsg:${gmsg.id}`,
+      scope: "group",
+      title: group.name,
+      preview: gmsg.enc === "e2ee-v1" ? "پیام گروه · متن روی دستگاه است" : sanitizeSearchSnippet(gmsg.bodyFa || gmsg.kind, 140),
+      sender: gmsg.senderName,
+      chatName: group.name,
+      date: gmsg.createdAt,
+      kind: gmsg.kind,
+      target: { type: "group", id: group.id, messageId: gmsg.id },
+    };
+  }
+  const pack = (data.stickerPacks ?? []).find((p) => p.id === id && !p.deletedAt);
+  if (pack && canSeePack(pack, userId, data)) {
+    return {
+      id: `sticker:${pack.id}`,
+      scope: "sticker",
+      title: pack.name,
+      preview: pack.description.slice(0, 80),
+      sender: "",
+      chatName: "استیکر",
+      date: pack.createdAt,
+      kind: "sticker",
+      target: { type: "sticker", id: pack.id },
+    };
+  }
+  const hl = (data.storyHighlights ?? []).find((h) => h.id === id);
+  if (hl && highlightVisible(data, hl, userId)) {
+    return {
+      id: `highlight:${hl.id}`,
+      scope: "highlight",
+      title: hl.name,
+      preview: "هایلایت",
+      sender: "",
+      chatName: "هایلایت",
+      date: hl.updatedAt,
+      kind: "highlight",
+      target: { type: "highlight", id: hl.id },
+    };
+  }
   return null;
+}
+
+function highlightVisible(data: StoreData, hl: StoreData["storyHighlights"][number], viewerId: string) {
+  if (hl.ownerUserId === viewerId) return true;
+  if (hl.hideFromIds?.includes(viewerId)) return false;
+  const owner = data.users.find((u) => u.id === hl.ownerUserId);
+  const viewer = data.users.find((u) => u.id === viewerId);
+  if (owner?.blockedPeerKeys.includes(viewerId) || viewer?.blockedPeerKeys.includes(hl.ownerUserId)) return false;
+  if (hl.visibility === "nobody") return false;
+  if (hl.visibility === "everyone") return true;
+  if (hl.visibility === "friends") return Boolean(owner?.friendIds?.includes(viewerId));
+  if (hl.visibility === "closeFriends") return Boolean(owner?.closeFriendIds?.includes(viewerId));
+  if (hl.visibility === "selected") return hl.allowIds.includes(viewerId);
+  return false;
 }
 
 function collectDiscoveryHits(data: StoreData, userId: string, input: SearchQuery): SearchHit[] {
@@ -371,6 +503,11 @@ function collectDiscoveryHits(data: StoreData, userId: string, input: SearchQuer
   const q = needleOf(input.q);
   const trending = input.feed === "trending";
   const hidden = new Set(data.users.find((u) => u.id === userId)?.searchHideIds ?? []);
+  const me = data.users.find((u) => u.id === userId);
+  const muted = new Set(me?.mutedPeerKeys ?? []);
+  const contactIds = new Set(
+    (data.contacts ?? []).filter((c) => c.ownerUserId === userId && c.nixoUserId).map((c) => c.nixoUserId as string),
+  );
   for (const c of data.pubChannels) {
     if (hidden.has(c.id)) continue;
     if (c.visibility !== "public" || c.status !== "active") continue;
@@ -449,6 +586,34 @@ function collectDiscoveryHits(data: StoreData, userId: string, input: SearchQuer
       ),
     );
   }
+  if (!trending) {
+    for (const u of data.users) {
+      if (u.id === userId || !u.username) continue;
+      if (hidden.has(u.id) || muted.has(u.id)) continue;
+      if (!canFindByUsername(data, u, userId)) continue;
+      if (q.length >= 2 && !blobMatches(`${u.username} ${u.displayName}`, q)) continue;
+      const view = publicProfile(u, userId);
+      hits.push(
+        rank(
+          {
+            id: `user:${u.id}`,
+            scope: "user",
+            title: view.displayName || u.username,
+            preview: "Discovery · پیشنهاد کاربر عمومی",
+            sender: view.displayName,
+            chatName: "Discovery",
+            date: u.activatedAt ?? u.createdAt,
+            kind: "user",
+            username: u.username,
+            photoUrl: view.photoHidden ? null : view.photoUrl,
+            target: { type: "user", id: u.id },
+          },
+          q || u.username,
+          (contactIds.has(u.id) ? 20 : 0) + (u.friendIds?.includes(userId) ? 10 : 0),
+        ),
+      );
+    }
+  }
   sortHits(hits, trending ? "popular" : input.sort ?? "popular");
   return hits.slice(0, SEARCH_HIT_CAP);
 }
@@ -467,25 +632,52 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
   const parsed = parseSearchQuery(input.q);
   const q = parsed.needle;
   const exactPhrase = input.exact ? q : parsed.exact;
-  const kind = input.kind && input.kind.length ? input.kind : "all";
+  const kind = canonicalKind(input.kind && input.kind.length ? input.kind : "all");
   const me = data.users.find((u) => u.id === userId);
   if (!me) return [];
-  const scoped = Boolean(input.chatId || input.groupId || input.channelId);
-  const allowShort = Boolean(input.feed || parsed.entityHint || exactPhrase);
+  const from = input.from || parsed.from;
+  const fromDate = input.fromDate ?? parsed.after;
+  const toDate = input.toDate ?? parsed.before;
+  const fileType = input.fileType || parsed.typeHint;
+  const minSize = input.minSize ?? parsed.minSize;
+  const maxSize = input.maxSize ?? parsed.maxSize;
+  const has = input.has ?? parsed.has;
+  let chatId = input.chatId;
+  let groupId = input.groupId;
+  let channelId = input.channelId;
+  if (parsed.inId) {
+    const g = data.groups.find((x) => x.id === parsed.inId || x.username === parsed.inId);
+    const c = data.pubChannels.find((x) => x.id === parsed.inId || x.username === parsed.inId);
+    const t = data.threads.find((x) => x.id === parsed.inId && x.ownerUserId === userId);
+    if (g && canSeeGroup(g, userId)) groupId = g.id;
+    else if (c && canSeeChannel(c, userId)) channelId = c.id;
+    else if (t) chatId = t.id;
+    else return [];
+  }
+  const scoped = Boolean(chatId || groupId || channelId);
+  const allowShort = Boolean(input.feed || parsed.entityHint || exactPhrase || kind === "emoji" || parsed.has || parsed.from || parsed.inId);
   if (!allowShort && q.length < 2) return [];
 
   const started = Date.now();
   const hits: SearchHit[] = [];
+  const contactIds = new Set(
+    (data.contacts ?? []).filter((c) => c.ownerUserId === userId && c.nixoUserId).map((c) => c.nixoUserId as string),
+  );
   const wantPeople = !scoped && (kind === "all" || kind === "users" || kind === "people");
-  const wantChats = (!input.groupId && !input.channelId) && (kind === "all" || kind === "chats");
+  const wantChats = !groupId && !channelId && (kind === "all" || kind === "chats");
   const wantBots = !scoped && (kind === "all" || kind === "bots" || kind === "users");
   const wantMini = !scoped && (kind === "all" || kind === "mini");
   const wantBiz = !scoped && (kind === "all" || kind === "business");
   const wantProducts = !scoped && (kind === "all" || kind === "products");
-  const wantGroups = !input.channelId && !input.chatId && (kind === "all" || kind === "groups" || kind === "chats");
-  const wantChannels = !input.groupId && !input.chatId && (kind === "all" || kind === "channels" || kind === "chats");
+  const wantGroups = !channelId && !chatId && (kind === "all" || kind === "groups" || kind === "chats");
+  const wantChannels = !groupId && !chatId && (kind === "all" || kind === "channels" || kind === "chats");
   const wantCommunities = !scoped && (kind === "all" || kind === "communities");
   const wantLive = !scoped && (kind === "all" || kind === "live");
+  const wantStickers = !scoped && (kind === "all" || kind === "stickers");
+  const wantEmoji = kind === "emoji" || kind === "all";
+  const wantHighlights = !scoped && (kind === "all" || kind === "highlights");
+  const wantMembers = kind === "members" || Boolean(groupId && kind === "all");
+  const wantSubscribers = kind === "subscribers";
   const wantContent =
     kind === "all" ||
     kind === "messages" ||
@@ -498,7 +690,8 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
     kind === "music" ||
     kind === "media" ||
     kind === "hashtags" ||
-    kind === "mentions";
+    kind === "mentions" ||
+    kind === "stickers";
 
   const pushHit = (hit: SearchHit, extra = 0) => {
     if (hits.length >= SEARCH_HIT_CAP) return;
@@ -589,7 +782,7 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
                 target: { type: "user", id: u.id },
               },
               q,
-              (isExact ? 36 : 0) + (u.officialVerified ? 10 : 0),
+              (isExact ? 36 : 0) + (u.officialVerified ? 10 : 0) + (contactIds.has(u.id) ? 18 : 0) + (u.friendIds?.includes(userId) ? 8 : 0),
             ),
           );
         }
@@ -600,9 +793,9 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
   if (wantChats) {
     for (const t of data.threads) {
       if (t.ownerUserId !== userId) continue;
-      if (input.chatId && t.id !== input.chatId) continue;
+      if (chatId && t.id !== chatId) continue;
       if (q.length >= 2 && !contentMatches(`${t.peerName} ${t.peerKey}`, q, exactPhrase, kind)) continue;
-      if (q.length < 2 && !input.chatId) continue;
+      if (q.length < 2 && !chatId) continue;
       hits.push(
         rank(
           {
@@ -730,7 +923,7 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
 
   if (wantGroups) {
     for (const g of data.groups) {
-      if (input.groupId && g.id !== input.groupId) continue;
+      if (groupId && g.id !== groupId) continue;
       if (!canSeeGroup(g, userId)) continue;
       if (q.length >= 2 && !contentMatches(`${g.name} ${g.username ?? ""} ${g.description} ${(g.tags ?? []).join(" ")}`, q, exactPhrase, kind)) continue;
       if (q.length < 2) continue;
@@ -758,7 +951,7 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
 
   if (wantChannels) {
     for (const c of data.pubChannels) {
-      if (input.channelId && c.id !== input.channelId) continue;
+      if (channelId && c.id !== channelId) continue;
       if (!canSeeChannel(c, userId)) continue;
       if (q.length >= 2 && !contentMatches(`${c.name} ${c.username ?? ""} ${c.description}`, q, exactPhrase, kind)) continue;
       if (q.length < 2) continue;
@@ -819,18 +1012,19 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
       postsByChannel.set(p.channelId, list);
     }
     for (const c of data.pubChannels) {
-      if (input.channelId && c.id !== input.channelId) continue;
-      if (input.groupId || input.chatId) continue;
+      if (channelId && c.id !== channelId) continue;
+      if (groupId || chatId) continue;
       if (!canSeeChannel(c, userId)) continue;
       const staff = c.ownerUserId === userId || c.staff.some((s) => s.userId === userId);
       for (const p of postsByChannel.get(c.id) ?? []) {
         if (p.status !== "published" && !staff) continue;
         if (!matchesKind(kind, p.kind) && kind !== "hashtags" && kind !== "mentions") continue;
-        if (!inRange(p.publishedAt ?? p.createdAt, input.fromDate, input.toDate)) continue;
-        if (!senderOk(p.authorName, null, input.from)) continue;
+        if (!inRange(p.publishedAt ?? p.createdAt, fromDate, toDate)) continue;
+        if (!senderOk(p.authorName, null, from)) continue;
         const fileName = p.fileName ?? "";
         const blob = `${p.body} ${p.caption} ${p.kind} ${fileName} ${p.poll?.question ?? ""}`;
-        if (!fileTypeOk(input.fileType, p.kind, fileName, blob)) continue;
+        if (!fileTypeOk(fileType, p.kind, fileName, blob)) continue;
+        if (!hasKindOk(has, p.kind, blob)) continue;
         const tagHit = kind === "hashtags" || parsed.hashtags.length > 0;
         const menHit = kind === "mentions" || parsed.mentions.length > 0;
         let ok = contentMatches(blob, q, exactPhrase, kind === "hashtags" || kind === "mentions" ? kind : "all");
@@ -862,15 +1056,16 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
       }
     }
     for (const c of data.communities) {
-      if (input.channelId || input.chatId) continue;
-      if (input.groupId) continue;
+      if (channelId || chatId) continue;
+      if (groupId) continue;
       if (!c.members.some((m) => liveMember(m, userId))) continue;
       for (const p of c.posts) {
         if (p.deleted) continue;
         if (!matchesKind(kind, p.kind) && kind !== "hashtags" && kind !== "mentions") continue;
-        if (!inRange(p.createdAt, input.fromDate, input.toDate)) continue;
-        if (!senderOk(p.authorName, null, input.from)) continue;
+        if (!inRange(p.createdAt, fromDate, toDate)) continue;
+        if (!senderOk(p.authorName, null, from)) continue;
         const blob = `${p.body} ${p.kind}`;
+        if (!hasKindOk(has, p.kind, blob)) continue;
         if (!contentMatches(blob, q, exactPhrase, kind === "hashtags" || kind === "mentions" ? kind : "all") && q !== p.kind) continue;
         hits.push(
           rank(
@@ -891,8 +1086,8 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
       }
     }
     for (const g of data.groups) {
-      if (input.channelId || input.chatId) continue;
-      if (input.groupId && g.id !== input.groupId) continue;
+      if (channelId || chatId) continue;
+      if (groupId && g.id !== groupId) continue;
       if (!g.members.some((m) => liveMember(m, userId))) continue;
       for (const m of data.groupMessages ?? []) {
         if (m.groupId !== g.id || m.deleted) continue;
@@ -901,11 +1096,13 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
           if (m.kind === "text") continue;
         }
         if (!matchesKind(kind === "all" ? "media" : kind, m.kind) && m.kind !== "system" && m.kind !== "poll" && kind !== "hashtags" && kind !== "mentions") continue;
-        if (!inRange(m.createdAt, input.fromDate, input.toDate)) continue;
-        if (!senderOk(m.senderName, null, input.from)) continue;
+        if (!inRange(m.createdAt, fromDate, toDate)) continue;
+        if (!senderOk(m.senderName, null, from)) continue;
         const fileName = m.fileName ?? "";
         const blob = `${m.kind} ${m.bodyFa ?? ""} ${m.poll?.question ?? ""} ${fileName}`;
-        if (!fileTypeOk(input.fileType, m.kind, fileName, blob)) continue;
+        if (!fileTypeOk(fileType, m.kind, fileName, blob)) continue;
+        if (!hasKindOk(has, m.kind, blob)) continue;
+        if (!sizeOk(m.byteLength, minSize, maxSize)) continue;
         if (m.enc === "e2ee-v1" && m.kind === "text") continue;
         if (!contentMatches(blob, q, exactPhrase, kind === "hashtags" || kind === "mentions" ? kind : "all") && q !== m.kind && !blobMatches(fileName, q)) continue;
         hits.push(
@@ -933,7 +1130,7 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
   if (wantLive) {
     for (const l of data.lives ?? []) {
       if (l.visibility !== "public" || l.emergencyStopped) continue;
-      if (!inRange(l.createdAt, input.fromDate, input.toDate)) continue;
+      if (!inRange(l.createdAt, fromDate, toDate)) continue;
       const blob = `${l.title} ${l.description} ${l.tags.join(" ")} ${l.category} ${l.hostName}`;
       if (!blobMatches(blob, q)) continue;
       hits.push(
@@ -953,6 +1150,135 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
           q,
         ),
       );
+    }
+  }
+
+  if (wantStickers) {
+    ensureOfficialPacks(data);
+    for (const pack of data.stickerPacks ?? []) {
+      if (pack.deletedAt || !canSeePack(pack, userId, data)) continue;
+      const items = (data.stickers ?? []).filter((s) => s.packId === pack.id && !s.deletedAt);
+      const blob = `${pack.name} ${pack.description} ${items.map((s) => `${s.name} ${s.emoji} ${s.tags.join(" ")}`).join(" ")}`;
+      if (q.length >= 2 && !blobMatches(blob, q)) continue;
+      if ((minSize != null || maxSize != null) && !items.some((s) => sizeOk(s.bytes, minSize, maxSize))) continue;
+      hits.push(
+        rank(
+          {
+            id: `sticker:${pack.id}`,
+            scope: "sticker",
+            title: pack.name,
+            preview: pack.official ? "بستهٔ رسمی" : pack.description.slice(0, 80),
+            sender: "",
+            chatName: "استیکر",
+            date: pack.createdAt,
+            kind: "sticker",
+            target: { type: "sticker", id: pack.id },
+          },
+          q,
+          pack.official ? 6 : 0,
+        ),
+      );
+    }
+  }
+
+  if (wantEmoji && q.length >= 2) {
+    for (const item of searchEmoji(q).slice(0, 12)) {
+      hits.push(
+        rank(
+          {
+            id: `emoji:${item.e}`,
+            scope: "emoji",
+            title: `${item.e} ${item.n}`,
+            preview: item.k.slice(0, 4).join(" · "),
+            sender: "",
+            chatName: "ایموجی",
+            date: 0,
+            kind: "emoji",
+            target: { type: "hashtag", id: item.e },
+          },
+          q,
+        ),
+      );
+    }
+  }
+
+  if (wantHighlights) {
+    for (const hl of data.storyHighlights ?? []) {
+      if (!highlightVisible(data, hl, userId)) continue;
+      if (q.length >= 2 && !blobMatches(hl.name, q)) continue;
+      hits.push(
+        rank(
+          {
+            id: `highlight:${hl.id}`,
+            scope: "highlight",
+            title: hl.name,
+            preview: "هایلایت عمومی مجاز",
+            sender: "",
+            chatName: "هایلایت",
+            date: hl.updatedAt,
+            kind: "highlight",
+            target: { type: "highlight", id: hl.id },
+          },
+          q,
+        ),
+      );
+    }
+  }
+
+  if (wantMembers) {
+    const groups = data.groups.filter((g) => {
+      if (groupId && g.id !== groupId) return false;
+      return g.members.some((m) => liveMember(m, userId));
+    });
+    for (const g of groups) {
+      for (const m of g.members.filter((row) => !row.leftAt)) {
+        if (q.length >= 2 && !blobMatches(`${m.name} ${m.key}`, q)) continue;
+        hits.push(
+          rank(
+            {
+              id: `member:${g.id}:${m.key}`,
+              scope: "member",
+              title: m.name,
+              preview: `عضو ${g.name}`,
+              sender: m.name,
+              chatName: g.name,
+              date: m.joinedAt ?? g.updatedAt,
+              kind: "member",
+              target: { type: "group", id: g.id },
+            },
+            q,
+          ),
+        );
+      }
+    }
+  }
+
+  if (wantSubscribers) {
+    for (const c of data.pubChannels) {
+      if (channelId && c.id !== channelId) continue;
+      const staff = c.ownerUserId === userId || c.staff.some((s) => s.userId === userId);
+      if (!staff) continue;
+      for (const s of c.subscribers.filter(liveSub)) {
+        const u = data.users.find((x) => x.id === s.userId);
+        const label = u?.username ? `@${u.username}` : s.userId.slice(0, 8);
+        if (q.length >= 2 && !blobMatches(`${label} ${u?.displayName ?? ""}`, q)) continue;
+        hits.push(
+          rank(
+            {
+              id: `sub:${c.id}:${s.userId}`,
+              scope: "subscriber",
+              title: u?.displayName || label,
+              preview: `مشترک ${c.name}`,
+              sender: label,
+              chatName: c.name,
+              date: c.updatedAt,
+              kind: "subscriber",
+              target: { type: "channel", id: c.id },
+            },
+            q,
+          ),
+        );
+      }
     }
   }
 
@@ -980,7 +1306,7 @@ export async function globalSearch(userId: string, input: SearchQuery) {
   const feed = input.feed;
   try {
   return mutateStore((data) => {
-    data.searchMetrics ??= { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0 };
+    data.searchMetrics ??= { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0, emptyResults: 0, opens: 0 };
     const now = Date.now();
     const flood = hitRateLimit(data, `search:${userId}`, SEARCH_FLOOD_WINDOW_MS, SEARCH_FLOOD_MAX, now);
     if (!flood.allowed) {
@@ -998,7 +1324,7 @@ export async function globalSearch(userId: string, input: SearchQuery) {
         SEARCH_HISTORY_MAX,
       );
     }
-    if (!feed && q.length < 2 && !parseSearchQuery(input.q).entityHint && !input.exact) {
+    if (!feed && q.length < 2 && !parseSearchQuery(input.q).entityHint && !input.exact && !parseSearchQuery(input.q).has && !parseSearchQuery(input.q).from && !parseSearchQuery(input.q).inId) {
       return {
         ok: true as const,
         hits: [] as SearchHit[],
@@ -1013,8 +1339,8 @@ export async function globalSearch(userId: string, input: SearchQuery) {
 
     if (!(data.searchDocs ?? []).length) enqueueSearchIndexSync(data, "bootstrap");
     drainSearchIndexJobs(data);
-    data.searchMetrics ??= { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0 };
-    const cacheKey = `${userId}|${input.kind ?? "all"}|${input.sort ?? ""}|${input.feed ?? ""}|${foldText(check.q)}|${input.channelId ?? ""}|${input.groupId ?? ""}|${input.chatId ?? ""}`;
+    data.searchMetrics ??= { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0, emptyResults: 0, opens: 0 };
+    const cacheKey = `${userId}|${input.kind ?? "all"}|${input.sort ?? ""}|${input.feed ?? ""}|${foldText(check.q)}|${input.channelId ?? ""}|${input.groupId ?? ""}|${input.chatId ?? ""}|${input.from ?? ""}|${input.fileType ?? ""}|${input.has ?? ""}|${input.minSize ?? ""}|${input.maxSize ?? ""}`;
     const gen = data.searchIndex?.gen ?? 0;
     data.searchQueryCache ??= [];
     const cached = data.searchQueryCache.find((c) => c.key === cacheKey && c.gen === gen && Date.now() - c.at < SEARCH_CACHE_TTL_MS && c.userId === userId);
@@ -1047,6 +1373,9 @@ export async function globalSearch(userId: string, input: SearchQuery) {
     const titles = hits.map((h) => h.title);
     data.searchMetrics.queries += 1;
     data.searchMetrics.lastLatencyMs = Date.now() - now;
+    if (page.length === 0) data.searchMetrics.emptyResults = (data.searchMetrics.emptyResults ?? 0) + 1;
+    const successRate =
+      data.searchMetrics.queries === 0 ? 1 : 1 - (data.searchMetrics.emptyResults ?? 0) / Math.max(1, data.searchMetrics.queries);
     return {
       ok: true as const,
       hits: page,
@@ -1058,7 +1387,7 @@ export async function globalSearch(userId: string, input: SearchQuery) {
       noResultHints: page.length === 0 ? suggestTerms(input.q, me.searchHistory).slice(0, 5) : [],
       note: "متن گفتگوی خصوصی E2EE روی سرور جستجو نمی‌شود؛ روی دستگاه ادغام می‌شود. نتایج فقط پس از Authentication، Authorization، Membership و Block در لحظهٔ درخواست است.",
       indexGen: data.searchIndex?.gen ?? 0,
-      metrics: { latencyMs: data.searchMetrics.lastLatencyMs, cacheHit: Boolean(cached) },
+      metrics: { latencyMs: data.searchMetrics.lastLatencyMs, cacheHit: Boolean(cached), successRate },
     };
   });
   } catch {
@@ -1185,7 +1514,11 @@ export async function openSearchResult(userId: string, hitId: string) {
       return { ok: true as const, href: "/app", target: { type: "channel" as const, id: post.channelId, messageId: post.id } };
     }
     if (!hit) return { ok: false as const, error: "یافت نشد.", status: 404 as const };
-    return { ok: true as const, href: "/app", target: hit.target };
+    data.searchMetrics ??= { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0, emptyResults: 0, opens: 0 };
+    data.searchMetrics.opens = (data.searchMetrics.opens ?? 0) + 1;
+    const href =
+      hit.target.type === "sticker" ? "/app/stickers" : hit.target.type === "highlight" ? "/app/stories" : "/app";
+    return { ok: true as const, href, target: hit.target };
   });
 }
 
@@ -1196,8 +1529,11 @@ export async function searchHealth() {
     indexGen: data.searchIndex?.gen ?? 0,
     docs: (data.searchDocs ?? []).length,
     jobsQueued: (data.searchIndexJobs ?? []).filter((j) => j.status === "queued").length,
+    jobsFailed: (data.searchIndexJobs ?? []).filter((j) => j.status === "failed").length,
     latencyMs: data.searchMetrics?.lastLatencyMs ?? 0,
     queries: data.searchMetrics?.queries ?? 0,
     errors: data.searchMetrics?.errors ?? 0,
+    emptyResults: data.searchMetrics?.emptyResults ?? 0,
+    opens: data.searchMetrics?.opens ?? 0,
   };
 }

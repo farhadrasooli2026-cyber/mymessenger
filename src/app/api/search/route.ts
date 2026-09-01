@@ -11,7 +11,7 @@ import {
   searchHealth,
 } from "@/lib/search";
 import { SEARCH_KINDS, type SearchKind } from "@/lib/search-types";
-import { SEARCH_FEEDS, SEARCH_SORTS, type SearchFeed, type SearchSort } from "@/lib/search-query";
+import { SEARCH_FEEDS, SEARCH_SORTS, type SearchFeed, type SearchHasFilter, type SearchSort } from "@/lib/search-query";
 
 export async function GET(request: Request) {
   const user = await requireActiveUser();
@@ -47,6 +47,13 @@ export async function GET(request: Request) {
     from: url.searchParams.get("from") ?? undefined,
     fromDate: url.searchParams.get("fromDate") ? Number(url.searchParams.get("fromDate")) : undefined,
     toDate: url.searchParams.get("toDate") ? Number(url.searchParams.get("toDate")) : undefined,
+    minSize: url.searchParams.get("minSize") ? Number(url.searchParams.get("minSize")) : undefined,
+    maxSize: url.searchParams.get("maxSize") ? Number(url.searchParams.get("maxSize")) : undefined,
+    has: (["link", "file", "media", "image", "video", "audio"] as const).includes(
+      (url.searchParams.get("has") ?? "") as SearchHasFilter,
+    )
+      ? (url.searchParams.get("has") as SearchHasFilter)
+      : undefined,
     offset: url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0,
     limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
     minPrice: url.searchParams.get("minPrice") ? Number(url.searchParams.get("minPrice")) : undefined,

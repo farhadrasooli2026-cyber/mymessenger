@@ -33,6 +33,13 @@ const KIND_FA: Record<SearchKind, string> = {
   live: "لایو",
   hashtags: "هشتگ",
   mentions: "منشن",
+  stickers: "استیکر",
+  emoji: "ایموجی",
+  highlights: "هایلایت",
+  members: "اعضا",
+  subscribers: "مشترک‌ها",
+  images: "تصویر",
+  audio: "صوت",
 };
 
 export function SearchPanel({
@@ -223,7 +230,7 @@ export function SearchPanel({
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder='کاربر، @username، "عبارت دقیق"، #هشتگ، فایل…'
+            placeholder='from:@user  has:link  in:username  "عبارت دقیق"  #هشتگ'
             className="h-10 bg-black/20"
             enterKeyHint="search"
             inputMode="search"
@@ -331,6 +338,9 @@ export function SearchPanel({
             </label>
           ) : null}
         </div>
+        <p className="mt-1 text-[10px] leading-4 text-emerald-100/45">
+          عملگرها: from:@user · in:username · after:2026-01-01 · has:link|file|media · minsize:10kb. Query خالی تاریخچه و Discovery را نشان می‌دهد نه فهرست همهٔ کاربران.
+        </p>
         {history.length > 0 && (
           <div className="mt-2">
             <div className="flex items-center justify-between text-[11px] text-emerald-100/60">

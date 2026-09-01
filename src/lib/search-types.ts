@@ -24,11 +24,18 @@ export const SEARCH_KINDS = [
   "videos",
   "gifs",
   "voice",
+  "audio",
+  "images",
   "music",
   "links",
   "live",
   "hashtags",
   "mentions",
+  "stickers",
+  "emoji",
+  "highlights",
+  "members",
+  "subscribers",
 ] as const;
 
 export type SearchKind = (typeof SEARCH_KINDS)[number];
@@ -53,7 +60,12 @@ export type SearchHit = {
     | "chat"
     | "live"
     | "hashtag"
-    | "mention";
+    | "mention"
+    | "sticker"
+    | "emoji"
+    | "highlight"
+    | "member"
+    | "subscriber";
   title: string;
   preview: string;
   sender: string;
@@ -74,7 +86,7 @@ export type SearchHit = {
   username?: string | null;
   highlight?: { t: string; hit: boolean }[];
   target: {
-    type: "user" | "group" | "channel" | "community" | "chat" | "saved" | "bot" | "business" | "mini" | "product" | "live" | "hashtag";
+    type: "user" | "group" | "channel" | "community" | "chat" | "saved" | "bot" | "business" | "mini" | "product" | "live" | "hashtag" | "sticker" | "highlight";
     id: string;
     messageId?: string;
     businessId?: string;
@@ -83,7 +95,7 @@ export type SearchHit = {
 
 export type SearchDoc = {
   id: string;
-  kind: "user" | "group" | "channel" | "post";
+  kind: "user" | "group" | "channel" | "post" | "sticker";
   entityId: string;
   parentId?: string;
   title: string;
@@ -118,4 +130,6 @@ export type SearchMetrics = {
   cacheHits: number;
   lastLatencyMs: number;
   lastError?: string;
+  emptyResults?: number;
+  opens?: number;
 };

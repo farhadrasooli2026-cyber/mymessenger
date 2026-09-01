@@ -19,11 +19,8 @@ function kindOfText(text: string, hint?: string): string {
 
 function matchesKind(kind: SearchKind, itemKind: string) {
   if (kind === "all" || kind === "messages" || kind === "hashtags" || kind === "mentions") return itemKind === "text" || itemKind === "message" || itemKind === "link";
-  if (kind === "photos" || kind === "gifs") return itemKind === "photo" || itemKind === "gif";
-  if (kind === "videos") return itemKind === "video";
-  if (kind === "files") return itemKind === "file";
-  if (kind === "links") return itemKind === "link" || /https?:\/\//i.test(itemKind);
-  if (kind === "voice" || kind === "music") return itemKind === "voice";
+  if (kind === "photos" || kind === "gifs" || kind === "images") return itemKind === "photo" || itemKind === "gif";
+  if (kind === "voice" || kind === "music" || kind === "audio") return itemKind === "voice";
   if (kind === "media") return ["photo", "gif", "video", "voice", "file"].includes(itemKind);
   if (kind === "users" || kind === "groups" || kind === "channels" || kind === "communities" || kind === "bots" || kind === "business" || kind === "products" || kind === "mini") {
     return false;
