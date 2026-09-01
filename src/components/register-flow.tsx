@@ -437,8 +437,8 @@ export function RegisterFlow() {
       </CardHeader>
       <CardContent className="space-y-6">
         {error && (
-          <Alert variant="destructive" className="border-red-400/30 bg-red-500/10 text-red-100">
-            <AlertDescription>{error}</AlertDescription>
+          <Alert variant="destructive" className="border-red-400/30 bg-red-500/10 text-red-100" role="alert">
+            <AlertDescription id="register-error">{error}</AlertDescription>
           </Alert>
         )}
 
@@ -467,8 +467,11 @@ export function RegisterFlow() {
                   onChange={(e) => setIdentifier(e.target.value)}
                   className="h-11 bg-black/20 text-left text-base"
                   required={channel === "phone"}
+                  aria-required={channel === "phone"}
+                  aria-invalid={Boolean(error) && channel === "phone"}
+                  aria-describedby={error ? "register-error phone-hint" : "phone-hint"}
                 />
-                <p className="text-xs text-emerald-100/60">کد فقط به همین شماره ارسال می‌شود.</p>
+                <p id="phone-hint" className="text-xs text-emerald-100/60">کد فقط به همین شماره ارسال می‌شود.</p>
               </TabsContent>
               <TabsContent value="email" className="mt-4 space-y-2">
                 <Label htmlFor="email">ایمیل</Label>
@@ -482,8 +485,11 @@ export function RegisterFlow() {
                   onChange={(e) => setIdentifier(e.target.value)}
                   className="h-11 bg-black/20 text-left text-base"
                   required={channel === "email"}
+                  aria-required={channel === "email"}
+                  aria-invalid={Boolean(error) && channel === "email"}
+                  aria-describedby="email-hint"
                 />
-                <p className="text-xs text-emerald-100/60">کد فقط به همین ایمیل ارسال می‌شود.</p>
+                <p id="email-hint" className="text-xs text-emerald-100/60">کد فقط به همین ایمیل ارسال می‌شود.</p>
               </TabsContent>
             </Tabs>
 
@@ -527,9 +533,9 @@ export function RegisterFlow() {
               </p>
             </div>
             <div className="space-y-3">
-              <Label>کد یک‌بارمصرف ۶ رقمی</Label>
+              <Label htmlFor="otp">کد یک‌بارمصرف ۶ رقمی</Label>
               <div className="flex justify-center" dir="ltr">
-                <InputOTP maxLength={6} value={code} onChange={setCode} disabled={busy}>
+                <InputOTP maxLength={6} value={code} onChange={setCode} disabled={busy} aria-label="کد یک‌بارمصرف ۶ رقمی">
                   <InputOTPGroup>
                     {Array.from({ length: 6 }).map((_, i) => (
                       <InputOTPSlot key={i} index={i} className="size-10 bg-black/30 text-lg" />

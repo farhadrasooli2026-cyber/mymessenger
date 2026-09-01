@@ -1,4 +1,4 @@
-/** Shared file policy — never trust the filename alone. */
+import { collate } from "@/lib/i18n/collate";
 
 export const FILE_MAX_BYTES = 28 * 1024 * 1024;
 export const IMAGE_MAX_BYTES = 8 * 1024 * 1024;
@@ -287,12 +287,12 @@ export function previewMode(mime: string, name: string): "pdf" | "image" | "vide
 
 export type FileSort = "newest" | "oldest" | "name" | "size" | "type";
 
-export function sortFiles<T extends { name: string; size: number; mime: string; createdAt: number }>(items: T[], sort: FileSort): T[] {
+export function sortFiles<T extends { name: string; size: number; mime: string; createdAt: number }>(items: T[], sort: FileSort, locale?: string | null): T[] {
   const copy = [...items];
   if (sort === "oldest") copy.sort((a, b) => a.createdAt - b.createdAt);
-  else if (sort === "name") copy.sort((a, b) => a.name.localeCompare(b.name, "fa"));
+  else if (sort === "name") copy.sort((a, b) => collate(a.name, b.name, locale));
   else if (sort === "size") copy.sort((a, b) => b.size - a.size);
-  else if (sort === "type") copy.sort((a, b) => a.mime.localeCompare(b.mime) || a.name.localeCompare(b.name));
+  else if (sort === "type") copy.sort((a, b) => collate(a.mime, b.mime, locale) || collate(a.name, b.name, locale));
   else copy.sort((a, b) => b.createdAt - a.createdAt);
   return copy;
 }

@@ -80,4 +80,5 @@ export const NIXO_SERVICES = [
   { id: "moderation", title: "Moderation Service", module: "src/lib/safety.ts" },
   { id: "security", title: "Security Service", module: "src/lib/security.ts" },
   { id: "audit", title: "Audit Service", module: "src/lib/security.ts" },
+  { id: "i18n", title: "I18n Service", module: "src/lib/i18n/t.ts" },
 ] as const;

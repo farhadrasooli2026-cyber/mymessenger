@@ -6,10 +6,12 @@ import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { Button } from "@/components/ui/button";
 import { NIXO_LOCALES, TIMEZONES, type UserPrefs } from "@/lib/prefs-types";
-
-const LOCALE_FA: Record<string, string> = { fa: "فارسی", en: "English", tr: "Türkçe" };
+import { LANGUAGE_CATALOG } from "@/lib/i18n/languages";
+import { COUNTRIES } from "@/lib/i18n/countries";
+import { useI18n } from "@/components/i18n-provider";
 
 export function LanguageSettings() {
+  const { t, setLocale, locale } = useI18n();
   const [prefs, setPrefs] = useState<UserPrefs | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -25,6 +27,7 @@ export function LanguageSettings() {
   async function save(patch: Record<string, unknown>) {
     setBusy(true);
     try {
+      const next = { ...prefs, ...patch } as UserPrefs;
       const res = await fetch("/api/account", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -32,18 +35,22 @@ export function LanguageSettings() {
       });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error ?? "ذخیره نشد.");
+        toast.error(data.error ?? t("lang.failed"));
         return;
       }
       setPrefs(data.prefs);
-      toast.success("تنظیمات زبان ذخیره شد.");
+      await setLocale(String(patch.locale ?? next.locale ?? locale), {
+        timezone: String(patch.timezone ?? next.timezone ?? ""),
+        scope: (patch.languageScope as "account" | "device") ?? next.languageScope ?? "account",
+      });
+      toast.success(t("lang.saved"));
     } finally {
       setBusy(false);
     }
   }
 
   if (!prefs) {
-    return <p className="p-8 text-sm text-emerald-100/70">در حال بارگذاری…</p>;
+    return <p className="p-8 text-sm text-emerald-100/70">{t("lang.loading")}</p>;
   }
 
   return (
@@ -53,70 +60,123 @@ export function LanguageSettings() {
           <div className="flex items-center gap-3">
             <NixoMark size={36} />
             <div>
-              <p className="text-xs text-emerald-100/60">تنظیمات → زبان و منطقه</p>
-              <h1 className="text-lg font-semibold">زبان، زمان و تاریخ</h1>
+              <p className="text-xs text-emerald-100/60">{t("lang.crumb")}</p>
+              <h1 className="text-lg font-semibold">{t("lang.title")}</h1>
             </div>
           </div>
           <Link href="/app" className="text-sm text-amber-200">
-            بازگشت
+            {t("lang.back")}
           </Link>
         </header>
         <section className="space-y-3 rounded-2xl bg-white/5 p-4 text-sm">
-          <p className="text-[11px] opacity-70">Locale روی قالب تاریخ/ساعت حساب اثر می‌گذارد. ظاهر (تم) جدا در Appearance است.</p>
+          <p className="text-[11px] opacity-70">{t("lang.hint")}</p>
           <label className="block">
-            زبان
+            {t("lang.language")}
             <select
               className="mt-1 h-10 w-full rounded-lg bg-black/30 px-2"
               value={prefs.locale}
               onChange={(e) => void save({ locale: e.target.value })}
             >
-              {NIXO_LOCALES.map((l) => (
-                <option key={l} value={l}>
-                  {LOCALE_FA[l] ?? l}
-                </option>
-              ))}
+              {NIXO_LOCALES.map((l) => {
+                const meta = LANGUAGE_CATALOG.find((m) => m.code === l);
+                return (
+                  <option key={l} value={l}>
+                    {meta?.nativeName ?? l}
+                  </option>
+                );
+              })}
             </select>
           </label>
           <label className="block">
-            منطقهٔ زمانی
+            {t("lang.timezone")}
             <select
               className="mt-1 h-10 w-full rounded-lg bg-black/30 px-2"
               value={prefs.timezone}
               onChange={(e) => void save({ timezone: e.target.value })}
             >
-              {TIMEZONES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
+              {TIMEZONES.map((tz) => (
+                <option key={tz} value={tz}>
+                  {tz}
                 </option>
               ))}
             </select>
           </label>
           <label className="block">
-            قالب تاریخ
+            {t("lang.date_format")}
             <select
               className="mt-1 h-10 w-full rounded-lg bg-black/30 px-2"
               value={prefs.dateFormat}
               onChange={(e) => void save({ dateFormat: e.target.value })}
             >
-              <option value="jalali">جلالی</option>
-              <option value="gregorian">میلادی</option>
-              <option value="system">سیستم</option>
+              <option value="jalali">{t("lang.jalali")}</option>
+              <option value="gregorian">{t("lang.gregorian")}</option>
+              <option value="system">{t("lang.system")}</option>
             </select>
           </label>
           <label className="block">
-            قالب ساعت
+            {t("lang.time_format")}
             <select
               className="mt-1 h-10 w-full rounded-lg bg-black/30 px-2"
               value={prefs.timeFormat}
               onChange={(e) => void save({ timeFormat: e.target.value })}
             >
-              <option value="24">۲۴ ساعته</option>
-              <option value="12">۱۲ ساعته</option>
-              <option value="system">سیستم</option>
+              <option value="24">{t("lang.24h")}</option>
+              <option value="12">{t("lang.12h")}</option>
+              <option value="system">{t("lang.system")}</option>
+            </select>
+          </label>
+          <label className="block">
+            {t("lang.numbering")}
+            <select
+              className="mt-1 h-10 w-full rounded-lg bg-black/30 px-2"
+              value={prefs.numbering ?? "arabext"}
+              onChange={(e) => void save({ numbering: e.target.value })}
+            >
+              <option value="arabext">arabext</option>
+              <option value="arab">arab</option>
+              <option value="latn">latn</option>
+              <option value="system">{t("lang.system")}</option>
+            </select>
+          </label>
+          <label className="block">
+            {t("lang.measurement")}
+            <select
+              className="mt-1 h-10 w-full rounded-lg bg-black/30 px-2"
+              value={prefs.measurement ?? "metric"}
+              onChange={(e) => void save({ measurement: e.target.value })}
+            >
+              <option value="metric">{t("lang.metric")}</option>
+              <option value="imperial">{t("lang.imperial")}</option>
+              <option value="system">{t("lang.system")}</option>
+            </select>
+          </label>
+          <label className="block">
+            {t("lang.country")}
+            <select
+              className="mt-1 h-10 w-full rounded-lg bg-black/30 px-2"
+              value={prefs.country ?? "IR"}
+              onChange={(e) => void save({ country: e.target.value })}
+            >
+              {COUNTRIES.map((c) => (
+                <option key={c.iso} value={c.iso}>
+                  {c.nativeName}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            {t("lang.scope")}
+            <select
+              className="mt-1 h-10 w-full rounded-lg bg-black/30 px-2"
+              value={prefs.languageScope ?? "account"}
+              onChange={(e) => void save({ languageScope: e.target.value })}
+            >
+              <option value="account">{t("lang.scope_account")}</option>
+              <option value="device">{t("lang.scope_device")}</option>
             </select>
           </label>
           <Button type="button" variant="secondary" disabled={busy} onClick={() => void save({ locale: prefs.locale })}>
-            ذخیره
+            {t("lang.save")}
           </Button>
         </section>
       </div>

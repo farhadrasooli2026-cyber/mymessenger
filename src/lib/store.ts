@@ -69,6 +69,7 @@ import { rememberPlatformMode } from "@/lib/dr-mode";
 import { emptyPerfPersist, hydratePerfPersist, type PerfPersist } from "@/lib/perf-types";
 import { setShedLevel } from "@/lib/perf-mode";
 import { emptyDeployPersist, hydrateDeployPersist, type DeployPersist } from "@/lib/deploy-types";
+import { emptyI18nPersist, hydrateI18nPersist, type I18nPersist } from "@/lib/i18n/persist";
 import { currentDeployEnv } from "@/lib/env-config";
 import type {
   AdminAlert,
@@ -2147,6 +2148,7 @@ export type StoreData = {
   dr: DrPersist;
   perf: PerfPersist;
   deploy: DeployPersist;
+  i18n: I18nPersist;
   schemaMeta: import("@/lib/db/migrate").SchemaMeta;
   dbJobs: DbJob[];
   dbAudit: DbAudit[];
@@ -2308,6 +2310,7 @@ const EMPTY: StoreData = {
   dr: emptyDrPersist(),
   perf: emptyPerfPersist(),
   deploy: emptyDeployPersist(process.env.VITEST ? "testing" : "development"),
+  i18n: emptyI18nPersist(),
   schemaMeta: { version: 0, migratedAt: 0, env: process.env.VITEST ? "test" : "development" },
   dbJobs: [],
   dbAudit: [],
@@ -2573,6 +2576,7 @@ async function readStore(): Promise<StoreData> {
       dr: hydrateDrPersist(parsed.dr),
       perf: hydratePerfPersist(parsed.perf),
       deploy: hydrateDeployPersist(parsed.deploy, currentDeployEnv()),
+      i18n: hydrateI18nPersist(parsed.i18n),
       schemaMeta: hydrateSchemaMeta(parsed.schemaMeta),
       dbJobs: Array.isArray(parsed.dbJobs) ? parsed.dbJobs : [],
       dbAudit: Array.isArray(parsed.dbAudit) ? parsed.dbAudit : [],
@@ -2692,6 +2696,7 @@ function prune(data: StoreData, now: number): void {
   data.deploy.deployments = data.deploy.deployments.filter((d) => now - d.startedAt < 180 * 24 * 60 * 60 * 1000).slice(0, 200);
   data.deploy.artifacts = data.deploy.artifacts.slice(0, 80);
   if (data.deploy.lock && data.deploy.lock.until < now) data.deploy.lock = null;
+  data.i18n = hydrateI18nPersist(data.i18n);
   for (const user of data.users) expireStaleRestriction(user, now);
   data.callEvents = (data.callEvents ?? []).filter((e) => now - e.at < 7 * 24 * 60 * 60 * 1000).slice(-4000);
   data.callSignals = (data.callSignals ?? []).filter((s) => now - s.createdAt < 10 * 60 * 1000).slice(-800);

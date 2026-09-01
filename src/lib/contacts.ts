@@ -10,6 +10,7 @@ import { normalizeUsername } from "@/lib/username";
 import { openDm } from "@/lib/chat";
 import { fileReport, reportCategorySchema } from "@/lib/safety";
 import { emitNotification } from "@/lib/notify";
+import { collate } from "@/lib/i18n/collate";
 
 export const CONTACT_GROUPS: { id: ContactGroupKind; label: string }[] = [
   { id: "family", label: "خانواده" },
@@ -202,6 +203,7 @@ export async function listContacts(
         return blob.includes(needle);
       });
     }
+    const loc = me.prefs?.locale;
     if (opts.recently) {
       rows = rows.filter((c) => c.lastContactedAt > 0).sort((a, b) => b.lastContactedAt - a.lastContactedAt);
     } else if (opts.sort === "added") {
@@ -209,9 +211,9 @@ export async function listContacts(
     } else if (opts.sort === "contacted") {
       rows.sort((a, b) => b.lastContactedAt - a.lastContactedAt || b.updatedAt - a.updatedAt);
     } else if (opts.sort === "favorites") {
-      rows.sort((a, b) => Number(b.favorite) - Number(a.favorite) || a.name.localeCompare(b.name, "fa"));
+      rows.sort((a, b) => Number(b.favorite) - Number(a.favorite) || collate(a.name, b.name, loc));
     } else {
-      rows.sort((a, b) => (a.nickname || a.name).localeCompare(b.nickname || b.name, "fa"));
+      rows.sort((a, b) => collate(a.nickname || a.name, b.nickname || b.name, loc));
     }
     const duplicates = findDuplicateIds(rows);
     const offset = Math.max(0, opts.offset ?? 0);

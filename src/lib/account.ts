@@ -294,12 +294,36 @@ export async function updateAccountPrefs(userId: string, patch: Record<string, u
     if (typeof patch.reducedMotion === "boolean") user.prefs.reducedMotion = patch.reducedMotion;
     if (typeof patch.highContrast === "boolean") user.prefs.highContrast = patch.highContrast;
     if (typeof patch.screenReaderHints === "boolean") user.prefs.screenReaderHints = patch.screenReaderHints;
+    if (patch.fontScale === 100 || patch.fontScale === 125 || patch.fontScale === 150 || patch.fontScale === 175) {
+      user.prefs.fontScale = patch.fontScale;
+    }
+    if (typeof patch.reduceTransparency === "boolean") user.prefs.reduceTransparency = patch.reduceTransparency;
+    if (typeof patch.underlineLinks === "boolean") user.prefs.underlineLinks = patch.underlineLinks;
+    if (typeof patch.largeTargets === "boolean") user.prefs.largeTargets = patch.largeTargets;
+    if (typeof patch.keyboardShortcuts === "boolean") user.prefs.keyboardShortcuts = patch.keyboardShortcuts;
+    if (patch.liveAnnounce === "off" || patch.liveAnnounce === "polite" || patch.liveAnnounce === "all") {
+      user.prefs.liveAnnounce = patch.liveAnnounce;
+    }
+    if (typeof patch.timeoutWarnings === "boolean") user.prefs.timeoutWarnings = patch.timeoutWarnings;
+    if (typeof patch.followSystemA11y === "boolean") user.prefs.followSystemA11y = patch.followSystemA11y;
     if (typeof patch.autoplayVideo === "boolean") user.prefs.autoplayVideo = patch.autoplayVideo;
     if (typeof patch.autoplayGif === "boolean") user.prefs.autoplayGif = patch.autoplayGif;
     if (typeof patch.appLockEnabled === "boolean") user.prefs.appLockEnabled = patch.appLockEnabled;
     if (typeof patch.appLockBiometric === "boolean") user.prefs.appLockBiometric = patch.appLockBiometric;
     if (patch.autoLockSec === 0 || patch.autoLockSec === 30 || patch.autoLockSec === 60 || patch.autoLockSec === 300 || patch.autoLockSec === 600) {
       user.prefs.autoLockSec = patch.autoLockSec;
+    }
+    if (patch.numbering === "system" || patch.numbering === "latn" || patch.numbering === "arabext" || patch.numbering === "arab") {
+      user.prefs.numbering = patch.numbering;
+    }
+    if (patch.measurement === "system" || patch.measurement === "metric" || patch.measurement === "imperial") {
+      user.prefs.measurement = patch.measurement;
+    }
+    if (typeof patch.country === "string" && /^[A-Z]{2}$/i.test(patch.country)) {
+      user.prefs.country = patch.country.toUpperCase();
+    }
+    if (patch.languageScope === "account" || patch.languageScope === "device") {
+      user.prefs.languageScope = patch.languageScope;
     }
     return { ok: true as const, prefs: user.prefs };
   });

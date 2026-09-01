@@ -71,6 +71,8 @@ export const DOC_API_PATHS = [
   "/api/perf",
   "/api/deploy",
   "/api/docs",
+  "/api/i18n",
+  "/api/a11y",
 ] as const;
 
 function page(p: Omit<DocPage, "headings">): DocPage {
@@ -92,7 +94,7 @@ export const DOC_PAGES: DocPage[] = [
 NIXO (نیکسو) پیام‌رسان و پلتفرم ارتباطی با تأکید بر حریم خصوصی، امنیت سمت سرور، و قابلیت گسترش است — نه کپی واتساپ یا تلگرام.
 
 ## این برش
-ثبت‌نام OTP، پروفایل، چت E2EE، گروه، کانال، استوری، تماس صوتی/تصویری محلی، اعلان، جستجو، Vault، ادمین، پایش، پشتیبان، عملکرد، انتشار.
+ثبت‌نام OTP، پروفایل، چت E2EE، گروه، کانال، استوری، تماس صوتی/تصویری محلی، اعلان، جستجو، Vault، ادمین، پایش، پشتیبان، عملکرد، انتشار، Localization، دسترسی‌پذیری.
 
 ## آنچه این برش نیست
 کلید خصوصی روی سرور ذخیره نمی‌شود. تماس Relayed P2P کامل بین دو دستگاه جدا در این برش ادعا نمی‌شود. پرداخت کارت واقعی فعال نیست.
@@ -255,7 +257,7 @@ POST /api/chats/:id  body: { ciphertext, nonce, enc, clientNonce }
 فعلاً Breaking Change عمومی اعلام‌شده نیست. حذف فیلد فقط با bump API_VERSION و یادداشت در CHANGELOG.md.
 
 ## Changelog API (0.1.0)
-- افزودن \`/api/version\`، \`/api/deploy\`، \`/api/docs\`
+- افزودن \`/api/version\`، \`/api/deploy\`، \`/api/docs\`، \`/api/i18n\`
 - \`X-NIXO-App-Version\``,
   }),
   page({
@@ -514,7 +516,34 @@ URL بدون نشست 401. Path traversal در نام فایل رد می‌شو�
 Ban نیاز به عبارت BAN و رمز.
 
 ## Analytics
-فقط تجمع بدون PII در زبانهٔ پایش.`,
+فقط تجمع بدون PII در زبانهٔ پایش.
+
+## دسترسی‌پذیری
+Settings → دسترسی‌پذیری. Skip link، میانبر Alt+Shift+/، Live Region پیام/تماس، Contrast، کاهش حرکت. API \`/api/a11y\`. جزئیات \`docs/A11Y.md\` و /docs/a11y.`,
+  }),
+  page({
+    slug: "i18n",
+    title: "زبان و بومی‌سازی",
+    group: "توسعه",
+    owner: DOCS_OWNERS.platform,
+    summary: "کاتالوگ زبان، t()، قالب Intl، BiDi، کوکی، ادمین و گردش کار زبان جدید.",
+    tags: ["i18n", "l10n", "rtl", "locale", "translation"],
+    body: `## پیش‌فرض
+fa، RTL، Asia/Tehran. بسته‌ها: fa/en/tr/ar/ru.
+
+## افزودن زبان
+1. ردیف BCP-47 در \`src/lib/i18n/languages.ts\`
+2. \`messages/<code>.ts\` با کلیدهای fa
+3. فعال‌سازی از ادمین بدون بازنویسی هسته
+4. UGC ترجمه نمی‌شود مگر اجازه و Provider
+
+## API
+\`GET /api/i18n\` عمومی (بدون Secret). \`POST\` با CSRF همان‌مبدأ: detect/set و اکشن ادمین.
+
+## کوکی
+\`nixo_lang\` / \`nixo_tz\` راز نیستند.
+
+جزئیات: \`docs/I18N.md\`.`,
   }),
   page({
     slug: "contributing",
@@ -542,6 +571,32 @@ Feature: \`feature.yml\`
 
 ## Documentation Review
 هر PR معماری/API باید صفحهٔ /docs مربوط را لمس کند.`,
+  }),
+  page({
+    slug: "a11y",
+    title: "دسترسی‌پذیری",
+    group: "راهنما",
+    owner: DOCS_OWNERS.platform,
+    summary: "Keyboard، Screen Reader، Contrast، Reduced Motion، میانبرها و Preference همگام.",
+    tags: ["a11y", "accessibility", "keyboard", "screen-reader", "rtl", "wcag"],
+    body: `مرکز: Settings → دسترسی‌پذیری. فایل: \`docs/A11Y.md\`.
+
+## Preference
+حرکت کمتر، کنتراست، شفافیت، اندازه متن، اهداف لمسی، Live Region، میانبر، هشدار Timeout. همگام حساب + کوکی دستگاه. سیستم‌عامل با followSystem.
+
+## Keyboard
+ترتیب Tab منطقی. Focus-visible حلقه کهربایی. Escape مودال. Alt+Shift+/ فهرست میانبر. Ctrl+Enter ارسال. میانبر مرورگر ثبت نمی‌شود.
+
+## Screen Reader
+Skip to content. Landmark ناوبری/اصلی/جستجو. نام دکمه و Input. پیام با فرستنده/زمان/وضعیت. ایموجی‌تنها. Typing و پیام جدید Live. تماس Label و وضعیت. نتیجه جستجو اعلام می‌شود.
+
+## Visual
+Contrast جفت‌های کروم در تست WCAG AA. وضعیت Error/Success با متن نه فقط رنگ. Zoom و font-size محتوا را حذف نمی‌کند.
+
+## تست
+\`src/lib/a11y.test.ts\` در CI. Markup audit، Shortcut reserved، Persistence Preference.
+
+Accessibility Authentication را دور نمی‌زند.`,
   }),
   page({
     slug: "changelog",

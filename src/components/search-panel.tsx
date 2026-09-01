@@ -8,42 +8,8 @@ import { Input } from "@/components/ui/input";
 import { SEARCH_KINDS, SEARCH_PRIMARY_TABS, type SearchHit, type SearchKind } from "@/lib/search-types";
 import { searchLocalChats, type LocalThreadHint } from "@/lib/client-search";
 import { highlightText } from "@/lib/search-match";
-
-const KIND_FA: Record<SearchKind, string> = {
-  all: "همه",
-  people: "افراد",
-  users: "کاربران",
-  friends: "دوستان",
-  chats: "چت‌ها",
-  messages: "پیام‌ها",
-  groups: "گروه‌ها",
-  channels: "کانال‌ها",
-  communities: "جامعه‌ها",
-  bots: "ربات‌ها",
-  mini: "مینی‌اپ",
-  business: "کسب‌وکار",
-  products: "محصولات",
-  files: "فایل",
-  media: "رسانه",
-  photos: "عکس",
-  videos: "ویدیو",
-  gifs: "GIF",
-  voice: "صوت",
-  music: "موسیقی",
-  links: "لینک",
-  live: "لایو",
-  hashtags: "هشتگ",
-  mentions: "منشن",
-  stickers: "استیکر",
-  emoji: "ایموجی",
-  highlights: "هایلایت",
-  members: "اعضا",
-  subscribers: "مشترک‌ها",
-  posts: "پست‌ها",
-  stories: "استوری",
-  images: "تصویر",
-  audio: "صوت",
-};
+import { useI18n } from "@/components/i18n-provider";
+import { useEscape } from "@/components/a11y-focus";
 
 export function SearchPanel({
   threads,
@@ -59,6 +25,7 @@ export function SearchPanel({
   chatId?: string | null;
 }) {
   const router = useRouter();
+  const { t } = useI18n();
   const [q, setQ] = useState(initialQuery ?? "");
   const [kind, setKind] = useState<SearchKind>("all");
   const [from, setFrom] = useState("");
@@ -84,6 +51,7 @@ export function SearchPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  useEscape(true, onClose);
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -212,18 +180,31 @@ export function SearchPanel({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 p-3" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 bg-black/70 p-3"
+      role="presentation"
+      onClick={onClose}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onClose();
+      }}
+    >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="nixo-search-title"
         className="mx-auto flex max-h-[92dvh] max-w-lg flex-col overflow-hidden rounded-3xl bg-[#102824] p-4 text-emerald-50"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">جستجوی نیکسو</h2>
-          <button type="button" className="text-sm text-amber-200" onClick={onClose}>
+          <h2 id="nixo-search-title" className="text-lg font-semibold">
+            جستجوی نیکسو
+          </h2>
+          <button type="button" className="min-h-11 text-sm text-amber-200" onClick={onClose}>
             بستن
           </button>
         </div>
         <form
+          role="search"
           className="mt-3 flex gap-2"
           onSubmit={(e) => {
             e.preventDefault();
@@ -234,10 +215,13 @@ export function SearchPanel({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder='from:@user  has:link  in:username  "عبارت دقیق"  #هشتگ'
+            id="nixo-search"
             className="h-10 bg-black/20"
             enterKeyHint="search"
             inputMode="search"
             autoComplete="off"
+            aria-label="عبارت جستجو"
+            dir="auto"
           />
           <Button type="submit" className="bg-amber-300 text-[#102824]" disabled={busy}>
             {busy ? "…" : "بجو"}
@@ -295,7 +279,7 @@ export function SearchPanel({
               className={`rounded-full px-2 py-0.5 text-[11px] ${kind === k ? "bg-amber-300 text-[#102824]" : "bg-white/10"}`}
               onClick={() => setKind(k)}
             >
-              {KIND_FA[k]}
+              {t(`search.kind.${k}`)}
             </button>
           ))}
         </div>
@@ -307,7 +291,7 @@ export function SearchPanel({
               className={`rounded-full px-2 py-0.5 text-[11px] ${kind === k ? "bg-amber-300 text-[#102824]" : "bg-white/10"}`}
               onClick={() => setKind(k)}
             >
-              {KIND_FA[k]}
+              {t(`search.kind.${k}`)}
             </button>
           ))}
         </div>
@@ -431,11 +415,18 @@ export function SearchPanel({
             }
           }}
         >
-          {busy && <p className="text-xs text-amber-200">Loading…</p>}
-          {error && <p className="text-xs text-rose-200">{error}</p>}
+          {busy && <p className="text-xs text-amber-200" role="status" aria-live="polite">در حال جستجو…</p>}
+          {error && (
+            <p className="text-xs text-rose-200" role="alert">
+              خطا: {error}
+            </p>
+          )}
+          <p className="sr-only" aria-live="polite">
+            {busy ? "در حال جستجو" : hits.length === 0 ? "نتیجه‌ای نیست" : `${hits.length} نتیجه`}
+          </p>
           {hits.length === 0 && !busy && !error && (
             <div>
-              <p className="text-xs text-emerald-100/50">No results found</p>
+              <p className="text-xs text-emerald-100/50">نتیجه‌ای نیست</p>
               {hints.length > 0 && (
                 <div className="mt-1 flex flex-wrap gap-1">
                   {hints.map((h) => (

@@ -1,12 +1,30 @@
 import type { Metadata, Viewport } from "next";
-import { Vazirmatn } from "next/font/google";
+import { Vazirmatn, Noto_Sans, Noto_Sans_Arabic } from "next/font/google";
+import { cookies } from "next/headers";
 import { Toaster } from "@/components/ui/sonner";
 import { MonitorBeacon } from "@/components/monitor-beacon";
+import { I18nHtmlSync, I18nProvider } from "@/components/i18n-provider";
+import { A11yProvider } from "@/components/a11y-provider";
+import { ShortcutHelp } from "@/components/shortcut-help";
+import { localeDir, parseLocale } from "@/lib/i18n/languages";
+import { LANG_COOKIE, TZ_COOKIE, DEFAULT_TZ } from "@/lib/i18n/cookies";
 import "./globals.css";
 
 const vazirmatn = Vazirmatn({
   subsets: ["arabic", "latin"],
   variable: "--font-sans",
+});
+
+const noto = Noto_Sans({
+  subsets: ["latin", "cyrillic", "latin-ext"],
+  variable: "--font-noto",
+  weight: ["400", "600"],
+});
+
+const notoAr = Noto_Sans_Arabic({
+  subsets: ["arabic"],
+  variable: "--font-noto-ar",
+  weight: ["400", "600"],
 });
 
 export const metadata: Metadata = {
@@ -35,13 +53,23 @@ export const viewport: Viewport = {
   themeColor: "#102824",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const jar = await cookies();
+  const locale = parseLocale(jar.get(LANG_COOKIE)?.value);
+  const dir = localeDir(locale);
+  const tz = jar.get(TZ_COOKIE)?.value || DEFAULT_TZ;
   return (
-    <html lang="fa" dir="rtl" className={`${vazirmatn.variable} h-full antialiased`}>
+    <html lang={locale} dir={dir} className={`${vazirmatn.variable} ${noto.variable} ${notoAr.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col font-sans">
-        {children}
-        <MonitorBeacon />
-        <Toaster position="top-center" dir="rtl" />
+        <I18nProvider initialLocale={locale} initialDir={dir} initialTz={tz}>
+          <A11yProvider>
+            <I18nHtmlSync />
+            {children}
+            <ShortcutHelp />
+            <MonitorBeacon />
+            <Toaster position="top-center" dir={dir} />
+          </A11yProvider>
+        </I18nProvider>
       </body>
     </html>
   );

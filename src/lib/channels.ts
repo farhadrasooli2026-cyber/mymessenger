@@ -13,6 +13,7 @@ import { enqueueSearchIndexSync } from "@/lib/search";
 import { claimSpaceHandle } from "@/lib/space-handles";
 import { insertLive } from "@/lib/live";
 import { inspectTextLinks } from "@/lib/link-safety";
+import { collate } from "@/lib/i18n/collate";
 import { publishChannelLive } from "@/lib/channel-live";
 import { cacheInvalidate, invalidatePermCache } from "@/lib/perf";
 import {
@@ -1822,7 +1823,8 @@ export async function listChannelSubscribers(
   if (!canAdmin(me, "manageSubscribers", channel)) return { ok: false as const, error: "اجازه نداری.", status: 403 as const };
   const needle = q.trim().toLowerCase();
   const live = channel.subscribers.filter(liveSub).slice();
-  if (sort === "name") live.sort((a, b) => a.name.localeCompare(b.name, "fa"));
+  const loc = data.users.find((u) => u.id === userId)?.prefs?.locale;
+  if (sort === "name") live.sort((a, b) => collate(a.name, b.name, loc));
   else live.sort((a, b) => a.subscribedAt - b.subscribedAt);
   const filtered = needle ? live.filter((s) => s.name.toLowerCase().includes(needle) || (s.username ?? "").includes(needle)) : live;
   const start = cursor ? Math.max(0, filtered.findIndex((s) => s.id === cursor) + 1) : 0;

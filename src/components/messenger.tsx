@@ -6,6 +6,11 @@ import Link from "next/link";
 import { Ban, Bookmark, Flag, Globe, Lock, MessageCircle, Phone, Plus, Radio, Search, Send, Smile, Sparkles, Sticker, Store, Timer, UserRound, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
+import { useA11y } from "@/components/a11y-provider";
+import { SessionTimeoutBanner } from "@/components/session-timeout-banner";
+import { matchShortcut, typingTarget } from "@/lib/a11y/shortcuts";
+import { A11Y_SHORTCUTS } from "@/lib/a11y/shortcuts";
+import { messageAccessibleName, statusLabel } from "@/lib/a11y/message";
 import { nixoSpaces } from "@/lib/brand";
 import { NotifyBell } from "@/components/notify-bell";
 import { MUTE_CHAT_PRESETS } from "@/lib/notify-types";
@@ -65,6 +70,7 @@ import { SearchPanel } from "@/components/search-panel";
 import { ChatSearch } from "@/components/chat-search";
 import { SavedPane } from "@/components/saved-pane";
 import type { SearchHit } from "@/lib/search-types";
+import { useI18n } from "@/components/i18n-provider";
 
 type StoryRing = {
   ownerId: string;
@@ -352,6 +358,8 @@ export function Messenger({
   appearance?: Appearance;
 }) {
   const router = useRouter();
+  const { t } = useI18n();
+  const { announce, prefs: a11yPrefs } = useA11y();
   const [tab, setTab] = useState<Tab>("chats");
   const [pendingDeletion, setPendingDeletion] = useState(false);
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -724,14 +732,53 @@ export function Messenger({
   }, [activeId]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
-
-  useEffect(() => {
     if (!highlightMsgId) return;
     const el = document.querySelector(`[data-msg-id="${highlightMsgId}"]`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [highlightMsgId, messages.length]);
+    if (el) el.scrollIntoView({ behavior: a11yPrefs.reducedMotion ? "auto" : "smooth", block: "center" });
+  }, [highlightMsgId, messages.length, a11yPrefs.reducedMotion]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!a11yPrefs.keyboardShortcuts) return;
+      if (e.key === "Escape") {
+        setSearchOpen(false);
+        setEmojiOpen(false);
+        setStickerOpen(false);
+        setSafetyOpen(false);
+        setReportOpen(false);
+        setPeerSheet(false);
+        setChatSearchOpen(false);
+        return;
+      }
+      if (typingTarget(e.target) && e.key !== "Enter") return;
+      const help = A11Y_SHORTCUTS.find((s) => s.id === "help")!;
+      if (matchShortcut(e, help)) return;
+      if (matchShortcut(e, A11Y_SHORTCUTS.find((s) => s.id === "search")!)) {
+        e.preventDefault();
+        setSearchOpen(true);
+        return;
+      }
+      if (matchShortcut(e, A11Y_SHORTCUTS.find((s) => s.id === "nav-chats")!)) {
+        e.preventDefault();
+        setTab("chats");
+        setMobileChat(false);
+      }
+      if (matchShortcut(e, A11Y_SHORTCUTS.find((s) => s.id === "nav-calls")!)) {
+        e.preventDefault();
+        setTab("calls");
+      }
+      if (matchShortcut(e, A11Y_SHORTCUTS.find((s) => s.id === "nav-spaces")!)) {
+        e.preventDefault();
+        setTab("spaces");
+      }
+      if (matchShortcut(e, A11Y_SHORTCUTS.find((s) => s.id === "nav-me")!)) {
+        e.preventDefault();
+        setTab("me");
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [a11yPrefs.keyboardShortcuts]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -767,12 +814,14 @@ export function Messenger({
         .then(async (data) => {
           if (!data) return;
           setPeerTyping(Boolean(data.typing));
+          if (data.typing) announce("مخاطب در حال نوشتن است");
           const remote = await mapRemote(activeId, data.messages as WireMsg[]);
           const key = await loadOrCreateThreadKey(activeId);
           const local = await loadLocalMessages(activeId, key);
           setMessages((cur) => {
             const ids = new Set(cur.map((m) => m.id));
             const extra = remote.filter((m) => !ids.has(m.id));
+            if (extra.some((m) => m.sender === "peer")) announce("پیام جدید دریافت شد");
             if (extra.length === 0) {
               return cur.map((m) => {
                 const hit = remote.find((r) => r.id === m.id);
@@ -785,7 +834,11 @@ export function Messenger({
         .catch(() => undefined);
     };
     return () => es.close();
-  }, [activeId]);
+  }, [activeId, announce]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: a11yPrefs.reducedMotion ? "auto" : "smooth" });
+  }, [messages.length, a11yPrefs.reducedMotion]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -1180,6 +1233,7 @@ export function Messenger({
         ...backgroundPreview(appearance.appBackground),
       }}
     >
+      <SessionTimeoutBanner idleMs={30 * 60 * 1000} />
       <ThemeApplicator appearance={appearance} />
       {pendingDeletion && (
         <div className="fixed inset-x-0 top-0 z-40 bg-amber-300 px-3 py-2 text-center text-xs text-[#102824]">
@@ -1189,20 +1243,21 @@ export function Messenger({
           </Link>
         </div>
       )}
-      <nav className="hidden w-20 flex-col items-center gap-3 border-l border-white/10 bg-[#0b2421] py-4 md:flex">
-        <NavBtn icon={MessageCircle} label="گفتگو" active={tab === "chats"} onClick={() => setTab("chats")} />
-        <NavBtn icon={Phone} label="تماس" active={tab === "calls"} onClick={() => setTab("calls")} />
-        <button type="button" onClick={() => setTab("spaces")} aria-label="فضاها">
+      <nav className="hidden w-20 flex-col items-center gap-3 border-s border-white/10 bg-[#0b2421] py-4 md:flex" aria-label={t("nav.spaces")}>
+        <NavBtn icon={MessageCircle} label={t("nav.chats")} active={tab === "chats"} onClick={() => setTab("chats")} />
+        <NavBtn icon={Phone} label={t("nav.calls")} active={tab === "calls"} onClick={() => setTab("calls")} />
+        <button type="button" onClick={() => setTab("spaces")} aria-label={t("nav.spaces")} aria-current={tab === "spaces" ? "page" : undefined}>
           <NixoMark size={44} />
         </button>
-        <NavBtn icon={Store} label="فروشگاه" active={tab === "shop"} onClick={() => setTab("shop")} />
-        <NavBtn icon={UserRound} label="من" active={tab === "me"} onClick={() => setTab("me")} />
+        <NavBtn icon={Store} label={t("nav.shop")} active={tab === "shop"} onClick={() => setTab("shop")} />
+        <NavBtn icon={UserRound} label={t("nav.me")} active={tab === "me"} onClick={() => setTab("me")} />
       </nav>
       <aside
         className={cn(
-          "flex w-full max-w-full flex-col border-white/10 bg-[#0b2421] md:w-[360px] md:border-l",
+          "flex w-full max-w-full flex-col border-white/10 bg-[#0b2421] md:w-[360px] md:border-s",
           mobileChat && "hidden md:flex",
         )}
+        aria-label="فهرست گفتگو"
       >
         <div className="flex items-center justify-between px-4 py-4">
           <div className="flex items-center gap-2">
@@ -1306,7 +1361,7 @@ export function Messenger({
         </div>
 
         <div className="space-y-2 px-4 pb-3">
-          <p className="text-xs text-emerald-100/55">گفتگوهای خصوصی · رمز روی دستگاه تو</p>
+          <p className="text-xs text-emerald-100/55">{t("messenger.private_hint")}</p>
           <Button
             type="button"
             variant="secondary"
@@ -1316,16 +1371,17 @@ export function Messenger({
               setSearchOpen(true);
             }}
           >
-            <Search className="ml-1 size-3.5" />
-            جستجوی نیکسو
+            <Search className="ms-1 size-3.5" />
+            {t("messenger.search")}
           </Button>
           <div className="flex gap-2">
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search Chats · @username یا عبارت…"
-              dir="ltr"
-              className="h-9 bg-black/20 text-left text-xs"
+              placeholder={t("messenger.search_placeholder")}
+              dir="auto"
+              className="h-11 bg-black/20 text-start text-xs"
+              aria-label="جستجو در فهرست گفتگو"
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   setSearchSeed(query);
@@ -1510,6 +1566,8 @@ export function Messenger({
           </div>
         ) : active && (
           <div className={cn("relative min-w-0 flex-1 flex-col", tab === "chats" ? "flex" : "hidden")}
+            id="nixo-main"
+            role="main"
           >
             <header className="flex items-center gap-3 border-b border-white/10 px-4 py-3">
               <Button
@@ -1524,10 +1582,11 @@ export function Messenger({
                 className="grid size-10 cursor-pointer place-items-center rounded-2xl text-sm font-semibold text-[#071614]"
                 style={{ background: active.color }}
                 onClick={() => setPeerSheet(true)}
+                aria-hidden="true"
               >
                 {active.peerName.slice(0, 1)}
               </span>
-              <button type="button" className="min-w-0 flex-1 text-right" onClick={() => setPeerSheet(true)}>
+              <button type="button" className="min-w-0 flex-1 text-end" onClick={() => setPeerSheet(true)} aria-label={`گفتگو با ${active.peerName}`}>
                 <p className="truncate font-medium">{active.peerName}</p>
                 <p className="flex items-center gap-1 text-[11px] text-[color:var(--nixo-accent,#6ee7b7)]/80">
                   <Lock className="size-3" />
@@ -1760,11 +1819,12 @@ export function Messenger({
                 </svg>
               </div>
               <ScrollArea className="h-full">
-                <div className="relative space-y-3 px-4 py-5">
+                <div className="relative space-y-3 px-4 py-5" dir="ltr">
                   {chatCursor && (
                     <button
                       type="button"
-                      className="mx-auto block text-[11px] text-amber-200/80"
+                      className="mx-auto block min-h-11 text-[11px] text-amber-200/80"
+                      aria-label="بارگذاری پیام‌های قدیمی‌تر"
                       onClick={async () => {
                         const res = await fetch(`/api/chats/${active.id}?cursor=${encodeURIComponent(chatCursor)}`, { cache: "no-store" });
                         if (!res.ok) return;
@@ -1777,24 +1837,40 @@ export function Messenger({
                         });
                       }}
                     >
-                      پیام‌های قدیمی‌تر
+                      {t("messenger.older")}
                     </button>
                   )}
                   {peerTyping && (
-                    <p className="text-center text-[11px] text-emerald-100/50">در حال نوشتن…</p>
+                    <p className="text-center text-[11px] text-emerald-100/50" role="status">
+                      {t("messenger.typing")}
+                    </p>
                   )}
                   {messages.map((msg) => (
                     msg.kind === "system" ? (
-                      <p key={msg.id} className="px-6 text-center text-[11px] leading-6 text-emerald-100/55">
+                      <p key={msg.id} className="px-6 text-center text-[11px] leading-6 text-emerald-100/55" role="status">
                         {msg.text}
                       </p>
                     ) : (
                     <div
                       key={msg.id}
                       data-msg-id={msg.id}
-                      className={cn("flex", msg.sender === "me" ? "justify-start" : "justify-end", highlightMsgId === msg.id && "ring-1 ring-amber-300 rounded-2xl")}
+                      className={cn("flex", msg.sender === "me" ? "justify-end" : "justify-start", highlightMsgId === msg.id && "ring-1 ring-amber-300 rounded-2xl")}
                     >
                       <div
+                        role="article"
+                        aria-label={messageAccessibleName({
+                          sender: msg.sender,
+                          senderName: active.peerName,
+                          text: msg.text,
+                          kind: msg.kind,
+                          createdAt: msg.createdAt,
+                          state: msg.state,
+                          editedAt: msg.editedAt,
+                          replyToId: msg.replyToId,
+                          expired: msg.expired,
+                          attachmentName: msg.kind === "file" ? "فایل" : msg.kind === "photo" ? "عکس" : msg.kind === "video" ? "ویدیو" : msg.kind === "voice" ? "صوت" : msg.kind === "sticker" ? "استیکر" : null,
+                          attachmentType: msg.kind && msg.kind !== "text" ? msg.kind : null,
+                        })}
                         className={cn(
                           "max-w-[80%]",
                           bubbleClass(appearance.bubbleStyle),
@@ -1904,11 +1980,14 @@ export function Messenger({
                             {msg.replyToId && (
                               <p className="mb-1 truncate text-[10px] opacity-60">پاسخ به پیام</p>
                             )}
-                            <p>{msg.expired ? "این پیام منقضی شد." : msg.text}</p>
-                            {msg.editedAt ? <p className="text-[10px] opacity-50">ویرایش‌شده</p> : null}
+                            <p dir="auto" className="i18n-text">{msg.expired ? "این پیام منقضی شد." : msg.text}</p>
+                            <time className="sr-only" dateTime={new Date(msg.createdAt).toISOString()}>
+                              {new Date(msg.createdAt).toLocaleString("fa-IR")}
+                            </time>
+                            {msg.editedAt ? <p className="text-[10px] opacity-50" aria-live="polite">ویرایش‌شده</p> : null}
                             {msg.sender === "me" && msg.state ? (
-                              <p className="text-[10px] opacity-50">
-                                {msg.state === "read" ? "خوانده شد" : msg.state === "delivered" ? "تحویل شد" : msg.state === "deleted" ? "حذف شد" : "ارسال شد"}
+                              <p className="text-[10px] opacity-50" aria-label={statusLabel(msg.state)}>
+                                {msg.state === "read" ? "خوانده شد" : msg.state === "delivered" ? "تحویل شد" : msg.state === "deleted" ? "حذف شد" : msg.state === "failed" ? "ارسال نشد" : "ارسال شد"}
                               </p>
                             ) : null}
                             <ExpiryBadge
@@ -2066,15 +2145,15 @@ export function Messenger({
             >
               <form onSubmit={onSend} className="flex flex-col gap-2">
                 {replyTo && (
-                  <div className="flex items-center justify-between rounded-lg bg-black/25 px-3 py-1 text-[11px] text-emerald-100/70">
+                  <div className="flex items-center justify-between rounded-lg bg-black/25 px-3 py-1 text-[11px] text-emerald-100/70" role="status">
                     <span className="truncate">پاسخ: {replyTo.text.slice(0, 80)}</span>
-                    <button type="button" onClick={() => setReplyTo(null)}>
+                    <button type="button" onClick={() => setReplyTo(null)} aria-label="لغو پاسخ">
                       بستن
                     </button>
                   </div>
                 )}
                 {editingId && (
-                  <div className="flex items-center justify-between rounded-lg bg-black/25 px-3 py-1 text-[11px] text-amber-100/80">
+                  <div className="flex items-center justify-between rounded-lg bg-black/25 px-3 py-1 text-[11px] text-amber-100/80" role="status">
                     <span>ویرایش پیام</span>
                     <button
                       type="button"
@@ -2109,6 +2188,15 @@ export function Messenger({
                 <Input
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
+                  aria-label={editingId ? "ویرایش پیام" : "متن پیام"}
+                  aria-required="false"
+                  dir="auto"
+                  onKeyDown={(e) => {
+                    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                      e.preventDefault();
+                      (e.currentTarget.form as HTMLFormElement | null)?.requestSubmit();
+                    }
+                  }}
                   placeholder={
                     editingId
                       ? "متن ویرایش‌شده…"
@@ -2637,14 +2725,14 @@ export function Messenger({
         )}
       </section>
 
-      <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-white/10 bg-[#0b2421]/95 pb-[env(safe-area-inset-bottom)] md:hidden">
-        <NavBtn icon={MessageCircle} label="گفتگو" active={tab === "chats"} onClick={() => { setTab("chats"); setMobileChat(false); }} />
-        <NavBtn icon={Phone} label="تماس" active={tab === "calls"} onClick={() => { setTab("calls"); setMobileChat(true); }} />
-        <button type="button" className="-mt-4 grid place-items-center" onClick={() => { setTab("spaces"); setMobileChat(true); }} aria-label="فضاهای نیکسو">
+      <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-white/10 bg-[#0b2421]/95 pb-[env(safe-area-inset-bottom)] md:hidden" aria-label={t("nav.spaces")}>
+        <NavBtn icon={MessageCircle} label={t("nav.chats")} active={tab === "chats"} onClick={() => { setTab("chats"); setMobileChat(false); }} />
+        <NavBtn icon={Phone} label={t("nav.calls")} active={tab === "calls"} onClick={() => { setTab("calls"); setMobileChat(true); }} />
+        <button type="button" className="-mt-4 grid place-items-center" onClick={() => { setTab("spaces"); setMobileChat(true); }} aria-label={t("nav.spaces")}>
           <NixoMark size={52} />
         </button>
-        <NavBtn icon={Store} label="فروشگاه" active={tab === "shop"} onClick={() => { setTab("shop"); setMobileChat(true); }} />
-        <NavBtn icon={UserRound} label="من" active={tab === "me"} onClick={() => { setTab("me"); setMobileChat(true); }} />
+        <NavBtn icon={Store} label={t("nav.shop")} active={tab === "shop"} onClick={() => { setTab("shop"); setMobileChat(true); }} />
+        <NavBtn icon={UserRound} label={t("nav.me")} active={tab === "me"} onClick={() => { setTab("me"); setMobileChat(true); }} />
       </nav>
 
       {searchOpen && (
@@ -3042,9 +3130,11 @@ function NavBtn({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex flex-col items-center gap-1 py-2 text-[10px]",
+        "flex min-h-11 min-w-11 flex-col items-center gap-1 py-2 text-[10px]",
         active ? "text-amber-200" : "text-emerald-100/55",
       )}
+      aria-current={active ? "page" : undefined}
+      aria-label={label}
     >
       <Icon className="size-5" />
       {label}

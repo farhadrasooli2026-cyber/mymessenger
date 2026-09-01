@@ -1,13 +1,23 @@
-export const NIXO_LOCALES = ["fa", "en", "tr"] as const;
-export type NixoLocale = (typeof NIXO_LOCALES)[number];
+export { NIXO_LOCALES, type NixoLocale } from "@/lib/i18n/languages";
+import type { NixoLocale } from "@/lib/i18n/languages";
 
-export const TIMEZONES = ["system", "UTC", "Asia/Tehran", "Europe/Istanbul", "America/New_York"] as const;
+export const TIMEZONES = [
+  "system",
+  "UTC",
+  "Asia/Tehran",
+  "Europe/Istanbul",
+  "Europe/London",
+  "America/New_York",
+  "Australia/Sydney",
+] as const;
 export type PrefsTimezone = (typeof TIMEZONES)[number];
 
 export type DateFormatPref = "system" | "jalali" | "gregorian";
 export type TimeFormatPref = "system" | "12" | "24";
 export type UiFont = "vazir" | "system";
 export type AutoLockSec = 0 | 30 | 60 | 300 | 600;
+export type FontScale = 100 | 125 | 150 | 175;
+export type LiveAnnounce = "off" | "polite" | "all";
 
 export type UserConsents = {
   analytics: boolean;
@@ -16,15 +26,31 @@ export type UserConsents = {
   marketing: boolean;
 };
 
+export type NumberingPref = "system" | "latn" | "arabext" | "arab";
+export type MeasurementPref = "system" | "metric" | "imperial";
+export type LanguageScope = "account" | "device";
+
 export type UserPrefs = {
   locale: NixoLocale;
   timezone: PrefsTimezone;
   dateFormat: DateFormatPref;
   timeFormat: TimeFormatPref;
+  numbering: NumberingPref;
+  measurement: MeasurementPref;
+  country: string;
+  languageScope: LanguageScope;
   uiFont: UiFont;
   reducedMotion: boolean;
   highContrast: boolean;
   screenReaderHints: boolean;
+  fontScale: FontScale;
+  reduceTransparency: boolean;
+  underlineLinks: boolean;
+  largeTargets: boolean;
+  keyboardShortcuts: boolean;
+  liveAnnounce: LiveAnnounce;
+  timeoutWarnings: boolean;
+  followSystemA11y: boolean;
   autoplayVideo: boolean;
   autoplayGif: boolean;
   screenshotProtect: boolean;
@@ -40,10 +66,22 @@ export function defaultUserPrefs(): UserPrefs {
     timezone: "Asia/Tehran",
     dateFormat: "jalali",
     timeFormat: "24",
+    numbering: "arabext",
+    measurement: "metric",
+    country: "IR",
+    languageScope: "account",
     uiFont: "vazir",
     reducedMotion: false,
     highContrast: false,
     screenReaderHints: true,
+    fontScale: 100,
+    reduceTransparency: false,
+    underlineLinks: false,
+    largeTargets: true,
+    keyboardShortcuts: true,
+    liveAnnounce: "polite",
+    timeoutWarnings: true,
+    followSystemA11y: true,
     autoplayVideo: false,
     autoplayGif: true,
     screenshotProtect: false,

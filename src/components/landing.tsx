@@ -6,20 +6,20 @@ import { RegisterFlow } from "@/components/register-flow";
 export function Landing({ signedIn, pendingSetup }: { signedIn: boolean; pendingSetup?: boolean }) {
   return (
     <div className="relative min-h-dvh overflow-hidden bg-[#071614] text-white">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_10%,rgba(52,211,153,0.18),transparent_36%),radial-gradient(circle_at_88%_0%,rgba(251,191,36,0.16),transparent_32%),radial-gradient(circle_at_70%_90%,rgba(56,189,248,0.1),transparent_30%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_10%,rgba(52,211,153,0.18),transparent_36%),radial-gradient(circle_at_88%_0%,rgba(251,191,36,0.16),transparent_32%),radial-gradient(circle_at_70%_90%,rgba(56,189,248,0.1),transparent_30%)]" aria-hidden="true" />
       <header className="relative z-10 mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-6">
         <NixoWordmark />
         {signedIn ? (
           <Link
             href="/app"
-            className="rounded-full bg-amber-300 px-4 py-2 text-sm font-medium text-[#102824] hover:bg-amber-200"
+            className="min-h-11 rounded-full bg-amber-300 px-4 py-2 text-sm font-medium text-[#102824] hover:bg-amber-200"
           >
             ورود به نیکسو
           </Link>
         ) : pendingSetup ? (
           <Link
             href="/setup"
-            className="rounded-full bg-amber-300 px-4 py-2 text-sm font-medium text-[#102824] hover:bg-amber-200"
+            className="min-h-11 rounded-full bg-amber-300 px-4 py-2 text-sm font-medium text-[#102824] hover:bg-amber-200"
           >
             ادامه ساخت پروفایل
           </Link>
@@ -28,7 +28,7 @@ export function Landing({ signedIn, pendingSetup }: { signedIn: boolean; pending
         )}
       </header>
 
-      <main className="relative z-10 mx-auto grid w-full max-w-6xl gap-10 px-4 pb-20 lg:grid-cols-[1.05fr_0.95fr] lg:items-start">
+      <main id="nixo-main" className="relative z-10 mx-auto grid w-full max-w-6xl gap-10 px-4 pb-20 lg:grid-cols-[1.05fr_0.95fr] lg:items-start">
         <section className="space-y-7 pt-2">
           <p className="inline-flex rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-xs text-amber-100">
             {brand.tagline}
@@ -81,7 +81,7 @@ export function Landing({ signedIn, pendingSetup }: { signedIn: boolean; pending
               href="/setup"
               className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg bg-amber-300 text-sm font-medium text-[#102824] hover:bg-amber-200"
             >
-              ساخت پروفایل
+              ادامه ساخت پروفایل
             </Link>
           </div>
         ) : (

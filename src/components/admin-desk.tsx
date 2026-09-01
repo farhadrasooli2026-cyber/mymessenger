@@ -10,6 +10,7 @@ import { MonitorDesk } from "@/components/monitor-desk";
 import { DrDesk } from "@/components/dr-desk";
 import { PerfDesk } from "@/components/perf-desk";
 import { DeployDesk } from "@/components/deploy-desk";
+import { I18nDesk } from "@/components/i18n-desk";
 import { ADMIN_CONFIRM, STAFF_ROLE_FA, type StaffRole } from "@/lib/admin-types";
 
 type Dash = {
@@ -20,7 +21,7 @@ type Dash = {
   sessions: { id: string; current: boolean; createdAt: number; userAgent: string; ipHint: string }[];
 };
 
-const TABS = ["داشبورد", "پایش", "بازیابی", "عملکرد", "انتشار", "کاربران", "گزارش‌ها", "صف", "پرونده", "اعتراض", "حسابرسی"] as const;
+const TABS = ["داشبورد", "پایش", "بازیابی", "عملکرد", "انتشار", "زبان", "کاربران", "گزارش‌ها", "صف", "پرونده", "اعتراض", "حسابرسی"] as const;
 
 export function AdminDesk() {
   const [me, setMe] = useState<{ staff: boolean; authed: boolean; role: StaffRole | null; impersonateUserId: string | null } | null>(null);
@@ -190,9 +191,9 @@ export function AdminDesk() {
           </Button>
         </div>
       )}
-      <div className="mt-4 flex flex-wrap gap-1">
+      <div className="mt-4 flex flex-wrap gap-1" role="tablist" aria-label="بخش‌های ادمین">
         {TABS.map((t) => (
-          <Button key={t} size="sm" variant={tab === t ? "default" : "ghost"} onClick={() => setTab(t)}>
+          <Button key={t} size="sm" variant={tab === t ? "default" : "ghost"} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
             {t}
           </Button>
         ))}
@@ -204,6 +205,7 @@ export function AdminDesk() {
             <div key={k} className="rounded-2xl border border-white/10 bg-white/5 p-3">
               <p className="text-[11px] text-amber-100/60">{k}</p>
               <p className="text-lg font-semibold">{v}</p>
+              <span className="sr-only">مقدار {k} برابر {v}</span>
             </div>
           ))}
           <div className="sm:col-span-2 rounded-2xl border border-white/10 bg-white/5 p-3">
@@ -232,6 +234,8 @@ export function AdminDesk() {
       {tab === "عملکرد" && <PerfDesk />}
 
       {tab === "انتشار" && <DeployDesk />}
+
+      {tab === "زبان" && <I18nDesk />}
 
       {tab === "کاربران" && (
         <div className="mt-4 space-y-3">

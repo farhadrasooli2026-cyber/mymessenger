@@ -40,6 +40,8 @@ export const ADMIN_PERMS = [
   "deploy.view",
   "deploy.manage",
   "deploy.approve",
+  "i18n.view",
+  "i18n.manage",
 ] as const;
 export type AdminPerm = (typeof ADMIN_PERMS)[number];
 
@@ -66,6 +68,7 @@ const ROLE_PERMS: Record<StaffRole, AdminPerm[]> = {
     "alerts",
     "monitor",
     "deploy.view",
+    "i18n.view",
   ],
   support: [
     "dashboard",
@@ -79,7 +82,7 @@ const ROLE_PERMS: Record<StaffRole, AdminPerm[]> = {
     "audit.view",
     "monitor",
   ],
-  analyst: ["dashboard", "users.view", "users.search", "reports.view", "audit.view", "export", "monitor", "backup.view", "deploy.view"],
+  analyst: ["dashboard", "users.view", "users.search", "reports.view", "audit.view", "export", "monitor", "backup.view", "deploy.view", "i18n.view"],
 };
 
 export function permsForRole(role: StaffRole): AdminPerm[] {

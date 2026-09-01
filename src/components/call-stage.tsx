@@ -875,6 +875,7 @@ function Ctrl({
       type="button"
       onClick={onClick}
       aria-label={label}
+      aria-pressed={on}
       className={cn(
         "grid size-12 place-items-center rounded-full",
         on ? "bg-amber-300 text-[#102824]" : "bg-white/10 text-white",

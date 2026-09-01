@@ -13,6 +13,7 @@ import { emitNotification } from "@/lib/notify";
 import { enqueueSearchIndexSync } from "@/lib/search";
 import { claimSpaceHandle } from "@/lib/space-handles";
 import { decodeDataUrl, validateAvatarBuffer } from "@/lib/photo-files";
+import { collate } from "@/lib/i18n/collate";
 import { cacheInvalidate, invalidatePermCache } from "@/lib/perf";
 import {
   DEFAULT_GROUP_ADMIN_PERMS,
@@ -1179,8 +1180,9 @@ export async function listGroupMembers(
   }
   const needle = q.trim().toLowerCase();
   const live = group.members.filter(liveMember).slice();
-  if (sort === "name") live.sort((a, b) => a.name.localeCompare(b.name, "fa"));
-  else if (sort === "role") live.sort((a, b) => rankRole(b.role) - rankRole(a.role) || a.name.localeCompare(b.name, "fa"));
+  const loc = data.users.find((u) => u.id === userId)?.prefs?.locale;
+  if (sort === "name") live.sort((a, b) => collate(a.name, b.name, loc));
+  else if (sort === "role") live.sort((a, b) => rankRole(b.role) - rankRole(a.role) || collate(a.name, b.name, loc));
   else live.sort((a, b) => a.joinedAt - b.joinedAt);
   const filtered = needle
     ? live.filter((m) => m.name.toLowerCase().includes(needle) || m.role.includes(needle))
