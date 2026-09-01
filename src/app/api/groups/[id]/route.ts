@@ -33,6 +33,8 @@ export async function PATCH(request: Request, ctx: Ctx) {
     slowModeMs: typeof body.slowModeMs === "number" ? body.slowModeMs : undefined,
     historyMode: body.historyMode === "all" || body.historyMode === "from-join" ? body.historyMode : undefined,
     maxMembers: typeof body.maxMembers === "number" ? body.maxMembers : undefined,
+    reactionsEnabled: typeof body.reactionsEnabled === "boolean" ? body.reactionsEnabled : undefined,
+    allowedReactions: Array.isArray(body.allowedReactions) ? body.allowedReactions.map(String) : body.allowedReactions === null ? null : undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, group: result.group });

@@ -28,9 +28,11 @@ export async function POST(request: Request, ctx: Ctx) {
       body.kind === "photo" ||
       body.kind === "video" ||
       body.kind === "file" ||
-      body.kind === "poll"
+      body.kind === "poll" ||
+      body.kind === "sticker"
         ? body.kind
         : "text",
+    stickerId: typeof body.stickerId === "string" ? body.stickerId : undefined,
     replyToId: typeof body.replyToId === "string" ? body.replyToId : undefined,
     mentions: Array.isArray(body.mentions) ? body.mentions.map(String) : undefined,
     blobId: typeof body.blobId === "string" ? body.blobId : undefined,

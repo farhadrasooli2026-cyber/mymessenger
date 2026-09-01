@@ -4,8 +4,9 @@ import { SEED_PEERS } from "@/lib/chat-copy";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { GroupMember, GroupMessage, GroupRecord, StoreData } from "@/lib/store";
-import { emitNotification } from "@/lib/notify";
+import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf, canUseSticker } from "@/lib/stickers";
 import { canAddToGroup } from "@/lib/privacy";
+import { emitNotification } from "@/lib/notify";
 import {
   DEFAULT_GROUP_ADMIN_PERMS,
   DEFAULT_GROUP_PERMS,
@@ -78,6 +79,8 @@ function memberCanSend(group: GroupRecord, member: GroupMember, kind: GroupMessa
             ? group.perms.sendFiles
             : kind === "voice"
               ? group.perms.sendVoice
+              : kind === "sticker"
+                ? group.perms.sendPhotos || group.perms.sendMessages
               : group.perms.sendMessages;
   if (!allowed) return { ok: false as const, error: "طبق مجوز گروه اجازهٔ این ارسال را نداری." };
   return { ok: true as const };
@@ -121,6 +124,8 @@ function publicGroup(group: GroupRecord, viewerKey: string) {
     inviteToken: me && adminCan(group, me, "manageInvites") ? group.inviteToken : null,
     memberCount: group.members.filter(liveMember).length,
     pinIds: group.pinIds,
+    reactionsEnabled: group.reactionsEnabled !== false,
+    allowedReactions: group.allowedReactions ?? null,
     myRole: me?.role ?? null,
     notifyMutedUntil: me?.notifyMutedUntil ?? null,
     notifyMentions: me?.notifyMentions !== false,
@@ -140,11 +145,14 @@ function publicGroup(group: GroupRecord, viewerKey: string) {
   };
 }
 
-export function publicGroupMessage(m: GroupMessage) {
+export function publicGroupMessage(m: GroupMessage, viewerId?: string, data?: StoreData) {
   if (m.deleted) {
-    return { ...m, ciphertext: "", nonce: "", bodyFa: "این پیام حذف شد.", enc: "purged" as const };
+    return { ...m, ciphertext: "", nonce: "", bodyFa: "این پیام حذف شد.", enc: "purged" as const, reactions: [] };
   }
-  return m;
+  return {
+    ...m,
+    reactions: viewerId && data ? publicReactionView(data, m.reactions, viewerId) : m.reactions,
+  };
 }
 
 export async function listGroups(userId: string) {
@@ -169,7 +177,7 @@ export async function getGroup(userId: string, groupId: string) {
       return true;
     })
     .sort((a, b) => a.createdAt - b.createdAt)
-    .map(publicGroupMessage);
+    .map((m) => publicGroupMessage(m, userId, data));
   return { group: publicGroup(group, userId), messages };
 }
 
@@ -268,8 +276,10 @@ export async function createGroup(
       members,
       requests: [],
       bans: [],
-      pinIds: [],
-      audit: [],
+    pinIds: [],
+    reactionsEnabled: true,
+    allowedReactions: null,
+    audit: [],
       communityId: null,
       createdAt: now,
       updatedAt: now,
@@ -301,6 +311,8 @@ export async function updateGroup(
     slowModeMs: number;
     historyMode: GroupHistoryMode;
     maxMembers: number;
+    reactionsEnabled: boolean;
+    allowedReactions: string[] | null;
   }>,
 ) {
   return mutateStore((data) => {
@@ -366,6 +378,18 @@ export async function updateGroup(
     }
     if (typeof patch.maxMembers === "number") {
       group.maxMembers = Math.min(GROUP_MAX_MEMBERS, Math.max(2, Math.floor(patch.maxMembers)));
+    }
+    if (typeof patch.reactionsEnabled === "boolean") {
+      if (!(me.role === "owner" || adminCan(group, me, "manageGroup"))) {
+        return { ok: false as const, error: "اجازهٔ مدیریت واکنش نداری.", status: 403 };
+      }
+      group.reactionsEnabled = patch.reactionsEnabled;
+    }
+    if (patch.allowedReactions !== undefined) {
+      if (!(me.role === "owner" || adminCan(group, me, "manageGroup"))) {
+        return { ok: false as const, error: "اجازهٔ مدیریت واکنش نداری.", status: 403 };
+      }
+      group.allowedReactions = patch.allowedReactions === null ? null : allowedReactionSet(patch.allowedReactions);
     }
     group.updatedAt = now;
     pushSystem(data, group, "تنظیمات گروه به‌روز شد.", now);
@@ -664,6 +688,7 @@ export async function sendGroupMessage(
     blobId?: string;
     chunkCount?: number;
     poll?: { question: string; options: string[]; anonymous?: boolean; multiple?: boolean; closesAt?: number | null };
+    stickerId?: string;
   },
 ) {
   return mutateStore((data) => {
@@ -680,7 +705,8 @@ export async function sendGroupMessage(
       payload.kind === "poll" ||
       payload.kind === "gif" ||
       payload.kind === "contact" ||
-      payload.kind === "location"
+      payload.kind === "location" ||
+      payload.kind === "sticker"
         ? payload.kind
         : "text";
     const sendOk = memberCanSend(group, me, kind, now);
@@ -746,7 +772,30 @@ export async function sendGroupMessage(
           target: { type: "group", id: group.id },
         });
       }
-      return { ok: true as const, message: publicGroupMessage(msg) };
+      return { ok: true as const, message: publicGroupMessage(msg, userId, data) };
+    }
+    if (kind === "sticker") {
+      const use = canUseSticker(data, userId, String(payload.stickerId ?? ""));
+      if (!use.ok) return { ok: false as const, error: use.error, status: use.status };
+      const msg: GroupMessage = {
+        id: randomId(),
+        groupId,
+        senderKey: userId,
+        senderName: me.name,
+        enc: "none",
+        ciphertext: "",
+        nonce: "",
+        createdAt: now,
+        kind: "sticker",
+        stickerId: use.item.id,
+        reactions: [],
+        replyToId: payload.replyToId,
+      };
+      data.groupMessages.push(msg);
+      group.updatedAt = now;
+      me.lastSentAt = now;
+      use.prefs.stickerRecent = [use.item.id, ...use.prefs.stickerRecent.filter((id) => id !== use.item.id)].slice(0, 24);
+      return { ok: true as const, message: publicGroupMessage(msg, userId, data) };
     }
     const ciphertext = typeof payload.ciphertext === "string" ? payload.ciphertext.trim() : "";
     const nonce = typeof payload.nonce === "string" ? payload.nonce.trim() : "";
@@ -803,26 +852,43 @@ export async function sendGroupMessage(
         target: { type: "group", id: group.id, href: "/app" },
       });
     }
-    return { ok: true as const, message: publicGroupMessage(msg) };
+    return { ok: true as const, message: publicGroupMessage(msg, userId, data) };
   });
 }
 
 export async function reactToMessage(userId: string, groupId: string, messageId: string, emoji: string) {
-  const safe = emoji.slice(0, 8);
   return mutateStore((data) => {
+    const limit = hitRateLimit(data, `react:${userId}`, 60_000, 40);
+    if (!limit.allowed) return { ok: false as const, error: "واکنش محدود شد.", status: 429 };
+    const flood = hitRateLimit(data, `reactflood:${userId}`, 8_000, 12);
+    if (!flood.allowed) return { ok: false as const, error: "ارسال پیاپی واکنش محدود شد.", status: 429 };
     const group = data.groups.find((g) => g.id === groupId && !g.deletedAt);
     if (!group || !findMember(group, userId)) return { ok: false as const, error: "اجازه نداری.", status: 403 };
+    if (group.reactionsEnabled === false) return { ok: false as const, error: "واکنش در این گروه خاموش است.", status: 403 };
     const msg = data.groupMessages.find((m) => m.id === messageId && m.groupId === groupId);
     if (!msg) return { ok: false as const, error: "پیام یافت نشد.", status: 404 };
-    let row = msg.reactions.find((r) => r.emoji === safe);
-    if (!row) {
-      row = { emoji: safe, keys: [] };
-      msg.reactions.push(row);
+    const allowed = allowedReactionSet(group.allowedReactions);
+    const applied = applyUserReaction(msg.reactions, userId, emoji, allowed);
+    if (!applied.ok) return { ok: false as const, error: applied.error, status: 400 };
+    msg.reactions = applied.rows;
+    prefsOf(data, userId).emojiRecent = [emoji.trim().slice(0, 8), ...prefsOf(data, userId).emojiRecent.filter((e) => e !== emoji)].slice(0, 32);
+    if (applied.action !== "remove" && msg.senderKey !== userId && msg.senderKey !== "system") {
+      const lock = data.notifyPrefs?.find((p) => p.userId === msg.senderKey);
+      emitNotification(data, {
+        userId: msg.senderKey,
+        category: "groups",
+        kind: "reaction",
+        title: lock?.lockScreen === "hidden" ? "NIXO" : group.name,
+        senderName: lock?.lockScreen === "hidden" ? "NIXO" : findMember(group, userId)?.name || "عضو",
+        body: lock?.lockScreen === "hidden" ? "" : "واکنش جدید",
+        e2ee: true,
+        sourceId: `greact:${group.id}:${messageId}`,
+        muteType: "group",
+        muteId: group.id,
+        target: { type: "group", id: group.id },
+      });
     }
-    if (row.keys.includes(userId)) row.keys = row.keys.filter((k) => k !== userId);
-    else row.keys.push(userId);
-    msg.reactions = msg.reactions.filter((r) => r.keys.length > 0);
-    return { ok: true as const, reactions: msg.reactions };
+    return { ok: true as const, reactions: publicReactionView(data, msg.reactions, userId), action: applied.action };
   });
 }
 

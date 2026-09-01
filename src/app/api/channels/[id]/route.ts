@@ -27,6 +27,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
     username: body.username === null || typeof body.username === "string" ? (body.username as string | null) : undefined,
     visibility: body.visibility === "private" || body.visibility === "public" ? body.visibility : undefined,
     commentsEnabled: typeof body.commentsEnabled === "boolean" ? body.commentsEnabled : undefined,
+    allowedReactions: Array.isArray(body.allowedReactions) ? body.allowedReactions.map(String) : body.allowedReactions === null ? null : undefined,
     reactionsEnabled: typeof body.reactionsEnabled === "boolean" ? body.reactionsEnabled : undefined,
     allowForward: typeof body.allowForward === "boolean" ? body.allowForward : undefined,
     allowCopy: typeof body.allowCopy === "boolean" ? body.allowCopy : undefined,

@@ -121,6 +121,7 @@ export function NotifySettings() {
             Group Admin Action
             <input type="checkbox" checked={prefs.groupAdmin} onChange={(e) => void patch({ groupAdmin: e.target.checked })} />
           </label>
+          <Link href="/app/settings/stickers" className="block text-xs text-amber-200">Settings → Stickers & Emoji → Reactions</Link>
         </section>
 
         <section className="space-y-2 rounded-2xl bg-white/5 p-4 text-sm">

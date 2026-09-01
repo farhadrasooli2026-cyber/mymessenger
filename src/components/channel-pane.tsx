@@ -8,11 +8,10 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { AiComposerTools } from "@/components/ai-composer-tools";
+import { ReactionBar } from "@/components/reaction-bar";
 import { CHANNEL_PERM_FA, formatSubscribers, type ChannelAdminPerms } from "@/lib/channel-types";
 import { ROLE_FA } from "@/lib/group-types";
 import { blobMatches } from "@/lib/search-match";
-
-const REACTS = ["❤️", "👍", "😂", "😮", "😢", "🔥"];
 
 type Post = {
   id: string;
@@ -23,7 +22,7 @@ type Post = {
   scheduledAt: number | null;
   publishedAt: number | null;
   editedAt: number | null;
-  reactions: { emoji: string; keys: string[] }[];
+  reactions: { emoji: string; count?: number; keys?: string[]; mine?: boolean; users?: { username: string }[] }[];
   comments: { id: string; authorName: string; body: string }[];
   poll?: { question: string; options: string[]; votes: { indexes: number[] }[]; quiz?: boolean; correctIndex?: number | null };
   album: string[];
@@ -45,6 +44,7 @@ type Ch = {
   verified: boolean;
   commentsEnabled: boolean;
   reactionsEnabled?: boolean;
+  allowedReactions?: string[] | null;
   allowForward: boolean;
   allowCopy?: boolean;
   discussionGroupId: string | null;
@@ -366,13 +366,15 @@ export function ChannelPane({
                   <p className="mt-1 leading-7">{p.body}</p>
                 )}
                 {p.caption && <p className="mt-1 text-xs text-emerald-100/70">{p.caption}</p>}
+                <div className="mt-2">
+                  <ReactionBar
+                    reactions={p.reactions}
+                    allowed={channel.allowedReactions}
+                    disabled={channel.reactionsEnabled === false}
+                    onPick={(e) => void act({ action: "react", postId: p.id, emoji: e })}
+                  />
+                </div>
                 <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                  {REACTS.map((e) => (
-                    <button key={e} type="button" onClick={() => void act({ action: "react", postId: p.id, emoji: e })}>
-                      {e}
-                      {p.reactions.find((r) => r.emoji === e)?.keys.length || ""}
-                    </button>
-                  ))}
                   {staff && (
                     <>
                       <button type="button" onClick={() => void act({ action: channel.pinIds.includes(p.id) ? "unpin" : "pin", postId: p.id })}>پین</button>

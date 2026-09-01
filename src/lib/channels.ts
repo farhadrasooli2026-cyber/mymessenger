@@ -4,6 +4,7 @@ import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { ChannelPost, ChannelStaff, PubChannelRecord, StoreData } from "@/lib/store";
 import { emitNotification } from "@/lib/notify";
+import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf } from "@/lib/stickers";
 import { canChannelInvite } from "@/lib/privacy";
 import { rankRole } from "@/lib/group-types";
 import {
@@ -102,6 +103,7 @@ function publicChannel(channel: PubChannelRecord, viewerId: string | null, data:
     verified: channel.verified,
     commentsEnabled: channel.commentsEnabled,
     reactionsEnabled: channel.reactionsEnabled !== false,
+    allowedReactions: channel.allowedReactions ?? null,
     allowForward: channel.allowForward,
     allowCopy: channel.allowCopy !== false,
     discussionGroupId: channel.discussionGroupId,
@@ -324,6 +326,7 @@ export async function updateChannel(
     visibility: "public" | "private";
     commentsEnabled: boolean;
     reactionsEnabled: boolean;
+    allowedReactions: string[] | null;
     allowForward: boolean;
     allowCopy: boolean;
     discussionGroupId: string | null;
@@ -351,6 +354,9 @@ export async function updateChannel(
     if (patch.color && COLORS.includes(patch.color)) channel.color = patch.color;
     if (typeof patch.commentsEnabled === "boolean") channel.commentsEnabled = patch.commentsEnabled;
     if (typeof patch.reactionsEnabled === "boolean") channel.reactionsEnabled = patch.reactionsEnabled;
+    if (patch.allowedReactions !== undefined) {
+      channel.allowedReactions = patch.allowedReactions === null ? null : allowedReactionSet(patch.allowedReactions);
+    }
     if (typeof patch.allowForward === "boolean") channel.allowForward = patch.allowForward;
     if (typeof patch.allowCopy === "boolean") channel.allowCopy = patch.allowCopy;
     if (typeof patch.rules === "string") channel.rules = patch.rules.trim().slice(0, 2000);
@@ -775,8 +781,9 @@ export async function pinPost(userId: string, channelId: string, postId: string,
 }
 
 export async function reactPost(userId: string, channelId: string, postId: string, emoji: string) {
-  const safe = emoji.slice(0, 8);
   return mutateStore((data) => {
+    const limit = hitRateLimit(data, `react:${userId}`, 60_000, 40);
+    if (!limit.allowed) return { ok: false as const, error: "واکنش محدود شد.", status: 429 };
     const channel = data.pubChannels.find((c) => c.id === channelId && !c.deletedAt);
     if (!channel) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
     if (!channel.reactionsEnabled) return { ok: false as const, error: "واکنش در این کانال خاموش است.", status: 403 };
@@ -784,15 +791,27 @@ export async function reactPost(userId: string, channelId: string, postId: strin
     if (!allowed && channel.visibility === "private") return { ok: false as const, error: "اجازه نداری.", status: 403 };
     const post = data.channelPosts.find((p) => p.id === postId && p.channelId === channelId && !p.deleted);
     if (!post) return { ok: false as const, error: "پست یافت نشد.", status: 404 };
-    let row = post.reactions.find((r) => r.emoji === safe);
-    if (!row) {
-      row = { emoji: safe, keys: [] };
-      post.reactions.push(row);
+    const set = allowedReactionSet(channel.allowedReactions);
+    const applied = applyUserReaction(post.reactions, userId, emoji, set);
+    if (!applied.ok) return { ok: false as const, error: applied.error, status: 400 };
+    post.reactions = applied.rows;
+    prefsOf(data, userId).emojiRecent = [emoji.trim().slice(0, 8), ...prefsOf(data, userId).emojiRecent.filter((e) => e !== emoji)].slice(0, 32);
+    if (applied.action !== "remove" && post.authorKey !== userId) {
+      const lock = data.notifyPrefs?.find((p) => p.userId === post.authorKey);
+      emitNotification(data, {
+        userId: post.authorKey,
+        category: "channels",
+        kind: "reaction",
+        title: lock?.lockScreen === "hidden" ? "NIXO" : channel.name,
+        senderName: lock?.lockScreen === "hidden" ? "NIXO" : data.users.find((u) => u.id === userId)?.displayName || "مشترک",
+        body: lock?.lockScreen === "hidden" ? "" : "واکنش جدید",
+        sourceId: `creact:${channel.id}:${postId}`,
+        muteType: "channel",
+        muteId: channel.id,
+        target: { type: "channel", id: channel.id },
+      });
     }
-    if (row.keys.includes(userId)) row.keys = row.keys.filter((k) => k !== userId);
-    else row.keys.push(userId);
-    post.reactions = post.reactions.filter((r) => r.keys.length > 0);
-    return { ok: true as const, reactions: post.reactions };
+    return { ok: true as const, reactions: publicReactionView(data, post.reactions, userId), action: applied.action };
   });
 }
 

@@ -13,6 +13,9 @@ import { MUTE_PRESETS, PERM_FA, ROLE_FA, type GroupPerms, type GroupRole } from 
 import { backgroundPreview } from "@/lib/background-style";
 import type { Appearance } from "@/lib/appearance-types";
 import { BackgroundPicker, type BgDraft } from "@/components/background-picker";
+import { ReactionBar, type PublicReaction } from "@/components/reaction-bar";
+import { StickerPicker } from "@/components/sticker-picker";
+import { EmojiPicker } from "@/components/emoji-picker";
 import { blobMatches } from "@/lib/search-match";
 import { GroupCallStage, type PublicGroupCallUi } from "@/components/group-call-stage";
 
@@ -39,6 +42,8 @@ type GInfo = {
   inviteToken: string | null;
   memberCount: number;
   pinIds: string[];
+  reactionsEnabled?: boolean;
+  allowedReactions?: string[] | null;
   myRole: GroupRole | null;
   notifyMutedUntil: number | null;
   members: GMember[];
@@ -57,7 +62,7 @@ type GMsg = {
   kind: string;
   replyToId?: string | null;
   mentions?: string[];
-  reactions: { emoji: string; keys: string[] }[];
+  reactions: PublicReaction[];
   poll?: {
     question: string;
     options: string[];
@@ -68,9 +73,8 @@ type GMsg = {
   };
   deleted?: boolean;
   text?: string;
+  stickerId?: string;
 };
-
-const REACTS = ["❤️", "👍", "😂", "🔥", "😮"];
 
 export function GroupPane({
   groupId,
@@ -96,6 +100,8 @@ export function GroupPane({
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [pollOpen, setPollOpen] = useState(false);
+  const [stickerOpen, setStickerOpen] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const [pollQ, setPollQ] = useState("");
   const [pollOpts, setPollOpts] = useState("بله\nخیر");
   const [deleteStep, setDeleteStep] = useState(0);
@@ -125,7 +131,7 @@ export function GroupPane({
     const key = await loadOrCreateThreadKey(`group:${groupId}`);
     const next: GMsg[] = [];
     for (const raw of data.messages as GMsg[]) {
-      if (raw.kind === "system" || raw.kind === "poll" || raw.enc !== "e2ee-v1") {
+      if (raw.kind === "system" || raw.kind === "poll" || raw.kind === "sticker" || raw.enc !== "e2ee-v1") {
         next.push({ ...raw, text: raw.bodyFa ?? "" });
         continue;
       }
@@ -214,7 +220,7 @@ export function GroupPane({
           const key = await loadOrCreateThreadKey(`group:${groupId}`);
           const next: GMsg[] = [];
           for (const raw of data.messages as GMsg[]) {
-            if (raw.kind === "system" || raw.kind === "poll" || raw.enc !== "e2ee-v1") {
+            if (raw.kind === "system" || raw.kind === "poll" || raw.kind === "sticker" || raw.enc !== "e2ee-v1") {
               next.push({ ...raw, text: raw.bodyFa ?? "" });
               continue;
             }
@@ -390,7 +396,9 @@ export function GroupPane({
                   <div className={cn("max-w-[80%] rounded-2xl px-3 py-2 text-sm", msg.senderKey === userIdHint ? "bg-amber-300 text-[#102824]" : "bg-black/35")}>
                     <p className="text-[10px] opacity-70">{msg.senderName}</p>
                     {msg.replyToId && <p className="text-[10px] opacity-60">پاسخ</p>}
-                    {msg.kind === "poll" && msg.poll ? (
+                    {msg.kind === "sticker" ? (
+                      <p>استیکر</p>
+                    ) : msg.kind === "poll" && msg.poll ? (
                       <div className="space-y-1">
                         <p className="font-medium">{msg.poll.question}</p>
                         {msg.poll.options.map((opt, i) => {
@@ -410,14 +418,14 @@ export function GroupPane({
                     ) : (
                       <p>{msg.text}</p>
                     )}
+                    <ReactionBar
+                      reactions={msg.reactions}
+                      allowed={group.allowedReactions}
+                      disabled={group.reactionsEnabled === false}
+                      onPick={(e) => void act(msg.id, "react", { emoji: e })}
+                    />
                     <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
-                      {REACTS.map((e) => (
-                        <button key={e} type="button" onClick={() => void act(msg.id, "react", { emoji: e })}>
-                          {e}
-                          {msg.reactions.find((r) => r.emoji === e)?.keys.length || ""}
-                        </button>
-                      ))}
-                      <button type="button" onClick={() => setReplyTo(msg)}>پاسخ</button>
+                    <button type="button" onClick={() => setReplyTo(msg)}>پاسخ</button>
                       {admin && (
                         <button type="button" onClick={() => void act(msg.id, group.pinIds.includes(msg.id) ? "unpin" : "pin")}>
                           پین
@@ -464,6 +472,8 @@ export function GroupPane({
         }}
       >
         <Button type="button" variant="ghost" className="text-white" onClick={() => setPollOpen(true)}>نظرسنجی</Button>
+        <Button type="button" variant="ghost" className="text-white" onClick={() => setEmojiOpen((v) => !v)}>😀</Button>
+        <Button type="button" variant="ghost" className="text-white" onClick={() => setStickerOpen((v) => !v)}>استیکر</Button>
         <Input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -474,6 +484,31 @@ export function GroupPane({
           <Send className="size-4" />
         </Button>
       </form>
+      {emojiOpen && (
+        <div className="px-3 pb-2">
+          <EmojiPicker onPick={(e) => setDraft((d) => (d + e).slice(0, 2000))} />
+        </div>
+      )}
+      {stickerOpen && (
+        <div className="px-3 pb-2">
+          <StickerPicker
+            draft={draft}
+            onSend={async (stickerId) => {
+              const res = await fetch(`/api/groups/${groupId}/messages`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ kind: "sticker", stickerId }),
+              });
+              const data = await res.json();
+              if (!res.ok) toast.error(data.error ?? "استیکر ارسال نشد.");
+              else {
+                setStickerOpen(false);
+                await load();
+              }
+            }}
+          />
+        </div>
+      )}
 
       {pollOpen && (
         <div className="fixed inset-0 z-40 grid place-items-center bg-black/70 p-4" onClick={() => setPollOpen(false)}>
@@ -720,6 +755,22 @@ export function GroupPane({
                   {deleteStep === 0 ? "هشدار: برگشت‌ناپذیر است" : deleteStep === 1 ? "تأیید می‌کنم" : "تأیید نهایی و حذف"}
                 </Button>
               </div>
+            )}
+            {admin && (
+              <label className="flex items-center justify-between text-sm">
+                واکنش‌ها
+                <input
+                  type="checkbox"
+                  checked={group.reactionsEnabled !== false}
+                  onChange={(e) =>
+                    void fetch(`/api/groups/${groupId}`, {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ reactionsEnabled: e.target.checked }),
+                    }).then(load)
+                  }
+                />
+              </label>
             )}
             <p className="flex items-center gap-1 text-[11px] text-emerald-100/50">
               <Lock className="size-3" /> مجوزها روی سرور اعمال می‌شوند. متن پیام‌های معمولی E2EE است.

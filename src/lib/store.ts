@@ -164,7 +164,9 @@ function hydrateUser(user: UserRecord): UserRecord {
 }
 
 function hydrateKind(kind?: string): ChatMessage["kind"] {
-  if (kind === "voice" || kind === "photo" || kind === "video" || kind === "file" || kind === "system") return kind;
+  if (kind === "voice" || kind === "photo" || kind === "video" || kind === "file" || kind === "system" || kind === "sticker") {
+    return kind;
+  }
   return "text";
 }
 
@@ -201,7 +203,24 @@ function hydrateMessage(message: ChatMessage & { text?: string }): ChatMessage {
       | undefined,
     systemEvent: hydrateSystemEvent(message.systemEvent),
     captureCount: message.captureCount ?? 0,
+    stickerId: typeof message.stickerId === "string" ? message.stickerId : undefined,
+    reactions: Array.isArray(message.reactions) ? message.reactions : [],
   };
+  if (message.kind === "sticker") {
+    return {
+      id: message.id,
+      threadId: message.threadId,
+      ownerUserId: message.ownerUserId,
+      sender: message.sender,
+      enc: "e2ee-v1",
+      ciphertext: "",
+      nonce: message.nonce || "",
+      createdAt: message.createdAt,
+      ...extra,
+      kind: "sticker",
+      stickerId: extra.stickerId,
+    };
+  }
   if (message.enc === "e2ee-v1" && message.ciphertext && message.nonce) {
     return {
       id: message.id,
@@ -247,6 +266,12 @@ function hydrateGroup(group: GroupRecord): GroupRecord {
     requests: Array.isArray(group.requests) ? group.requests : [],
     bans: Array.isArray(group.bans) ? group.bans : [],
     pinIds: Array.isArray(group.pinIds) ? group.pinIds : [],
+    reactionsEnabled: group.reactionsEnabled !== false,
+    allowedReactions: Array.isArray(group.allowedReactions)
+      ? group.allowedReactions
+      : group.allowedReactions === null
+        ? null
+        : null,
     audit: Array.isArray(group.audit) ? group.audit : [],
     communityId: group.communityId ?? null,
     deletedAt: group.deletedAt ?? null,
@@ -286,6 +311,11 @@ function hydratePubChannel(channel: PubChannelRecord): PubChannelRecord {
     verified: Boolean(channel.verified),
     commentsEnabled: Boolean(channel.commentsEnabled),
     reactionsEnabled: channel.reactionsEnabled !== false,
+    allowedReactions: Array.isArray(channel.allowedReactions)
+      ? channel.allowedReactions
+      : channel.allowedReactions === null
+        ? null
+        : undefined,
     allowForward: channel.allowForward !== false,
     allowCopy: channel.allowCopy !== false,
     discussionGroupId: channel.discussionGroupId ?? null,
@@ -737,7 +767,7 @@ export type ChatMessage = {
   ciphertext: string;
   nonce: string;
   createdAt: number;
-  kind: "text" | "voice" | "photo" | "video" | "file" | "system";
+  kind: "text" | "voice" | "photo" | "video" | "file" | "system" | "sticker";
   durationMs?: number;
   viewOnce?: boolean;
   disappearAfterMs?: number | null;
@@ -754,12 +784,14 @@ export type ChatMessage = {
   expireFrom?: "send" | "view";
   systemEvent?: { type: "disappear"; ms: number | null } | { type: "capture"; messageId: string };
   captureCount?: number;
+  stickerId?: string;
+  reactions?: { emoji: string; keys: string[] }[];
 };
 
 export type SafetyReport = {
   id: string;
   reporterId: string;
-  targetKind: "user" | "chat" | "group" | "community" | "channel" | "story" | "bot" | "miniapp" | "business";
+  targetKind: "user" | "chat" | "group" | "community" | "channel" | "story" | "bot" | "miniapp" | "business" | "sticker";
   targetKey: string;
   threadId?: string;
   messageIds: string[];
@@ -938,6 +970,8 @@ export type GroupRecord = {
   requests: GroupJoinRequest[];
   bans: GroupBan[];
   pinIds: string[];
+  reactionsEnabled: boolean;
+  allowedReactions: string[] | null;
   audit: GroupAuditEvent[];
   communityId: string | null;
   createdAt: number;
@@ -964,7 +998,7 @@ export type GroupMessage = {
   nonce: string;
   bodyFa?: string;
   createdAt: number;
-  kind: "text" | "voice" | "photo" | "video" | "file" | "system" | "poll" | "gif" | "contact" | "location";
+  kind: "text" | "voice" | "photo" | "video" | "file" | "system" | "poll" | "gif" | "contact" | "location" | "sticker";
   replyToId?: string | null;
   mentions?: string[];
   tags?: string[];
@@ -973,6 +1007,7 @@ export type GroupMessage = {
   blobId?: string;
   chunkCount?: number;
   deleted?: boolean;
+  stickerId?: string;
 };
 
 export type CommunityMember = {
@@ -1099,6 +1134,59 @@ export type ChannelLiveChat = {
   createdAt: number;
 };
 
+export type StickerPackPrivacy = "public" | "private";
+export type StickerKind = "static" | "animated" | "custom-emoji";
+
+export type StickerPack = {
+  id: string;
+  ownerUserId: string;
+  name: string;
+  description: string;
+  privacy: StickerPackPrivacy;
+  shareToken: string;
+  official: boolean;
+  memberIds: string[];
+  createdAt: number;
+  deletedAt?: number;
+};
+
+export type StickerItem = {
+  id: string;
+  packId: string;
+  name: string;
+  emoji: string;
+  tags: string[];
+  kind: StickerKind;
+  mime: string;
+  payload: string;
+  w: number;
+  h: number;
+  bytes: number;
+};
+
+export type StickerPrefs = {
+  userId: string;
+  emojiRecent: string[];
+  emojiFavorites: string[];
+  stickerRecent: string[];
+  stickerFavorites: string[];
+  installedPackIds: string[];
+  reactionPrivacy: "everyone" | "contacts" | "nobody";
+  reactionNotify: boolean;
+  suggestions: boolean;
+  customEmoji: boolean;
+};
+
+export type StickerModeration = {
+  id: string;
+  packId: string;
+  stickerId?: string;
+  reporterUserId: string;
+  reason: string;
+  createdAt: number;
+  status: "open" | "removed" | "dismissed";
+};
+
 export type ChannelStory = {
   id: string;
   body: string;
@@ -1145,6 +1233,7 @@ export type PubChannelRecord = {
   verified: boolean;
   commentsEnabled: boolean;
   reactionsEnabled: boolean;
+  allowedReactions?: string[] | null;
   allowForward: boolean;
   allowCopy: boolean;
   discussionGroupId: string | null;
@@ -1452,6 +1541,10 @@ export type StoreData = {
   reservedUsernames: string[];
   inboxMetas: InboxMeta[];
   chatFolders: ChatFolder[];
+  stickerPacks: StickerPack[];
+  stickers: StickerItem[];
+  stickerPrefs: StickerPrefs[];
+  stickerReports: StickerModeration[];
 };
 
 const EMPTY: StoreData = {
@@ -1536,6 +1629,10 @@ const EMPTY: StoreData = {
   reservedUsernames: [],
   inboxMetas: [],
   chatFolders: [],
+  stickerPacks: [],
+  stickers: [],
+  stickerPrefs: [],
+  stickerReports: [],
 };
 
 const STORE_PATH = path.join(
@@ -1669,6 +1766,10 @@ async function readStore(): Promise<StoreData> {
       reservedUsernames: Array.isArray(parsed.reservedUsernames) ? parsed.reservedUsernames : [],
       inboxMetas: Array.isArray(parsed.inboxMetas) ? parsed.inboxMetas.map(hydrateInboxMeta) : [],
       chatFolders: Array.isArray(parsed.chatFolders) ? parsed.chatFolders.map(hydrateChatFolder) : [],
+      stickerPacks: Array.isArray(parsed.stickerPacks) ? parsed.stickerPacks : [],
+      stickers: Array.isArray(parsed.stickers) ? parsed.stickers : [],
+      stickerPrefs: Array.isArray(parsed.stickerPrefs) ? parsed.stickerPrefs : [],
+      stickerReports: Array.isArray(parsed.stickerReports) ? parsed.stickerReports : [],
     };
   } catch {
     return structuredClone(EMPTY);
@@ -1817,6 +1918,22 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.contactRequests = (data.contactRequests ?? []).filter((r) => r.fromUserId !== uid && r.toUserId !== uid);
   data.inboxMetas = (data.inboxMetas ?? []).filter((m) => m.ownerUserId !== uid);
   data.chatFolders = (data.chatFolders ?? []).filter((f) => f.ownerUserId !== uid);
+  data.stickerPrefs = (data.stickerPrefs ?? []).filter((p) => p.userId !== uid);
+  data.stickerReports = (data.stickerReports ?? []).filter((r) => r.reporterUserId !== uid);
+  data.stickerPacks = (data.stickerPacks ?? []).map((p) =>
+    p.ownerUserId === uid
+      ? { ...p, deletedAt: now, memberIds: p.memberIds.filter((id) => id !== uid) }
+      : { ...p, memberIds: p.memberIds.filter((id) => id !== uid) },
+  );
+  for (const m of data.messages ?? []) {
+    if (m.reactions?.length) m.reactions = m.reactions.map((r) => ({ ...r, keys: r.keys.filter((k) => k !== uid) })).filter((r) => r.keys.length > 0);
+  }
+  for (const m of data.groupMessages ?? []) {
+    if (m.reactions?.length) m.reactions = m.reactions.map((r) => ({ ...r, keys: r.keys.filter((k) => k !== uid) })).filter((r) => r.keys.length > 0);
+  }
+  for (const p of data.channelPosts ?? []) {
+    if (p.reactions?.length) p.reactions = p.reactions.map((r) => ({ ...r, keys: r.keys.filter((k) => k !== uid) })).filter((r) => r.keys.length > 0);
+  }
   for (const c of data.contacts ?? []) {
     if (c.nixoUserId === uid) c.nixoUserId = null;
   }

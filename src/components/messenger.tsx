@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Ban, Bookmark, Flag, Globe, Lock, MessageCircle, Phone, Plus, Radio, Search, Send, Sparkles, Store, Timer, UserRound, Users, Video } from "lucide-react";
+import { Ban, Bookmark, Flag, Globe, Lock, MessageCircle, Phone, Plus, Radio, Search, Send, Smile, Sparkles, Sticker, Store, Timer, UserRound, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { nixoSpaces } from "@/lib/brand";
@@ -37,6 +37,9 @@ import { VoiceComposer } from "@/components/voice-composer";
 import { VoicePlayer } from "@/components/voice-player";
 import { MediaDock } from "@/components/media-dock";
 import { MediaBubble } from "@/components/media-bubble";
+import { EmojiPicker } from "@/components/emoji-picker";
+import { StickerPicker } from "@/components/sticker-picker";
+import { ReactionBar, type PublicReaction } from "@/components/reaction-bar";
 import { setVoiceSaveAllowed } from "@/lib/voice";
 import { defaultAuto, saveAutoSettings, setAutoSaveGallery, type AutoMode } from "@/lib/media";
 import { DisappearPicker, msFromChoice, type TimerChoice } from "@/components/disappear-picker";
@@ -100,7 +103,7 @@ type Message = {
   createdAt: number;
   locked?: boolean;
   local?: boolean;
-  kind?: "text" | "voice" | "photo" | "video" | "file" | "system";
+  kind?: "text" | "voice" | "photo" | "video" | "file" | "system" | "sticker";
   ciphertext?: string;
   nonce?: string;
   enc?: string;
@@ -116,6 +119,9 @@ type Message = {
   chunkCount?: number | null;
   byteLength?: number | null;
   systemEvent?: { type: "disappear"; ms: number | null } | { type: "capture"; messageId: string } | null;
+  stickerId?: string | null;
+  stickerUrl?: string;
+  reactions?: PublicReaction[];
 };
 
 type Tab = "chats" | "calls" | "spaces" | "shop" | "me";
@@ -127,7 +133,7 @@ type WireMsg = {
   enc: string;
   ciphertext: string;
   nonce: string;
-  kind?: "text" | "voice" | "photo" | "video" | "file" | "system";
+  kind?: "text" | "voice" | "photo" | "video" | "file" | "system" | "sticker";
   durationMs?: number | null;
   viewOnce?: boolean;
   expired?: boolean;
@@ -140,6 +146,9 @@ type WireMsg = {
   chunkCount?: number | null;
   byteLength?: number | null;
   systemEvent?: { type: "disappear"; ms: number | null } | { type: "capture"; messageId: string } | null;
+  stickerId?: string | null;
+  stickerUrl?: string | null;
+  reactions?: PublicReaction[];
 };
 
 async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> {
@@ -159,6 +168,20 @@ async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> 
               : "رویداد سیستم",
         kind: "system",
         systemEvent: raw.systemEvent,
+      });
+      continue;
+    }
+    if (raw.kind === "sticker") {
+      remote.push({
+        id: raw.id,
+        sender: raw.sender,
+        createdAt: raw.createdAt,
+        text: "",
+        kind: "sticker",
+        stickerId: raw.stickerId,
+        stickerUrl: raw.stickerUrl ?? undefined,
+        reactions: raw.reactions,
+        forwarded: raw.forwarded,
       });
       continue;
     }
@@ -182,6 +205,7 @@ async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> 
         expireFrom: raw.expireFrom,
         expiresAt: raw.expiresAt,
         viewedAt: raw.viewedAt,
+        reactions: raw.reactions,
       });
       continue;
     }
@@ -203,6 +227,7 @@ async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> 
         expireFrom: raw.expireFrom,
         expiresAt: raw.expiresAt,
         viewedAt: raw.viewedAt,
+        reactions: raw.reactions,
       });
       continue;
     }
@@ -229,6 +254,7 @@ async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> 
         expiresAt: raw.expiresAt,
         viewedAt: raw.viewedAt,
         expired: raw.expired,
+        reactions: raw.reactions,
       });
     } catch {
       remote.push({
@@ -294,6 +320,11 @@ export function Messenger({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [stickerOpen, setStickerOpen] = useState(false);
+  const [emojiRecent, setEmojiRecent] = useState<string[]>([]);
+  const [emojiFavorites, setEmojiFavorites] = useState<string[]>([]);
+  const [failedReact, setFailedReact] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [story, setStory] = useState<{ title: string; body: string; viewed: boolean } | null>(null);
   const [storyOpen, setStoryOpen] = useState(false);
@@ -421,6 +452,42 @@ export function Messenger({
     setPubChannels(data.channels ?? []);
   }, []);
 
+  const reactOn = useCallback(async (messageId: string, emoji: string) => {
+    if (!activeId) return;
+    const key = `nixo-react-q:${userId}`;
+    const send = async () => {
+      const res = await fetch(`/api/chats/${activeId}/reactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId, emoji }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "واکنش ارسال نشد.");
+      setFailedReact((prev) => {
+        const next = { ...prev };
+        delete next[messageId];
+        return next;
+      });
+      setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, reactions: data.reactions } : m)));
+    };
+    try {
+      if (typeof navigator !== "undefined" && !navigator.onLine) throw new Error("offline");
+      await send();
+    } catch {
+      setFailedReact((prev) => ({ ...prev, [messageId]: emoji }));
+      try {
+        const q = JSON.parse(sessionStorage.getItem(key) || "[]") as { messageId: string; emoji: string; threadId: string }[];
+        if (!q.some((x) => x.messageId === messageId && x.emoji === emoji && x.threadId === activeId)) {
+          q.push({ messageId, emoji, threadId: activeId });
+          sessionStorage.setItem(key, JSON.stringify(q.slice(-40)));
+        }
+      } catch {
+        /* ignore */
+      }
+      toast.error("واکنش ارسال نشد. Retry در دسترس است.");
+    }
+  }, [activeId, userId]);
+
   useEffect(() => {
     const ac = new AbortController();
     fetch("/api/chats", { cache: "no-store", signal: ac.signal })
@@ -469,6 +536,33 @@ export function Messenger({
         setPubChannels(data.channels ?? []);
       })
       .catch(() => undefined);
+    fetch("/api/stickers", { cache: "no-store", signal: ac.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d?.prefs) return;
+        setEmojiRecent(d.prefs.emojiRecent ?? []);
+        setEmojiFavorites(d.prefs.emojiFavorites ?? []);
+      })
+      .catch(() => undefined);
+    try {
+      const q = JSON.parse(sessionStorage.getItem(`nixo-react-q:${userId}`) || "[]") as { messageId: string; emoji: string; threadId: string }[];
+      if (q.length) {
+        void (async () => {
+          const left: typeof q = [];
+          for (const item of q) {
+            const res = await fetch(`/api/chats/${item.threadId}/reactions`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ messageId: item.messageId, emoji: item.emoji }),
+            });
+            if (!res.ok) left.push(item);
+          }
+          sessionStorage.setItem(`nixo-react-q:${userId}`, JSON.stringify(left));
+        })();
+      }
+    } catch {
+      /* ignore */
+    }
     loadOrCreateIdentity()
       .then((identity) =>
         fetch("/api/crypto/keys", {
@@ -496,7 +590,7 @@ export function Messenger({
       })
       .catch(() => undefined);
     return () => ac.abort();
-  }, [router, decorateThreads]);
+  }, [router, decorateThreads, userId]);
 
   useEffect(() => {
     const t = window.setInterval(() => {
@@ -868,7 +962,7 @@ export function Messenger({
   async function logout() {
     try {
       Object.keys(sessionStorage)
-        .filter((k) => k.startsWith("nixo-inbox") || k.startsWith("nixo-saved") || k === "nixo.notices")
+        .filter((k) => k.startsWith("nixo-inbox") || k.startsWith("nixo-saved") || k.startsWith("nixo-react-q") || k === "nixo.notices")
         .forEach((k) => sessionStorage.removeItem(k));
     } catch {
       /* ignore */
@@ -1509,7 +1603,16 @@ export function Messenger({
                               : "bg-black/35 text-[var(--nixo-text,#ecfdf5)]",
                         )}
                       >
-                        {msg.kind === "voice" ? (
+                        {msg.kind === "sticker" ? (
+                          <div className="p-2">
+                            {msg.stickerUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={msg.stickerUrl} alt="sticker" className="h-24 w-24" />
+                            ) : (
+                              <p className="px-3 py-2 text-sm">استیکر</p>
+                            )}
+                          </div>
+                        ) : msg.kind === "voice" ? (
                           <VoicePlayer
                             msg={{
                               id: msg.id,
@@ -1602,6 +1705,15 @@ export function Messenger({
                             />
                           </div>
                         )}
+                        <div className="px-2 pb-1">
+                          <ReactionBar
+                            reactions={msg.reactions}
+                            disabled={Boolean(msg.local) || !active.interactionsAllowed}
+                            failed={Boolean(failedReact[msg.id])}
+                            onPick={(emoji) => void reactOn(msg.id, emoji)}
+                            onRetry={() => void reactOn(msg.id, failedReact[msg.id])}
+                          />
+                        </div>
                         <button
                           type="button"
                           className="block w-full px-3 pb-2 text-left text-[10px] opacity-70"
@@ -1709,6 +1821,12 @@ export function Messenger({
                   lastIncoming={[...messages].reverse().find((m) => m.sender === "peer" && m.text)?.text}
                 />
                 <div className="flex gap-2">
+                <Button type="button" size="icon" variant="secondary" className="h-11 w-11" aria-label="Emoji" onClick={() => { setEmojiOpen((v) => !v); setStickerOpen(false); }}>
+                  <Smile className="size-4" />
+                </Button>
+                <Button type="button" size="icon" variant="secondary" className="h-11 w-11" aria-label="Stickers" onClick={() => { setStickerOpen((v) => !v); setEmojiOpen(false); }}>
+                  <Sticker className="size-4" />
+                </Button>
                 <Input
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
@@ -1727,6 +1845,45 @@ export function Messenger({
                   ارسال
                 </Button>
                 </div>
+                {emojiOpen && (
+                  <EmojiPicker
+                    recent={emojiRecent}
+                    favorites={emojiFavorites}
+                    onPick={(e) => {
+                      setDraft((d) => (d + e).slice(0, 2000));
+                      void fetch("/api/stickers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "emoji", emoji: e }) });
+                    }}
+                    onFavorite={(e, next) => {
+                      void fetch("/api/stickers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "emoji", emoji: e, favorite: next }) }).then(() => {
+                        setEmojiFavorites((prev) => (next ? [e, ...prev.filter((x) => x !== e)] : prev.filter((x) => x !== e)));
+                      });
+                    }}
+                  />
+                )}
+                {stickerOpen && (
+                  <StickerPicker
+                    draft={draft}
+                    onSend={async (stickerId) => {
+                      if (!active.messagesAllowed) return;
+                      const res = await fetch(`/api/chats/${active.id}/stickers`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ stickerId }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok) toast.error(data.error ?? "استیکر ارسال نشد.");
+                      else {
+                        setStickerOpen(false);
+                        const list = await fetch(`/api/chats/${active.id}`, { cache: "no-store" });
+                        if (list.ok) {
+                          const payload = (await list.json()) as { messages: WireMsg[] };
+                          const remote = await mapRemote(active.id, payload.messages);
+                          setMessages(remote);
+                        }
+                      }
+                    }}
+                  />
+                )}
               </form>
             </VoiceComposer>
           </div>
@@ -1901,6 +2058,9 @@ export function Messenger({
             </Link>
             <Link href="/app/settings/chats" className="block text-sm text-amber-200">
               تنظیمات → Chats → Chat Organization
+            </Link>
+            <Link href="/app/settings/stickers" className="block text-sm text-amber-200">
+              تنظیمات → Stickers & Emoji
             </Link>
             <Link href="/app/settings/account" className="block text-sm text-amber-200">
               تنظیمات → حساب و پشتیبان

@@ -9,6 +9,7 @@ import { DELETE_EVERYONE_MS, VOICE_CIPHER_MAX, VOICE_MAX_MS } from "@/lib/voice"
 import { MEDIA_MAX_CHUNKS, MEDIA_MAX_BYTES } from "@/lib/media";
 import { deleteMediaBlob } from "@/lib/media-files";
 import { emitNotification } from "@/lib/notify";
+import { publicReactionView, signStickerFile } from "@/lib/stickers";
 import {
   DISAPPEAR_MAX_MS,
   expireFromForKind,
@@ -117,17 +118,17 @@ function purgeContent(message: ChatMessage, now: number, blobs: string[] = []): 
   return message;
 }
 
-export function publicMessage(message: ChatMessage, userId: string, now = Date.now(), blobs: string[] = []) {
+export function publicMessage(message: ChatMessage, userId: string, now = Date.now(), blobs: string[] = [], data?: StoreData) {
   const live = expireIfNeeded(message, now, blobs);
   if (live.hiddenFor?.includes(userId)) return null;
-  const expired = live.kind !== "system" && live.enc !== "e2ee-v1";
+  const expired = live.kind !== "system" && live.kind !== "sticker" && live.enc !== "e2ee-v1";
   return {
     id: live.id,
     threadId: live.threadId,
     sender: live.sender,
     createdAt: live.createdAt,
-    enc: live.kind === "system" ? ("e2ee-v1" as const) : live.enc,
-    ciphertext: expired || live.kind === "system" ? "" : live.ciphertext,
+    enc: live.kind === "system" || live.kind === "sticker" ? ("e2ee-v1" as const) : live.enc,
+    ciphertext: expired || live.kind === "system" || live.kind === "sticker" ? "" : live.ciphertext,
     nonce: expired || live.kind === "system" ? "" : live.nonce,
     kind: live.kind ?? "text",
     durationMs: live.durationMs ?? null,
@@ -146,6 +147,10 @@ export function publicMessage(message: ChatMessage, userId: string, now = Date.n
     mimeClass: live.mimeClass ?? null,
     systemEvent: live.systemEvent ?? null,
     captureCount: live.captureCount ?? 0,
+    stickerId: live.kind === "sticker" ? live.stickerId ?? null : null,
+    stickerUrl:
+      live.kind === "sticker" && live.stickerId ? `/api/stickers/file/${live.stickerId}?t=${signStickerFile(live.stickerId, userId)}` : null,
+    reactions: publicReactionView((data ?? ({} as unknown as StoreData)), live.reactions, userId),
   };
 }
 
@@ -204,7 +209,7 @@ export async function listMessages(userId: string, threadId: string) {
     const messages = data.messages
       .filter((m) => m.threadId === threadId && m.ownerUserId === userId)
       .sort((a, b) => a.createdAt - b.createdAt)
-      .map((m) => publicMessage(m, userId, now, blobs))
+      .map((m) => publicMessage(m, userId, now, blobs, data))
       .filter((m): m is NonNullable<typeof m> => Boolean(m));
     return { thread, messages, ...blockState(data, userId, thread.peerKey) };
   });
@@ -304,7 +309,7 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
     const messages = data.messages
       .filter((m) => m.threadId === threadId && m.ownerUserId === userId)
       .sort((a, b) => a.createdAt - b.createdAt)
-      .map((m) => publicMessage(m, userId, now, blobs))
+      .map((m) => publicMessage(m, userId, now, blobs, data))
       .filter((m): m is NonNullable<typeof m> => Boolean(m));
     return { ok: true as const, thread, messages, ...safety };
   });
@@ -365,7 +370,7 @@ export async function markVoicePlayed(userId: string, threadId: string, messageI
       message.expiresAt = now + message.disappearAfterMs;
     }
     expireIfNeeded(message, now, blobs);
-    return { ok: true as const, message: publicMessage(message, userId, now, blobs) };
+    return { ok: true as const, message: publicMessage(message, userId, now, blobs, data) };
   });
   await Promise.all(blobs.map((id) => deleteMediaBlob(userId, id)));
   return result;
