@@ -38,3 +38,12 @@ export function normalizeEmail(input: string): string | null {
 export function normalizeIdentifier(channel: Channel, input: string): string | null {
   return channel === "phone" ? normalizePhone(input) : normalizeEmail(input);
 }
+
+/** E.164 for Twilio and similar. Iranian 09xxxxxxxxx → +98. */
+export function toE164Phone(input: string): string | null {
+  const n = normalizePhone(input);
+  if (!n) return null;
+  if (n.startsWith("+")) return n;
+  if (/^09\d{9}$/.test(n)) return `+98${n.slice(1)}`;
+  return null;
+}

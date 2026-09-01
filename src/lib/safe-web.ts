@@ -16,7 +16,10 @@ export function sameOrigin(request: { headers: Headers; nextUrl?: { host: string
   const host = request.headers.get("host") || request.nextUrl?.host;
   if (!host) return false;
   try {
-    return new URL(origin).host === host;
+    const originHost = new URL(origin).host;
+    if (originHost === host) return true;
+    const extra = (process.env.NIXO_PUBLIC_HOST || "").trim();
+    return Boolean(extra) && originHost === extra;
   } catch {
     return false;
   }

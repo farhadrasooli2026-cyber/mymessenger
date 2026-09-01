@@ -47,7 +47,21 @@ export const DOC_ENV_VARS = [
   "NIXO_TURN_SECRET",
   "NIXO_CALL_REGION",
   "NIXO_VAULT_KEY_ID",
-  "NIXO_ADMIN_KEY",
+    "NIXO_ADMIN_KEY",
+  "NIXO_EMAIL_PROVIDER",
+  "NIXO_EMAIL_FROM",
+  "NIXO_EMAIL_API_KEY",
+  "NIXO_SMTP_HOST",
+  "NIXO_SMTP_PORT",
+  "NIXO_SMTP_USER",
+  "NIXO_SMTP_PASS",
+  "NIXO_SMTP_SECURE",
+  "NIXO_MAILGUN_DOMAIN",
+  "NIXO_SMS_PROVIDER",
+  "NIXO_SMS_FROM",
+  "NIXO_SMS_API_KEY",
+  "NIXO_SMS_API_SECRET",
+  "NIXO_PUBLIC_HOST",
 ] as const;
 
 export const DOC_SCRIPTS = ["dev", "build", "start", "lint", "test", "ci", "security:scan", "docs:check", "icons"] as const;
@@ -149,7 +163,7 @@ npm run dev
 - \`npm run icons\` — تولید آیکون PWA
 
 ## Staging / Production
-\`NIXO_ENV=staging|production\` و \`NIXO_DEMO_INBOX=false\`. Pepper و Session Secret پیش‌فرض توسعه در Production رد می‌شوند. جزئیات: /docs/deploy و \`docs/DEPLOY.md\`.`,
+\`NIXO_ENV=staging|production\` و \`NIXO_DEMO_INBOX=false\`. Pepper و Session Secret پیش‌فرض توسعه در Production رد می‌شوند. Email و SMS Provider اجباری است. جزئیات: /docs/deploy و \`docs/DEPLOY.md\` و \`docs/OTP.md\`.`,
   }),
   page({
     slug: "onboarding",
@@ -328,7 +342,7 @@ data: {"type":"message","threadId":"thr_example","at":1710000000000}
     body: `## ثبت‌نام
 1. Human challenge
 2. \`POST /api/register/start\` کانال email/phone
-3. OTP هش‌شده؛ متن کد ذخیره نمی‌شود
+3. OTP هش‌شده؛ متن کد ذخیره نمی‌شود. ارسال فقط از Backend به مقصد واقعی (Resend/SendGrid/Postmark/Mailgun/SMTP و Twilio/Kavenegar/sms.ir). Demo Inbox در Production خاموش است.
 4. \`POST /api/register/verify\`
 5. پروفایل \`/setup\` تا حساب Active شود
 
@@ -345,6 +359,21 @@ data: {"type":"message","threadId":"thr_example","at":1710000000000}
 
 ## قانون
 حتی با Feature Flag خاموش/روشن، Authorization سمت سرور است.`,
+  }),
+  page({
+    slug: "otp",
+    title: "ارسال OTP",
+    group: "امنیت",
+    owner: DOCS_OWNERS.safety,
+    summary: "ایمیل و پیامک واقعی از Backend؛ Demo Inbox فقط توسعه.",
+    tags: ["otp", "email", "sms", "resend", "twilio"],
+    body: `فایل: \`docs/OTP.md\`.
+
+## ارسال
+کد روی سرور ساخته و هش می‌شود. متن کد به Provider می‌رود نه به Frontend. شکست Provider وضعیت \`failed\` می‌گیرد.
+
+## Production
+\`NIXO_DEMO_INBOX\` در Production همیشه خاموش است. Render باید Email و SMS Provider داشته باشد.`,
   }),
   page({
     slug: "security",
@@ -420,7 +449,7 @@ ${DOC_ENV_VARS.map((n) => `- \`${n}\``).join("\n")}
 مثال امن: فایل \`.env.example\`. فایل \`.env.local\` در Gitignore است.
 
 ## Validation
-در Production: Pepper/Session پیش‌فرض توسعه و Demo Inbox=true رد می‌شوند.`,
+در Production: Pepper/Session پیش‌فرض توسعه، Demo Inbox=true، و Email/SMS Provider خالی رد می‌شوند.`,
   }),
   page({
     slug: "observability",

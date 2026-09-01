@@ -12,7 +12,7 @@ import {
   updateAccountPrefs,
 } from "@/lib/account";
 import { RETENTION_POLICY } from "@/lib/account-types";
-import { config } from "@/lib/config";
+import { isDemoInboxEnabled } from "@/lib/env-config";
 import { getOutbox } from "@/lib/outbox";
 import { revokeAllDevices } from "@/lib/security";
 import { clientIp, clearSession } from "@/lib/session";
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   if (body.action === "delete-otp") {
     const result = await startDeletionChallenge(userId, ip);
     if (!result.ok) return jsonError(result.error, result.status);
-    const inbox = config.demoInbox ? getOutbox(result.challengeId) : null;
+    const inbox = isDemoInboxEnabled() ? getOutbox(result.challengeId) : null;
     return json({ ok: true, challengeId: result.challengeId, masked: result.masked, inbox: inbox?.body ?? null });
   }
   if (body.action === "delete-confirm") {
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
     const channel = body.channel === "email" ? "email" : "phone";
     const result = await startIdentifierChange(userId, channel, String(body.identifier ?? ""), ip);
     if (!result.ok) return jsonError(result.error, result.status);
-    const inbox = config.demoInbox ? getOutbox(result.challengeId) : null;
+    const inbox = isDemoInboxEnabled() ? getOutbox(result.challengeId) : null;
     return json({ ok: true, challengeId: result.challengeId, masked: result.masked, inbox: inbox?.body ?? null });
   }
   if (body.action === "change-confirm") {

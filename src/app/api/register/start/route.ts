@@ -15,6 +15,10 @@ export async function POST(request: Request) {
   const ipHash = await clientIpHash();
   const result = await startRegistration(parsed.data, ipHash);
   if (!result.ok) {
+    const challengeId = "challengeId" in result ? result.challengeId : undefined;
+    if (result.status === 502 && typeof challengeId === "string") {
+      await writeSession({ step: "verify", challengeId });
+    }
     return jsonError(result.error, result.status, {
       retryAfterSec: "retryAfterSec" in result ? result.retryAfterSec : undefined,
     });

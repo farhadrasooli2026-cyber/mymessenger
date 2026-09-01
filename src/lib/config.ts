@@ -1,4 +1,5 @@
 import "server-only";
+import { isDemoInboxEnabled } from "@/lib/env-config";
 
 function requiredFallback(name: string, fallback: string): string {
   const value = process.env[name];
@@ -19,7 +20,9 @@ export const config = {
     "NIXO_SESSION_SECRET",
     "nixo-dev-session-secret-not-for-production",
   ),
-  demoInbox: process.env.NIXO_DEMO_INBOX !== "false",
+  get demoInbox() {
+    return isDemoInboxEnabled();
+  },
   stunUrl: process.env.NIXO_STUN_URL || "stun:stun.cloudflare.com:3478",
   turnUrl: process.env.NIXO_TURN_URL || "",
   turnUser: process.env.NIXO_TURN_USERNAME || "",

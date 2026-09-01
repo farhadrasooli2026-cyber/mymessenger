@@ -98,6 +98,18 @@ import { repairOrphans } from "@/lib/db/integrity";
 
 export type { CatalogCategory, CatalogItem };
 
+function hydrateChallenge(c: ChallengeRecord): ChallengeRecord {
+  const st = c.deliveryStatus;
+  return {
+    ...c,
+    deliveryStatus: st === "sent" || st === "failed" || st === "dev-outbox" ? st : st === "pending" ? "pending" : undefined,
+    deliveryProvider: c.deliveryProvider ?? "",
+    deliveryAt: c.deliveryAt ?? null,
+    deliveryError: typeof c.deliveryError === "string" ? c.deliveryError.slice(0, 80) : "",
+    deliveryFailedAt: c.deliveryFailedAt ?? null,
+  };
+}
+
 function hydrateDevice(d: DeviceSession): DeviceSession {
   return {
     ...d,
@@ -876,6 +888,11 @@ export type ChallengeRecord = {
   createdAt: number;
   invalidatedAt: number | null;
   ipHash: string;
+  deliveryStatus?: "pending" | "sent" | "failed" | "dev-outbox";
+  deliveryProvider?: string;
+  deliveryAt?: number | null;
+  deliveryError?: string;
+  deliveryFailedAt?: number | null;
 };
 
 export type RateBucket = {
@@ -2367,7 +2384,7 @@ async function readStore(): Promise<StoreData> {
     const parsed = JSON.parse(raw) as StoreData;
     return {
       users: (parsed.users ?? []).map(hydrateUser),
-      challenges: parsed.challenges ?? [],
+      challenges: (parsed.challenges ?? []).map(hydrateChallenge),
       rateBuckets: parsed.rateBuckets ?? [],
       humanChallenges: parsed.humanChallenges ?? [],
       failedCycles: parsed.failedCycles ?? [],

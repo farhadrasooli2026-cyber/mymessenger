@@ -23,6 +23,7 @@ const requiredMd = [
   "docs/EDGE.md",
   "docs/SEARCH.md",
   "docs/GRAPH.md",
+  "docs/OTP.md",
   "docs/adr/0001-json-store.md",
   "CHANGELOG.md",
   "CONTRIBUTING.md",

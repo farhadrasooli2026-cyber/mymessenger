@@ -27,6 +27,8 @@ Production Ready یعنی Security، Privacy، Integrity، Recovery و Maintaina
 
 در Production کوکی نشست `Secure` + `HttpOnly` + `SameSite=Lax` است. HSTS وقتی `x-forwarded-proto=https` باشد ست می‌شود.
 
+Demo Inbox در Production خاموش است. ارسال OTP فقط از Backend با Providerهای env.
+
 ## RTO / RPO (هدف داخلی)
 
 | حوزه | RTO | RPO |

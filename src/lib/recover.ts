@@ -14,7 +14,7 @@ import {
   randomOtp,
 } from "@/lib/crypto-utils";
 import { normalizeIdentifier } from "@/lib/identifiers";
-import { buildOtpMessage, putOutbox } from "@/lib/outbox";
+import { dispatchChallengeOtp } from "@/lib/otp-delivery";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore } from "@/lib/store";
 import { userNeedsTwoStep } from "@/lib/security";
@@ -53,7 +53,7 @@ export async function startRecovery(input: z.infer<typeof recoverStartSchema>, i
   const identifierHash = hmacIdentifier(normalized);
   const masked = input.channel === "phone" ? maskPhone(normalized) : maskEmail(normalized);
 
-  return mutateStore((data) => {
+  const result = await mutateStore((data) => {
     const human = data.humanChallenges.find((h) => h.id === input.humanToken && h.ipHash === ipHash);
     if (!human || human.consumedAt || !human.ackedAt) {
       return publicError("تأیید امنیتی انجام نشد. دوباره تلاش کنید.", 400);
@@ -101,15 +101,9 @@ export async function startRecovery(input: z.infer<typeof recoverStartSchema>, i
       createdAt: Date.now(),
       invalidatedAt: null as number | null,
       ipHash,
+      deliveryStatus: "pending" as const,
     };
     data.challenges.push(challenge);
-    putOutbox({
-      challengeId: challenge.id,
-      channel: input.channel,
-      maskedTo: masked,
-      body: buildOtpMessage(input.channel, code, Math.ceil(config.otp.ttlMs / 60000)),
-      createdAt: Date.now(),
-    });
     return {
       ok: true as const,
       status: 200,
@@ -119,8 +113,24 @@ export async function startRecovery(input: z.infer<typeof recoverStartSchema>, i
       channel: input.channel,
       cooldownSeconds: Math.ceil(config.otp.resendCooldownMs / 1000),
       ttlSeconds: Math.ceil(config.otp.ttlMs / 1000),
+      otpCode: code,
     };
   });
+
+  if (result.ok && "otpCode" in result && result.otpCode) {
+    await dispatchChallengeOtp(result.challengeId, result.otpCode);
+    return {
+      ok: true as const,
+      status: 200,
+      message: result.message,
+      challengeId: result.challengeId,
+      masked: result.masked,
+      channel: result.channel,
+      cooldownSeconds: result.cooldownSeconds,
+      ttlSeconds: result.ttlSeconds,
+    };
+  }
+  return result;
 }
 
 export async function verifyRecovery(challengeId: string, code: string, ipHash: string) {

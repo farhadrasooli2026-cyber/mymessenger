@@ -1,10 +1,10 @@
-import { config } from "@/lib/config";
+import { isDemoInboxEnabled } from "@/lib/env-config";
 import { json, jsonError } from "@/lib/http";
 import { readInbox } from "@/lib/registration";
 import { readSession } from "@/lib/session";
 
 export async function GET() {
-  if (!config.demoInbox) {
+  if (!isDemoInboxEnabled()) {
     return jsonError("صندوق آزمایشی در این محیط غیرفعال است.", 404);
   }
   const session = await readSession();

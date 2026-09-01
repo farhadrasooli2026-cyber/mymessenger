@@ -39,3 +39,28 @@ Staff → `/app/admin` → انتشار (`/api/deploy`) و آمادگی (`/api/p
 - Security patch: same CI + Production Approval; emergency path still audits.
 
 نسخه است روی `/api/version` و `X-NIXO-App-Version`. راهنمای Developer: `/docs/deploy`.
+
+## Render Environment Variables
+
+Set these in the Render Dashboard → Environment. **Do not put real keys in Git.**
+
+Required for a production web service:
+
+```
+NIXO_ENV=production
+NIXO_DEMO_INBOX=false
+NIXO_PEPPER=
+NIXO_SESSION_SECRET=
+NIXO_DATA_KEY=
+NIXO_BACKUP_KEY=
+NIXO_EMAIL_PROVIDER=resend
+NIXO_EMAIL_FROM=NIXO <noreply@yourdomain>
+NIXO_EMAIL_API_KEY=
+NIXO_SMS_PROVIDER=twilio
+NIXO_SMS_API_KEY=
+NIXO_SMS_API_SECRET=
+NIXO_SMS_FROM=
+```
+
+Disk: mount a persistent disk at `.data` so the JSON store survives deploys. Health: `/api/health?probe=ready`. OTP details: [`docs/OTP.md`](./OTP.md).
+

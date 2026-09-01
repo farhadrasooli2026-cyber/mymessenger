@@ -13,7 +13,7 @@ import {
   randomOtp,
 } from "@/lib/crypto-utils";
 import { normalizeIdentifier, type Channel } from "@/lib/identifiers";
-import { buildOtpMessage, putOutbox } from "@/lib/outbox";
+import { dispatchChallengeOtp, OTP_DELIVERY_CLIENT_ERROR } from "@/lib/otp-delivery";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { appendAudit, passwordMatches } from "@/lib/security";
 import { mutateStore, readStoreSnapshot, finalizeDueAccounts, type StoreData } from "@/lib/store";
@@ -75,20 +75,14 @@ function pushOtpChallenge(
     createdAt: Date.now(),
     invalidatedAt: null as number | null,
     ipHash: hashIp(input.ip),
+    deliveryStatus: "pending" as const,
   };
   data.challenges.push(challenge);
-  putOutbox({
-    challengeId: challenge.id,
-    channel: input.channel,
-    maskedTo: input.identifierMasked,
-    body: buildOtpMessage(input.channel, input.code, Math.ceil(config.otp.ttlMs / 60000)),
-    createdAt: Date.now(),
-  });
-  return challenge;
+  return { challenge, code: input.code };
 }
 
 export async function startDeletionChallenge(userId: string, ip: string) {
-  return mutateStore((data) => {
+  const result = await mutateStore((data) => {
     const user = data.users.find((u) => u.id === userId);
     if (!user) return { ok: false as const, error: "حساب یافت نشد.", status: 404 };
     const gate = hitRateLimit(data, `delotp:${userId}:${ip}`, 15 * 60_000, 4);
@@ -96,7 +90,7 @@ export async function startDeletionChallenge(userId: string, ip: string) {
       return { ok: false as const, error: "تعداد درخواست کد بیش از حد است.", status: 429 };
     }
     const code = randomOtp(config.otp.length);
-    const challenge = pushOtpChallenge(data, {
+    const pushed = pushOtpChallenge(data, {
       channel: user.channel,
       identifierHash: user.identifierHash,
       identifierMasked: user.identifierMasked,
@@ -104,8 +98,14 @@ export async function startDeletionChallenge(userId: string, ip: string) {
       ip,
       code,
     });
-    return { ok: true as const, challengeId: challenge.id, masked: user.identifierMasked };
+    return { ok: true as const, challengeId: pushed.challenge.id, masked: user.identifierMasked, otpCode: pushed.code };
   });
+  if (result.ok && result.otpCode) {
+    const delivery = await dispatchChallengeOtp(result.challengeId, result.otpCode);
+    if (!delivery.ok) return { ok: false as const, error: OTP_DELIVERY_CLIENT_ERROR, status: 502 };
+    return { ok: true as const, challengeId: result.challengeId, masked: result.masked };
+  }
+  return result;
 }
 
 export async function scheduleDeletion(
@@ -179,7 +179,7 @@ export async function cancelDeletion(userId: string, ip: string) {
 export async function startIdentifierChange(userId: string, channel: Channel, identifier: string, ip: string) {
   const normalized = normalizeIdentifier(channel, identifier);
   if (!normalized) return { ok: false as const, error: "شماره یا ایمیل جدید معتبر نیست.", status: 400 };
-  return mutateStore((data) => {
+  const result = await mutateStore((data) => {
     const user = data.users.find((u) => u.id === userId);
     if (!user) return { ok: false as const, error: "حساب یافت نشد.", status: 404 };
     const hash = hmacIdentifier(normalized);
@@ -191,7 +191,7 @@ export async function startIdentifierChange(userId: string, channel: Channel, id
     if (!gate.allowed) return { ok: false as const, error: "تعداد تلاش بیش از حد است.", status: 429 };
     const code = randomOtp(config.otp.length);
     const masked = channel === "phone" ? maskPhone(normalized) : maskEmail(normalized);
-    const challenge = pushOtpChallenge(data, {
+    const pushed = pushOtpChallenge(data, {
       channel,
       identifierHash: hash,
       identifierMasked: masked,
@@ -199,9 +199,15 @@ export async function startIdentifierChange(userId: string, channel: Channel, id
       ip,
       code,
     });
-    user.pendingIdentifier = { channel, challengeId: challenge.id, masked };
-    return { ok: true as const, challengeId: challenge.id, masked };
+    user.pendingIdentifier = { channel, challengeId: pushed.challenge.id, masked };
+    return { ok: true as const, challengeId: pushed.challenge.id, masked, otpCode: pushed.code };
   });
+  if (result.ok && result.otpCode) {
+    const delivery = await dispatchChallengeOtp(result.challengeId, result.otpCode);
+    if (!delivery.ok) return { ok: false as const, error: OTP_DELIVERY_CLIENT_ERROR, status: 502 };
+    return { ok: true as const, challengeId: result.challengeId, masked: result.masked };
+  }
+  return result;
 }
 
 export async function confirmIdentifierChange(

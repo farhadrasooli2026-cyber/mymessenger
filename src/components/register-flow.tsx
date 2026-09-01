@@ -58,6 +58,7 @@ export function RegisterFlow() {
   const [twoStepPassword, setTwoStepPassword] = useState("");
   const [recovery, setRecovery] = useState("");
   const [hasPasskeys, setHasPasskeys] = useState(false);
+  const [demoInbox, setDemoInbox] = useState(false);
 
   async function loadChallenge() {
     const res = await fetch("/api/register/challenge", { cache: "no-store" });
@@ -75,8 +76,9 @@ export function RegisterFlow() {
         fetch("/api/register/session", { cache: "no-store" }),
         loadChallenge(),
       ]);
-      const session = (await sessionRes.json()) as SessionPayload & { hasPasskeys?: boolean };
+      const session = (await sessionRes.json()) as SessionPayload & { hasPasskeys?: boolean; demoInbox?: boolean };
       if (cancelled) return;
+      setDemoInbox(Boolean(session.demoInbox));
       if (session.step === "complete") {
         router.replace("/app");
         return;
@@ -569,6 +571,8 @@ export function RegisterFlow() {
             </div>
             <Separator className="bg-white/10" />
             <div className="space-y-2">
+              {demoInbox ? (
+                <>
               <Button
                 type="button"
                 variant="secondary"
@@ -584,8 +588,14 @@ export function RegisterFlow() {
                 </pre>
               )}
               <p className="text-xs text-emerald-100/55">
-                در محیط واقعی، کد فقط از پیامک یا ایمیل خوانده می‌شود. این صندوق فقط برای پیش‌نمایش است و کد در پایگاه‌داده ذخیره نمی‌شود.
+                صندوق آزمایشی فقط در development/testing است. در Production کد فقط از ایمیل یا پیامک واقعی خوانده می‌شود.
               </p>
+                </>
+              ) : (
+              <p className="text-xs text-emerald-100/55">
+                کد تأیید به ایمیل یا شمارهٔ واقعی شما از سرور نیکسو ارسال می‌شود. این صفحه کد را نشان نمی‌دهد.
+              </p>
+              )}
             </div>
           </form>
         )}

@@ -39,6 +39,7 @@ export function runSmokeProbes(data: StoreData): SmokeProbe[] {
   ensureProd(data);
   return [
     probe("register", "ثبت‌نام", Boolean(data.challenges) && Array.isArray(data.users), "OTP هش‌شده؛ چالش در Store."),
+    probe("otp", "OTP", currentDeployEnv() !== "production" || (Boolean(process.env.NIXO_EMAIL_PROVIDER) && Boolean(process.env.NIXO_SMS_PROVIDER)), "ارسال Email/SMS از Backend؛ Demo Inbox در Production خاموش است."),
     probe("login", "ورود", Array.isArray(data.devices), "نشست دستگاه جدا از پروفایل."),
     probe("logout", "خروج", Array.isArray(data.devices), "ابطال دستگاه سمت سرور."),
     probe("messaging", "پیام", Array.isArray(data.messages) && Array.isArray(data.threads), "ciphertext؛ متن خام در Store پیام خصوصی نیست."),

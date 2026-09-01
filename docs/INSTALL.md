@@ -21,3 +21,5 @@ npm run dev
 سپس `/docs` را برای مرجع باز کن.
 
 مقدارهای `.env.local` را commit نکن. نام متغیرها در `.env.example` است.
+
+ارسال OTP واقعی: [`docs/OTP.md`](./OTP.md). در development صندوق آزمایشی فعال است؛ در Production باید Provider ایمیل و پیامک در env باشد.

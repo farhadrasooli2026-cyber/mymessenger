@@ -15,6 +15,36 @@ export function currentDeployEnv(): DeployEnvName {
   return "development";
 }
 
+/** Production never exposes the in-memory demo inbox, even if the env flag is omitted. */
+export function isDemoInboxEnabled(): boolean {
+  if (process.env.VITEST) return true;
+  if (currentDeployEnv() === "production") return false;
+  if (process.env.NIXO_DEMO_INBOX === "false") return false;
+  if (process.env.NIXO_DEMO_INBOX === "true") return true;
+  return currentDeployEnv() === "development" || currentDeployEnv() === "testing";
+}
+
+function has(name: string) {
+  return Boolean(process.env[name] && String(process.env[name]).trim());
+}
+
+function productionEmailOk() {
+  const p = (process.env.NIXO_EMAIL_PROVIDER || "").toLowerCase();
+  const from = process.env.NIXO_EMAIL_FROM || process.env.NIXO_SMTP_FROM;
+  if (p === "smtp") return has("NIXO_SMTP_HOST") && has("NIXO_SMTP_USER") && has("NIXO_SMTP_PASS") && Boolean(from);
+  if (p === "resend" || p === "sendgrid" || p === "postmark") return has("NIXO_EMAIL_API_KEY") && Boolean(from);
+  if (p === "mailgun") return has("NIXO_EMAIL_API_KEY") && Boolean(from);
+  return false;
+}
+
+function productionSmsOk() {
+  const p = (process.env.NIXO_SMS_PROVIDER || "").toLowerCase();
+  if (p === "twilio") return has("NIXO_SMS_API_KEY") && has("NIXO_SMS_API_SECRET") && has("NIXO_SMS_FROM");
+  if (p === "kavenegar") return has("NIXO_SMS_API_KEY");
+  if (p === "smsir") return has("NIXO_SMS_API_KEY") && has("NIXO_SMS_FROM");
+  return false;
+}
+
 export function envVarNames(): readonly string[] {
   return [
     "NIXO_PEPPER",
@@ -27,6 +57,20 @@ export function envVarNames(): readonly string[] {
     "NIXO_STUN_URL",
     "NIXO_TURN_URL",
     "NIXO_TURN_SECRET",
+    "NIXO_EMAIL_PROVIDER",
+    "NIXO_EMAIL_FROM",
+    "NIXO_EMAIL_API_KEY",
+    "NIXO_SMTP_HOST",
+    "NIXO_SMTP_PORT",
+    "NIXO_SMTP_USER",
+    "NIXO_SMTP_PASS",
+    "NIXO_SMTP_SECURE",
+    "NIXO_MAILGUN_DOMAIN",
+    "NIXO_SMS_PROVIDER",
+    "NIXO_SMS_FROM",
+    "NIXO_SMS_API_KEY",
+    "NIXO_SMS_API_SECRET",
+    "NIXO_PUBLIC_HOST",
   ] as const;
 }
 
@@ -51,10 +95,14 @@ export function validateRuntimeConfig(env: DeployEnvName = currentDeployEnv()): 
     if (!pepper || pepper === DEV_PEPPER || pepper.length < 16) errors.push("production pepper missing");
     if (!session || session === DEV_SESSION || session.length < 16) errors.push("production session secret missing");
     if (demo === "true") errors.push("demo inbox must be off in production");
+    if (!productionEmailOk()) errors.push("production email provider missing");
+    if (!productionSmsOk()) errors.push("production sms provider missing");
     if (!process.env.NIXO_BACKUP_KEY) warnings.push("backup key unset");
     if (!process.env.NIXO_DATA_KEY || process.env.NIXO_DATA_KEY.replace(/0/g, "") === "") warnings.push("data key looks empty");
   } else if (env === "staging") {
     if (demo === "true") warnings.push("demo inbox on in staging");
+    if (!productionEmailOk()) warnings.push("staging email provider unset");
+    if (!productionSmsOk()) warnings.push("staging sms provider unset");
   }
   return { ok: errors.length === 0, errors, warnings };
 }

@@ -1,6 +1,7 @@
 import { cookies, headers } from "next/headers";
 import { config } from "@/lib/config";
 import { hashIp, signPayload, verifyPayload } from "@/lib/crypto-utils";
+import { currentDeployEnv } from "@/lib/env-config";
 
 export type RegisterStep = "verify" | "profile" | "complete" | "twostep" | "device" | "recover";
 
@@ -51,7 +52,9 @@ export async function readSession(): Promise<RegisterSession | null> {
 export const SESSION_COOKIE_POLICY = {
   httpOnly: true as const,
   sameSite: "lax" as const,
-  secure: process.env.NODE_ENV === "production",
+  get secure() {
+    return currentDeployEnv() === "production" || process.env.NODE_ENV === "production";
+  },
   path: "/",
 };
 

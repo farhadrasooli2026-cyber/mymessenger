@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { config } from "@/lib/config";
+import { isDemoInboxEnabled } from "@/lib/env-config";
 import {
   dummyOtpCompare,
   encryptText,
@@ -14,7 +15,8 @@ import {
   randomOtp,
 } from "@/lib/crypto-utils";
 import { normalizeIdentifier } from "@/lib/identifiers";
-import { buildOtpMessage, getOutbox, putOutbox } from "@/lib/outbox";
+import { getOutbox } from "@/lib/outbox";
+import { dispatchChallengeOtp, OTP_DELIVERY_CLIENT_ERROR } from "@/lib/otp-delivery";
 import {
   clearFailedCycles,
   isIdentifierLocked,
@@ -168,16 +170,9 @@ export async function startRegistration(input: z.infer<typeof startSchema>, ipHa
       createdAt: now,
       invalidatedAt: null,
       ipHash,
+      deliveryStatus: "pending" as const,
     };
     data.challenges.push(challenge);
-
-    putOutbox({
-      challengeId: challenge.id,
-      channel: input.channel,
-      maskedTo: masked,
-      body: buildOtpMessage(input.channel, code, Math.ceil(config.otp.ttlMs / 60000)),
-      createdAt: now,
-    });
 
     trackBi({ name: "funnel.register_start", source: "registration" });
     return {
@@ -189,15 +184,31 @@ export async function startRegistration(input: z.infer<typeof startSchema>, ipHa
       masked,
       channel: input.channel,
       challengeId: challenge.id,
+      otpCode: code,
     };
   });
+
+  if (result.ok && "otpCode" in result && result.otpCode) {
+    const delivery = await dispatchChallengeOtp(result.challengeId, result.otpCode);
+    if (!delivery.ok) return publicError(OTP_DELIVERY_CLIENT_ERROR, 502, { challengeId: result.challengeId });
+    return {
+      ok: true as const,
+      status: 200,
+      message: result.message,
+      cooldownSeconds: result.cooldownSeconds,
+      ttlSeconds: result.ttlSeconds,
+      masked: result.masked,
+      channel: result.channel,
+      challengeId: result.challengeId,
+    };
+  }
 
   return result;
 }
 
 export async function resendOtp(challengeId: string, ipHash: string) {
   const now = Date.now();
-  return mutateStore((data) => {
+  const result = await mutateStore((data) => {
     const challenge = data.challenges.find((c) => c.id === challengeId);
     if (!challenge || challenge.usedAt || challenge.invalidatedAt) {
       dummyOtpCompare("000000");
@@ -228,14 +239,7 @@ export async function resendOtp(challengeId: string, ipHash: string) {
     challenge.sendCount += 1;
     challenge.lastSentAt = now;
     challenge.usedAt = null;
-
-    putOutbox({
-      challengeId: challenge.id,
-      channel: challenge.channel,
-      maskedTo: challenge.identifierMasked,
-      body: buildOtpMessage(challenge.channel, code, Math.ceil(config.otp.ttlMs / 60000)),
-      createdAt: now,
-    });
+    challenge.deliveryStatus = "pending";
 
     return {
       ok: true as const,
@@ -243,8 +247,23 @@ export async function resendOtp(challengeId: string, ipHash: string) {
       message: GENERIC_SENT,
       cooldownSeconds: Math.ceil(config.otp.resendCooldownMs / 1000),
       ttlSeconds: Math.ceil(config.otp.ttlMs / 1000),
+      otpCode: code,
     };
   });
+
+  if (result.ok && "otpCode" in result && result.otpCode) {
+    const delivery = await dispatchChallengeOtp(challengeId, result.otpCode);
+    if (!delivery.ok) return publicError(OTP_DELIVERY_CLIENT_ERROR, 502, { challengeId });
+    return {
+      ok: true as const,
+      status: 200,
+      message: result.message,
+      cooldownSeconds: result.cooldownSeconds,
+      ttlSeconds: result.ttlSeconds,
+    };
+  }
+
+  return result;
 }
 
 export async function verifyOtp(challengeId: string, code: string, ipHash: string) {
@@ -334,7 +353,7 @@ export async function getUserById(userId: string) {
 }
 
 export async function readInbox(challengeId: string) {
-  if (!config.demoInbox) return null;
+  if (!isDemoInboxEnabled()) return null;
   return getOutbox(challengeId);
 }
 

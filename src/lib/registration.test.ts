@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { hashIp } from "./crypto-utils";
-import { normalizeEmail, normalizePhone } from "./identifiers";
+import { normalizeEmail, normalizePhone, toE164Phone } from "./identifiers";
 import { getOutbox } from "./outbox";
 import { completeProfile } from "./profile";
 import {
@@ -25,6 +25,7 @@ describe("identifiers", () => {
     expect(normalizePhone("۰۹۱۲۳۴۵۶۷۸۹")).toBe("09123456789");
     expect(normalizePhone("+98 912 345 6789")).toBe("09123456789");
     expect(normalizePhone("123")).toBeNull();
+    expect(toE164Phone("09123456789")).toBe("+989123456789");
   });
 
   it("normalizes email", () => {
@@ -68,6 +69,8 @@ describe("registration security", () => {
     expect(raw.includes(code!)).toBe(false);
     expect(snapshot.challenges[0]?.codeHash).toHaveLength(64);
     expect(snapshot.challenges[0]?.salt.length).toBeGreaterThan(8);
+    expect(snapshot.challenges[0]?.deliveryStatus).toBe("dev-outbox");
+    expect(snapshot.challenges[0]?.deliveryError).toBeFalsy();
   });
 
   it("rejects a wrong code and consumes the one-time code after success", async () => {
