@@ -9,6 +9,7 @@ export const SEARCH_KINDS = [
   "all",
   "people",
   "users",
+  "friends",
   "chats",
   "messages",
   "groups",
@@ -36,9 +37,24 @@ export const SEARCH_KINDS = [
   "highlights",
   "members",
   "subscribers",
+  "posts",
+  "stories",
 ] as const;
 
 export type SearchKind = (typeof SEARCH_KINDS)[number];
+
+/** Tabs the Search UI surfaces first. Extra kinds stay available after these. */
+export const SEARCH_PRIMARY_TABS = [
+  "all",
+  "users",
+  "friends",
+  "groups",
+  "channels",
+  "messages",
+  "media",
+  "posts",
+  "stories",
+] as const satisfies readonly SearchKind[];
 
 export { SAVED_TAGS, SAVED_MAX_MEDIA } from "@/lib/saved-types";
 
@@ -65,7 +81,10 @@ export type SearchHit = {
     | "emoji"
     | "highlight"
     | "member"
-    | "subscriber";
+    | "subscriber"
+    | "friend"
+    | "story"
+    | "post";
   title: string;
   preview: string;
   sender: string;
@@ -86,7 +105,7 @@ export type SearchHit = {
   username?: string | null;
   highlight?: { t: string; hit: boolean }[];
   target: {
-    type: "user" | "group" | "channel" | "community" | "chat" | "saved" | "bot" | "business" | "mini" | "product" | "live" | "hashtag" | "sticker" | "highlight";
+    type: "user" | "group" | "channel" | "community" | "chat" | "saved" | "bot" | "business" | "mini" | "product" | "live" | "hashtag" | "sticker" | "highlight" | "story";
     id: string;
     messageId?: string;
     businessId?: string;
@@ -95,7 +114,7 @@ export type SearchHit = {
 
 export type SearchDoc = {
   id: string;
-  kind: "user" | "group" | "channel" | "post" | "sticker";
+  kind: "user" | "group" | "channel" | "post" | "sticker" | "story";
   entityId: string;
   parentId?: string;
   title: string;
@@ -132,4 +151,5 @@ export type SearchMetrics = {
   lastError?: string;
   emptyResults?: number;
   opens?: number;
+  resultHits?: number;
 };

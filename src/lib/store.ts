@@ -2064,6 +2064,8 @@ export type StoreData = {
   searchIndexJobs: SearchIndexJob[];
   searchQueryCache: SearchQueryCache[];
   searchMetrics: SearchMetrics;
+  /** Public hashtag counts only. Never stores private queries, phones, or emails. */
+  searchPopular: Record<string, number>;
   schemaMeta: import("@/lib/db/migrate").SchemaMeta;
   dbJobs: DbJob[];
   dbAudit: DbAudit[];
@@ -2208,6 +2210,7 @@ const EMPTY: StoreData = {
   searchIndexJobs: [],
   searchQueryCache: [],
   searchMetrics: { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0 },
+  searchPopular: {},
   schemaMeta: { version: 0, migratedAt: 0, env: process.env.VITEST ? "test" : "development" },
   dbJobs: [],
   dbAudit: [],
@@ -2456,6 +2459,7 @@ async function readStore(): Promise<StoreData> {
       searchIndexJobs: Array.isArray(parsed.searchIndexJobs) ? parsed.searchIndexJobs : [],
       searchQueryCache: Array.isArray(parsed.searchQueryCache) ? parsed.searchQueryCache : [],
       searchMetrics: parsed.searchMetrics ?? { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0 },
+      searchPopular: parsed.searchPopular && typeof parsed.searchPopular === "object" ? parsed.searchPopular : {},
       schemaMeta: hydrateSchemaMeta(parsed.schemaMeta),
       dbJobs: Array.isArray(parsed.dbJobs) ? parsed.dbJobs : [],
       dbAudit: Array.isArray(parsed.dbAudit) ? parsed.dbAudit : [],

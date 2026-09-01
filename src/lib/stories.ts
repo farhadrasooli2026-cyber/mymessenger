@@ -8,6 +8,7 @@ import type { StoreData, StoryHighlight, UserStory } from "@/lib/store";
 import { emitNotification } from "@/lib/notify";
 import { inspectLink, inspectTextLinks } from "@/lib/link-safety";
 import { audienceAllows } from "@/lib/privacy";
+import { enqueueSearchIndexSync } from "@/lib/search";
 import { isLikelyEmoji } from "@/lib/emoji-data";
 import {
   STORY_CAPTION_MAX,
@@ -74,6 +75,11 @@ function canSeeStatus(data: StoreData, ownerId: string, viewerId: string) {
 
 function bumpStoryCache(data: StoreData) {
   data.storyCacheGen = (data.storyCacheGen ?? 0) + 1;
+}
+
+function bumpStorySearch(data: StoreData) {
+  bumpStoryCache(data);
+  enqueueSearchIndexSync(data, "story");
 }
 
 function sweepStories(data: StoreData) {
@@ -550,7 +556,7 @@ export async function createStory(userId: string, input: Partial<UserStory> & { 
       });
       sweepStories(data);
     }
-    bumpStoryCache(data);
+    bumpStorySearch(data);
     pushStoryAudit(data, userId, story.draft ? "draft" : "create", story.id);
     if (!story.draft) notifyStory(data, story, userId, now);
     return { ok: true as const, story: publicStory(story, userId) };
@@ -595,7 +601,7 @@ export async function publishDraft(userId: string, storyId: string) {
       story.shareToken = randomId();
       story.shareExpiresAt = story.expiresAt;
     }
-    bumpStoryCache(data);
+    bumpStorySearch(data);
     pushStoryAudit(data, userId, "publish", story.id);
     notifyStory(data, story, userId, now);
     return { ok: true as const, story: publicStory(story, userId) };
@@ -612,7 +618,7 @@ export async function deleteStory(userId: string, storyId: string) {
     story.thumbnail = "";
     story.shareToken = "";
     story.shareExpiresAt = 0;
-    bumpStoryCache(data);
+    bumpStorySearch(data);
     pushStoryAudit(data, userId, "delete", story.id);
     return { ok: true as const };
   });
@@ -1009,7 +1015,7 @@ export async function editStory(
     if (typeof patch.allowReactions === "boolean") story.allowReactions = patch.allowReactions;
     if (Array.isArray(patch.hideFromIds)) story.hideFromIds = patch.hideFromIds.slice(0, 40);
     if (Array.isArray(patch.allowIds)) story.allowIds = patch.allowIds.slice(0, 40);
-    bumpStoryCache(data);
+    bumpStorySearch(data);
     pushStoryAudit(data, userId, "edit", story.id);
     return { ok: true as const, story: publicStory(story, userId) };
   });
@@ -1031,7 +1037,7 @@ export async function restoreStory(userId: string, storyId: string) {
       story.shareToken = randomId();
       story.shareExpiresAt = story.expiresAt;
     }
-    bumpStoryCache(data);
+    bumpStorySearch(data);
     pushStoryAudit(data, userId, "restore", story.id);
     return { ok: true as const, story: publicStory(story, userId) };
   });

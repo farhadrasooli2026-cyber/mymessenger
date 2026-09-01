@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { SEARCH_KINDS, type SearchHit, type SearchKind } from "@/lib/search-types";
+import { SEARCH_KINDS, SEARCH_PRIMARY_TABS, type SearchHit, type SearchKind } from "@/lib/search-types";
 import { searchLocalChats, type LocalThreadHint } from "@/lib/client-search";
 import { highlightText } from "@/lib/search-match";
 
@@ -13,6 +13,7 @@ const KIND_FA: Record<SearchKind, string> = {
   all: "همه",
   people: "افراد",
   users: "کاربران",
+  friends: "دوستان",
   chats: "چت‌ها",
   messages: "پیام‌ها",
   groups: "گروه‌ها",
@@ -38,6 +39,8 @@ const KIND_FA: Record<SearchKind, string> = {
   highlights: "هایلایت",
   members: "اعضا",
   subscribers: "مشترک‌ها",
+  posts: "پست‌ها",
+  stories: "استوری",
   images: "تصویر",
   audio: "صوت",
 };
@@ -285,7 +288,19 @@ export function SearchPanel({
           ))}
         </div>
         <div className="mt-2 flex flex-wrap gap-1">
-          {SEARCH_KINDS.map((k) => (
+          {SEARCH_PRIMARY_TABS.map((k) => (
+            <button
+              key={k}
+              type="button"
+              className={`rounded-full px-2 py-0.5 text-[11px] ${kind === k ? "bg-amber-300 text-[#102824]" : "bg-white/10"}`}
+              onClick={() => setKind(k)}
+            >
+              {KIND_FA[k]}
+            </button>
+          ))}
+        </div>
+        <div className="mt-1 flex flex-wrap gap-1">
+          {SEARCH_KINDS.filter((k) => !(SEARCH_PRIMARY_TABS as readonly string[]).includes(k)).map((k) => (
             <button
               key={k}
               type="button"

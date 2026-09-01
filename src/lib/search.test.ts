@@ -402,4 +402,70 @@ describe("NIXO search and saved messages", () => {
     const paged = await globalSearch(stranger, { q: "ایندکس", kind: "channels", limit: 1 });
     expect(paged.ok && (paged.nextCursor === null || typeof paged.nextCursor === "string")).toBe(true);
   });
+
+  it("searches friends only, keeps private stories out of global search, and never trends private queries", async () => {
+    const a = await activeUser("sr_fr_a");
+    const friend = await activeUser("sr_fr_b");
+    const stranger = await activeUser("sr_fr_c");
+    await mutateStore((data) => {
+      const ua = data.users.find((u) => u.id === a);
+      const ub = data.users.find((u) => u.id === friend);
+      if (ua && ub) {
+        ua.friendIds.push(friend);
+        ub.friendIds.push(a);
+      }
+    });
+    const friends = await globalSearch(a, { q: "sr_fr_b", kind: "friends" });
+    expect(friends.ok && friends.hits.some((h) => h.target.id === friend && h.scope === "friend")).toBe(true);
+    const notFriend = await globalSearch(a, { q: "sr_fr_c", kind: "friends" });
+    expect(notFriend.ok && notFriend.hits.every((h) => h.target.id !== stranger)).toBe(true);
+
+    const { createStory, deleteStory, editStory } = await import("./stories");
+    const { openSearchResult, searchHealth } = await import("./search");
+    const pub = await createStory(friend, { kind: "text", body: "استوری عمومی نکسو طلوع", visibility: "everyone" });
+    expect(pub.ok).toBe(true);
+    const priv = await createStory(friend, { kind: "text", body: "استوری محرمانه دوستان نزدیک", visibility: "closeFriends" });
+    expect(priv.ok).toBe(true);
+    const found = await globalSearch(a, { q: "طلوع", kind: "stories" });
+    expect(found.ok && found.hits.some((h) => h.scope === "story")).toBe(true);
+    const leak = await globalSearch(a, { q: "محرمانه دوستان", kind: "stories" });
+    expect(leak.ok && leak.hits.every((h) => h.preview !== "استوری محرمانه دوستان نزدیک" && !h.title.includes("محرمانه"))).toBe(true);
+    if (priv.ok) {
+      const idor = await openSearchResult(a, `story:${priv.story.id}`);
+      expect(idor.ok).toBe(false);
+    }
+    if (pub.ok) {
+      const okOpen = await openSearchResult(a, `story:${pub.story.id}`);
+      expect(okOpen.ok).toBe(true);
+      await mutateStore((data) => {
+        const s = data.userStories.find((x) => x.id === pub.story.id);
+        if (s) s.expiresAt = Date.now() - 1000;
+      });
+      const expired = await globalSearch(a, { q: "طلوع", kind: "stories" });
+      expect(expired.ok && expired.hits.every((h) => h.target.id !== pub.story.id)).toBe(true);
+    }
+    const again = await createStory(friend, { kind: "text", body: "استوری حذف‌شونده نکسو", visibility: "everyone" });
+    expect(again.ok).toBe(true);
+    if (again.ok) {
+      await deleteStory(friend, again.story.id);
+      const gone = await globalSearch(a, { q: "حذف‌شونده", kind: "stories" });
+      expect(gone.ok && gone.hits.every((h) => h.target.id !== again.story.id)).toBe(true);
+    }
+    await globalSearch(a, { q: "#نکسوجستجو" });
+    await globalSearch(a, { q: "پیام خصوصی خودم برای روند" });
+    await mutateStore((data) => {
+      expect(Object.keys(data.searchPopular ?? {}).some((t) => t.includes("نکسوجستجو"))).toBe(true);
+      expect(Object.values(data.searchPopular ?? {}).every((n) => typeof n === "number")).toBe(true);
+      expect(JSON.stringify(data.searchPopular ?? {})).not.toContain("پیام خصوصی خودم");
+    });
+    const trend = await globalSearch(stranger, { q: "", feed: "trending", recordHistory: false });
+    expect(trend.ok && trend.hits.every((h) => !`${h.title}${h.preview}`.includes("پیام خصوصی خودم"))).toBe(true);
+    const health = await searchHealth();
+    expect(health.queries).toBeGreaterThan(0);
+    expect(typeof health.resultHits).toBe("number");
+    expect(typeof health.errorRate).toBe("number");
+    if (priv.ok) {
+      await editStory(friend, priv.story.id, { visibility: "everyone", caption: "اکنون عمومی شد نکسو" });
+    }
+  });
 });

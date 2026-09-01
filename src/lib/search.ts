@@ -1,7 +1,7 @@
 import "server-only";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot, type StoreData } from "@/lib/store";
-import type { ChannelPost, CommunityRecord, GroupRecord, PubChannelRecord } from "@/lib/store";
+import type { ChannelPost, CommunityRecord, GroupRecord, PubChannelRecord, UserStory } from "@/lib/store";
 import { publicProfile } from "@/lib/profile";
 import { hmacIdentifier, randomId } from "@/lib/crypto-utils";
 import { blobMatches, exactPhraseMatches, foldText, highlightText, matchScore, recencyBoost, sanitizeSearchSnippet, suggestTerms } from "@/lib/search-match";
@@ -24,9 +24,11 @@ import { searchEmoji } from "@/lib/emoji-data";
 import {
   extractHashtags,
   extractMentions,
+  normalizeHashtag,
   parseSearchQuery,
   SEARCH_BUDGET_MS,
   SEARCH_HIT_CAP,
+  SEARCH_QUERY_MIN,
   validateSearchQuery,
   type SearchFeed,
   type SearchHasFilter,
@@ -63,6 +65,24 @@ function canSeeChannel(channel: PubChannelRecord, userId: string) {
   const sub = channel.subscribers.some((s) => s.userId === userId && liveSub(s));
   if (staff || sub) return true;
   return channel.visibility === "public" && channel.status !== "restricted";
+}
+
+function isPublicLiveStory(story: UserStory, now: number) {
+  return !story.deletedAt && !story.draft && story.visibility === "everyone" && now <= story.expiresAt;
+}
+
+function canOpenPublicStory(data: StoreData, story: UserStory, userId: string, now: number) {
+  if (!isPublicLiveStory(story, now)) return false;
+  const owner = data.users.find((u) => u.id === story.ownerUserId);
+  if (!owner || owner.status !== "active") return false;
+  if (owner.accountStatus && owner.accountStatus !== "active") return false;
+  if (pairBlocked(data, userId, story.ownerUserId)) return false;
+  if (story.hideFromIds.includes(userId)) return false;
+  return true;
+}
+
+function storySearchBlob(story: UserStory) {
+  return `${story.caption} ${story.body} ${story.location} ${story.kind} ${story.overlay}`;
 }
 
 export function enqueueSearchIndexSync(data: StoreData, reason = "sync") {
@@ -158,6 +178,24 @@ export function syncPublicSearchIndex(data: StoreData) {
       updatedAt: pack.createdAt,
     });
   }
+  const now = Date.now();
+  for (const s of data.userStories ?? []) {
+    if (!isPublicLiveStory(s, now)) continue;
+    const owner = data.users.find((u) => u.id === s.ownerUserId);
+    if (!owner || owner.status !== "active") continue;
+    if (owner.accountStatus && owner.accountStatus !== "active") continue;
+    const blob = sanitizeSearchSnippet(storySearchBlob(s), 120);
+    docs.push({
+      id: `story:${s.id}`,
+      kind: "story",
+      entityId: s.id,
+      title: blob || "استوری عمومی",
+      preview: "استوری عمومی",
+      tags: extractHashtags(storySearchBlob(s)),
+      public: true,
+      updatedAt: s.createdAt,
+    });
+  }
   const fp = publicIndexFingerprint(docs);
   const prev = (data.searchDocs ?? []).length ? publicIndexFingerprint(data.searchDocs) : "";
   data.searchDocs = docs;
@@ -216,7 +254,7 @@ function canonicalKind(kind: SearchKind): SearchKind {
 
 function matchesKind(kind: SearchKind, itemKind: string) {
   const k = canonicalKind(kind);
-  if (k === "all" || k === "users" || k === "groups" || k === "channels" || k === "communities" || k === "chats") {
+  if (k === "all" || k === "users" || k === "friends" || k === "groups" || k === "channels" || k === "communities" || k === "chats" || k === "posts" || k === "stories") {
     return true;
   }
   if (k === "messages" || k === "hashtags" || k === "mentions") {
@@ -467,6 +505,22 @@ function resolveAuthorizedEntity(data: StoreData, userId: string, id: string, hi
       target: { type: "sticker", id: pack.id },
     };
   }
+  const story = data.userStories?.find((s) => s.id === id);
+  if (story && (hint === "story" || hint === "unknown")) {
+    if (!canOpenPublicStory(data, story, userId, Date.now())) return null;
+    const owner = data.users.find((u) => u.id === story.ownerUserId);
+    return {
+      id: `story:${story.id}`,
+      scope: "story",
+      title: sanitizeSearchSnippet(story.caption || story.body || "استوری", 80),
+      preview: "استوری عمومی",
+      sender: owner?.displayName || owner?.username || "",
+      chatName: "استوری",
+      date: story.createdAt,
+      kind: "story",
+      target: { type: "story", id: story.id },
+    };
+  }
   const hl = (data.storyHighlights ?? []).find((h) => h.id === id);
   if (hl && highlightVisible(data, hl, userId)) {
     return {
@@ -496,6 +550,39 @@ function highlightVisible(data: StoreData, hl: StoreData["storyHighlights"][numb
   if (hl.visibility === "closeFriends") return Boolean(owner?.closeFriendIds?.includes(viewerId));
   if (hl.visibility === "selected") return hl.allowIds.includes(viewerId);
   return false;
+}
+
+function diversifyHits(hits: SearchHit[], cap: number) {
+  const buckets = new Map<string, SearchHit[]>();
+  for (const h of hits) {
+    const k = h.scope;
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k)!.push(h);
+  }
+  const out: SearchHit[] = [];
+  let round = 0;
+  while (out.length < cap) {
+    let added = false;
+    for (const arr of buckets.values()) {
+      if (round < arr.length) {
+        out.push(arr[round]!);
+        added = true;
+        if (out.length >= cap) break;
+      }
+    }
+    if (!added) break;
+    round += 1;
+  }
+  return out;
+}
+
+function bumpPublicHashtagPopularity(data: StoreData, query: string) {
+  const tags = extractHashtags(query).map((t) => normalizeHashtag(t)).filter((t) => t.length >= 2);
+  if (!tags.length) return;
+  data.searchPopular ??= {};
+  for (const t of tags) {
+    data.searchPopular[t] = (data.searchPopular[t] ?? 0) + 1;
+  }
 }
 
 function collectDiscoveryHits(data: StoreData, userId: string, input: SearchQuery): SearchHit[] {
@@ -614,8 +701,57 @@ function collectDiscoveryHits(data: StoreData, userId: string, input: SearchQuer
       );
     }
   }
+  const nowStories = Date.now();
+  for (const s of data.userStories ?? []) {
+    if (!canOpenPublicStory(data, s, userId, nowStories)) continue;
+    if (hidden.has(s.id) || hidden.has(s.ownerUserId) || muted.has(s.ownerUserId)) continue;
+    const blob = storySearchBlob(s);
+    if (q.length >= 2 && !blobMatches(blob, q)) continue;
+    const owner = data.users.find((u) => u.id === s.ownerUserId);
+    hits.push(
+      rank(
+        {
+          id: `story:${s.id}`,
+          scope: "story",
+          title: sanitizeSearchSnippet(s.caption || s.body || "استوری", 80),
+          preview: "Discovery · استوری عمومی",
+          sender: owner?.displayName || owner?.username || "",
+          chatName: trending ? "Trending" : "Discovery",
+          date: s.createdAt,
+          kind: "story",
+          target: { type: "story", id: s.id },
+        },
+        q || s.caption || s.body || s.kind,
+        recencyBoost(s.createdAt),
+      ),
+    );
+  }
+  if (trending) {
+    const popular = Object.entries(data.searchPopular ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 16);
+    for (const [tag, n] of popular) {
+      if (q.length >= 2 && !blobMatches(tag, q)) continue;
+      hits.push(
+        rank(
+          {
+            id: `hashtag:${tag}`,
+            scope: "hashtag",
+            title: `#${tag}`,
+            preview: "هشتگ عمومی",
+            sender: "",
+            chatName: "Trending",
+            date: nowStories,
+            kind: "hashtag",
+            members: n,
+            target: { type: "hashtag", id: tag },
+          },
+          q || tag,
+          n / 2,
+        ),
+      );
+    }
+  }
   sortHits(hits, trending ? "popular" : input.sort ?? "popular");
-  return hits.slice(0, SEARCH_HIT_CAP);
+  return diversifyHits(hits, SEARCH_HIT_CAP);
 }
 
 function rank(hit: SearchHit, needle: string, extra = 0) {
@@ -656,7 +792,7 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
   }
   const scoped = Boolean(chatId || groupId || channelId);
   const allowShort = Boolean(input.feed || parsed.entityHint || exactPhrase || kind === "emoji" || parsed.has || parsed.from || parsed.inId);
-  if (!allowShort && q.length < 2) return [];
+  if (!allowShort && q.length < SEARCH_QUERY_MIN) return [];
 
   const started = Date.now();
   const hits: SearchHit[] = [];
@@ -664,6 +800,7 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
     (data.contacts ?? []).filter((c) => c.ownerUserId === userId && c.nixoUserId).map((c) => c.nixoUserId as string),
   );
   const wantPeople = !scoped && (kind === "all" || kind === "users" || kind === "people");
+  const wantFriends = !scoped && kind === "friends";
   const wantChats = !groupId && !channelId && (kind === "all" || kind === "chats");
   const wantBots = !scoped && (kind === "all" || kind === "bots" || kind === "users");
   const wantMini = !scoped && (kind === "all" || kind === "mini");
@@ -676,6 +813,7 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
   const wantStickers = !scoped && (kind === "all" || kind === "stickers");
   const wantEmoji = kind === "emoji" || kind === "all";
   const wantHighlights = !scoped && (kind === "all" || kind === "highlights");
+  const wantStories = !scoped && (kind === "all" || kind === "stories");
   const wantMembers = kind === "members" || Boolean(groupId && kind === "all");
   const wantSubscribers = kind === "subscribers";
   const wantContent =
@@ -691,7 +829,8 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
     kind === "media" ||
     kind === "hashtags" ||
     kind === "mentions" ||
-    kind === "stickers";
+    kind === "stickers" ||
+    kind === "posts";
 
   const pushHit = (hit: SearchHit, extra = 0) => {
     if (hits.length >= SEARCH_HIT_CAP) return;
@@ -787,6 +926,34 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
           );
         }
       }
+    }
+  }
+
+  if (wantFriends) {
+    for (const fid of me.friendIds ?? []) {
+      const u = data.users.find((x) => x.id === fid);
+      if (!u || u.id === userId || !u.username) continue;
+      if (!canFindByUsername(data, u, userId)) continue;
+      const view = publicProfile(u, userId);
+      const blob = `${u.username} ${view.displayName}`;
+      const isExact = u.username === q;
+      if (q.length >= SEARCH_QUERY_MIN && !isExact && !blobMatches(blob, q) && !blobMatches(view.displayName, q)) continue;
+      pushHit(
+        {
+          id: `user:${u.id}`,
+          scope: "friend",
+          title: view.displayName || u.username,
+          preview: `@${u.username}`,
+          sender: view.displayName,
+          chatName: "دوستان",
+          date: u.activatedAt ?? u.createdAt,
+          kind: "friend",
+          photoUrl: view.photoHidden ? null : view.photoUrl,
+          username: u.username,
+          target: { type: "user", id: u.id },
+        },
+        (isExact ? 40 : 12) + (contactIds.has(u.id) ? 8 : 0),
+      );
     }
   }
 
@@ -1086,6 +1253,7 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
       }
     }
     for (const g of data.groups) {
+      if (kind === "posts") continue;
       if (channelId || chatId) continue;
       if (groupId && g.id !== groupId) continue;
       if (!g.members.some((m) => liveMember(m, userId))) continue;
@@ -1198,6 +1366,31 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
           },
           q,
         ),
+      );
+    }
+  }
+
+  if (wantStories) {
+    const now = Date.now();
+    for (const s of data.userStories ?? []) {
+      if (!canOpenPublicStory(data, s, userId, now)) continue;
+      if (!inRange(s.createdAt, fromDate, toDate)) continue;
+      const blob = storySearchBlob(s);
+      if (q.length >= SEARCH_QUERY_MIN && !contentMatches(blob, q, exactPhrase, "all")) continue;
+      const owner = data.users.find((u) => u.id === s.ownerUserId);
+      pushHit(
+        {
+          id: `story:${s.id}`,
+          scope: "story",
+          title: sanitizeSearchSnippet(s.caption || s.body || "استوری", 80),
+          preview: "استوری عمومی",
+          sender: owner?.displayName || owner?.username || "",
+          chatName: "استوری",
+          date: s.createdAt,
+          kind: "story",
+          target: { type: "story", id: s.id },
+        },
+        6,
       );
     }
   }
@@ -1318,13 +1511,14 @@ export async function globalSearch(userId: string, input: SearchQuery) {
     }
     const me = data.users.find((u) => u.id === userId);
     if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
-    if (record && q.length >= 2 && !sensitive && !feed) {
+    if (record && q.length >= SEARCH_QUERY_MIN && !sensitive && !feed) {
       me.searchHistory = [input.q.trim().slice(0, 80), ...me.searchHistory.filter((h) => h !== input.q.trim())].slice(
         0,
         SEARCH_HISTORY_MAX,
       );
+      bumpPublicHashtagPopularity(data, input.q);
     }
-    if (!feed && q.length < 2 && !parseSearchQuery(input.q).entityHint && !input.exact && !parseSearchQuery(input.q).has && !parseSearchQuery(input.q).from && !parseSearchQuery(input.q).inId) {
+    if (!feed && q.length < SEARCH_QUERY_MIN && !parseSearchQuery(input.q).entityHint && !input.exact && !parseSearchQuery(input.q).has && !parseSearchQuery(input.q).from && !parseSearchQuery(input.q).inId) {
       return {
         ok: true as const,
         hits: [] as SearchHit[],
@@ -1373,6 +1567,7 @@ export async function globalSearch(userId: string, input: SearchQuery) {
     const titles = hits.map((h) => h.title);
     data.searchMetrics.queries += 1;
     data.searchMetrics.lastLatencyMs = Date.now() - now;
+    data.searchMetrics.resultHits = (data.searchMetrics.resultHits ?? 0) + page.length;
     if (page.length === 0) data.searchMetrics.emptyResults = (data.searchMetrics.emptyResults ?? 0) + 1;
     const successRate =
       data.searchMetrics.queries === 0 ? 1 : 1 - (data.searchMetrics.emptyResults ?? 0) / Math.max(1, data.searchMetrics.queries);
@@ -1387,7 +1582,17 @@ export async function globalSearch(userId: string, input: SearchQuery) {
       noResultHints: page.length === 0 ? suggestTerms(input.q, me.searchHistory).slice(0, 5) : [],
       note: "متن گفتگوی خصوصی E2EE روی سرور جستجو نمی‌شود؛ روی دستگاه ادغام می‌شود. نتایج فقط پس از Authentication، Authorization، Membership و Block در لحظهٔ درخواست است.",
       indexGen: data.searchIndex?.gen ?? 0,
-      metrics: { latencyMs: data.searchMetrics.lastLatencyMs, cacheHit: Boolean(cached), successRate },
+      metrics: {
+        latencyMs: data.searchMetrics.lastLatencyMs,
+        cacheHit: Boolean(cached),
+        successRate,
+        resultCount: page.length,
+        queryCount: data.searchMetrics.queries,
+        errorRate:
+          data.searchMetrics.queries === 0 ? 0 : (data.searchMetrics.errors ?? 0) / data.searchMetrics.queries,
+        zeroResultRate:
+          data.searchMetrics.queries === 0 ? 0 : (data.searchMetrics.emptyResults ?? 0) / data.searchMetrics.queries,
+      },
     };
   });
   } catch {
@@ -1414,7 +1619,7 @@ export async function suggestSearch(userId: string, q: string) {
     const me = data.users.find((u) => u.id === userId);
     if (!me) return { ok: false as const, status: 401, error: "حساب فعال نیست.", suggestions: [] as string[] };
     const extra =
-      needleOf(q).length >= 2
+      needleOf(q).length >= SEARCH_QUERY_MIN
         ? collectSearchHits(data, userId, { q, kind: "all" })
             .slice(0, 12)
             .map((h) => h.title)
@@ -1497,7 +1702,13 @@ export async function openSearchResult(userId: string, hitId: string) {
     const entity = parts[1] ?? "";
     const extra = parts.slice(2).join(":") || undefined;
     const hint =
-      scope === "user" || scope === "group" || scope === "channel" || scope === "community" || scope === "chat" || scope === "live"
+      scope === "user" ||
+      scope === "group" ||
+      scope === "channel" ||
+      scope === "community" ||
+      scope === "chat" ||
+      scope === "live" ||
+      scope === "story"
         ? scope
         : scope === "cpost" || scope === "post"
           ? "channel"
@@ -1517,7 +1728,11 @@ export async function openSearchResult(userId: string, hitId: string) {
     data.searchMetrics ??= { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0, emptyResults: 0, opens: 0 };
     data.searchMetrics.opens = (data.searchMetrics.opens ?? 0) + 1;
     const href =
-      hit.target.type === "sticker" ? "/app/stickers" : hit.target.type === "highlight" ? "/app/stories" : "/app";
+      hit.target.type === "sticker"
+        ? "/app/stickers"
+        : hit.target.type === "highlight" || hit.target.type === "story"
+          ? "/app/stories"
+          : "/app";
     return { ok: true as const, href, target: hit.target };
   });
 }
@@ -1535,5 +1750,13 @@ export async function searchHealth() {
     errors: data.searchMetrics?.errors ?? 0,
     emptyResults: data.searchMetrics?.emptyResults ?? 0,
     opens: data.searchMetrics?.opens ?? 0,
+    resultHits: data.searchMetrics?.resultHits ?? 0,
+    errorRate:
+      (data.searchMetrics?.queries ?? 0) === 0 ? 0 : (data.searchMetrics?.errors ?? 0) / (data.searchMetrics?.queries ?? 1),
+    zeroResultRate:
+      (data.searchMetrics?.queries ?? 0) === 0
+        ? 0
+        : (data.searchMetrics?.emptyResults ?? 0) / (data.searchMetrics?.queries ?? 1),
+    popularPublicTags: Object.keys(data.searchPopular ?? {}).length,
   };
 }

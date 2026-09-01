@@ -1,5 +1,6 @@
 /** Query parsing and abuse guards. Safe on client and server. Does not log the query. */
 
+export const SEARCH_QUERY_MIN = 2;
 export const SEARCH_QUERY_MAX = 200;
 export const SEARCH_HIT_CAP = 400;
 export const SEARCH_BUDGET_MS = 120;
@@ -99,9 +100,20 @@ export function extractHashtags(text: string) {
   const re = /#([^\s#]{1,40})/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
-    out.push(m[1]!.replace(/[.,!?;:]+$/, ""));
+    out.push(normalizeHashtag(m[1]!));
   }
-  return out;
+  return out.filter(Boolean);
+}
+
+export function normalizeHashtag(tag: string) {
+  return tag
+    .replace(/^#+/, "")
+    .normalize("NFKC")
+    .replace(/ي/g, "ی")
+    .replace(/ك/g, "ک")
+    .toLocaleLowerCase("en")
+    .replace(/[.,!?;:]+$/g, "")
+    .slice(0, 40);
 }
 
 export function extractMentions(text: string) {
@@ -117,7 +129,7 @@ export function extractMentions(text: string) {
 export function parseEntityHint(raw: string): { type: string; id: string } | null {
   const t = raw.trim();
   const deep =
-    /(?:nixo:\/\/|nixo:)?(?:user|group|channel|community|chat|live)[:/]+([a-zA-Z0-9_-]{8,48})/i.exec(t) ||
+    /(?:nixo:\/\/|nixo:)?(?:user|group|channel|community|chat|live|story)[:/]+([a-zA-Z0-9_-]{8,48})/i.exec(t) ||
     /(?:^|\/)(?:c|g|u|ch|live)\/([a-zA-Z0-9_-]{8,48})(?:\/|$)/i.exec(t);
   if (deep) {
     const id = deep[1]!;
@@ -128,6 +140,8 @@ export function parseEntityHint(raw: string): { type: string; id: string } | nul
         ? "channel"
         : lower.includes("community")
           ? "community"
+          : lower.includes("story")
+            ? "story"
           : lower.includes("live")
             ? "live"
             : lower.includes("chat")
