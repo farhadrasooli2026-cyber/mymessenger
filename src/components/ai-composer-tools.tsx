@@ -21,7 +21,7 @@ export function AiComposerTools({
     if (!src.trim()) return;
     const out = runAiEngine({
       text: src,
-      intent: intent === "grammar" ? "rewrite" : intent,
+      intent: intent === "grammar" ? "grammar" : intent,
       lang,
     });
     onDraft(out.suggestions?.[0] ?? out.text.split("\n—")[0] ?? out.text);

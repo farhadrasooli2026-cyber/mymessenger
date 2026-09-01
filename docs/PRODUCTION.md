@@ -44,3 +44,7 @@ Production Ready یعنی Security، Privacy، Integrity، Recovery و Maintaina
 ## تأیید Release
 
 `PROD_APPROVE` فقط رکورد می‌سازد؛ جایگزین `DEPLOY_PRODUCTION` نیست.
+
+## AI
+
+لایهٔ هوش مصنوعی جدا از مدار هویت و پیام است. Kill دستیار ورود را نمی‌بندد. جزئیات: `docs/AI.md`.

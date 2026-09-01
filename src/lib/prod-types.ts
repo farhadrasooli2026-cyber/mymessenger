@@ -122,6 +122,7 @@ export const SMOKE_SURFACE = [
   { id: "subscription", title: "اشتراک" },
   { id: "payment", title: "پرداخت" },
   { id: "refund", title: "استرداد" },
+  { id: "ai", title: "هوش مصنوعی" },
 ] as const;
 
 export const CHECKLIST = [

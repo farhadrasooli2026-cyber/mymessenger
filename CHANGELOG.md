@@ -10,11 +10,12 @@
 - تحلیل محصول (`/api/bi`, زبانهٔ تحلیل) جدا از پایش عملیاتی
 - اشتراک و صورتحساب سندباکس (`/api/billing`, Settings → اشتراک، زبانهٔ مالی)
 - آمادگی Production (`/api/prod`, زبانهٔ آمادگی): امتیاز، Smoke داخلی، یخ‌زدگی انتشار
+- لایهٔ هوش مصنوعی (`/api/ai`, `/api/ai/ops`): Provider محلی، حریم، Kill بدون قطع پیام
 - Dependency اصلی: Next 16.3، React 19، Zod 4، Vitest 4، Tailwind 4
 
 ### API
 
-- `GET /api/health`, `/api/status`, `/api/version`, `/api/docs`, `/api/i18n`, `/api/bi`, `/api/billing`, `/api/prod`
+- `GET /api/health`, `/api/status`, `/api/version`, `/api/docs`, `/api/i18n`, `/api/bi`, `/api/billing`, `/api/prod`, `/api/ai`, `/api/ai/ops`
 - SSE `/api/chats/:id/live`
 
 ### Breaking

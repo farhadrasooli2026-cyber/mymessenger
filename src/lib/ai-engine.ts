@@ -99,7 +99,7 @@ export function summarizeText(text: string, model: AiModelId = "balanced") {
   const bits = clean.split(/(?<=[.!?؟。])\s+/).filter((s) => s.length > 12);
   const n = model === "fast" ? 2 : model === "advanced" ? 5 : 3;
   const pick = bits.slice(0, n);
-  return "خلاصه:\n• " + (pick.length ? pick.join("\n• ") : clean.slice(0, 280));
+  return "خلاصهٔ تولیدشده توسط AI:\n• " + (pick.length ? pick.join("\n• ") : clean.slice(0, 280));
 }
 
 export function rewriteText(text: string, mode: "rewrite" | "shorten" | "expand" | "grammar" | "tone", tone: Tone = "neutral") {
@@ -181,6 +181,9 @@ function inferIntent(text: string, explicit?: AiIntent): AiIntent {
   if (/\bocr\b|متن داخل عکس|extract text/.test(t)) return "ocr";
   if (/describe|توصیف عکس|analyze photo/.test(t)) return "describe";
   if (/spam|هرزنامه/.test(t)) return "spam";
+  if (/^(search|جستجو|ara|bul)(\s|:|$)/i.test(t) || /\bsemantic\b/.test(t)) return "search";
+  if (/transcrib|رونویسی|voice message/.test(t)) return "transcribe";
+  if (/recommend|پیشنهاد محتوا/.test(t)) return "recommend";
   return "chat";
 }
 
@@ -308,6 +311,41 @@ export function runAiEngine(input: AiEngineInput): AiEngineOutput {
   if (intent === "file") {
     const body = input.fileText || work;
     return { text: summarizeText(body, model) + "\n\nپرسش‌هایت دربارهٔ همین متن را بپرس." + disclaimer, refused: false, uncertain: true, intent };
+  }
+  if (intent === "search") {
+    const hits = input.fileText?.trim();
+    return {
+      text: hits
+        ? `جستجوی هوشمند فقط روی نتایج مجاز خودت:\n${hits.slice(0, 4000)}`
+        : "نتیجه‌ای در محدودهٔ دسترسی تو پیدا نشد.",
+      refused: false,
+      uncertain: true,
+      intent,
+    };
+  }
+  if (intent === "audio" || intent === "transcribe") {
+    if (input.fileText?.trim()) {
+      return {
+        text: "رونویسی محلی از متن/فایل مجاز (نه تماس):\n" + input.fileText.slice(0, 4000) + "\n\nرونوشت مثل پیام اصلی محافظت می‌شود.",
+        refused: false,
+        uncertain: true,
+        intent,
+      };
+    }
+    return {
+      text: "رونویسی Voice فقط با فایل/متن مجاز خودت. تماس و ضبط تماس بدون سیاست جدا پردازش نمی‌شود.",
+      refused: false,
+      uncertain: true,
+      intent,
+    };
+  }
+  if (intent === "recommend") {
+    return {
+      text: "پیشنهاد فقط از دادهٔ مجاز خودت (گفتگوهای AI یا نتایج جستجوی مجاز). Personalization را می‌توانی خاموش کنی. این توصیه است نه حقیقت.",
+      refused: false,
+      uncertain: true,
+      intent,
+    };
   }
 
   const topicHint =

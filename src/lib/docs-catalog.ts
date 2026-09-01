@@ -76,6 +76,8 @@ export const DOC_API_PATHS = [
   "/api/bi",
   "/api/billing",
   "/api/prod",
+  "/api/ai",
+  "/api/ai/ops",
 ] as const;
 
 function page(p: Omit<DocPage, "headings">): DocPage {
@@ -262,12 +264,16 @@ POST /api/chats/:id  body: { ciphertext, nonce, enc, clientNonce }
 ## آمادگی Production
 \`GET/POST /api/prod\` با \`prod.view\` / \`prod.manage\`. امتیاز، Smoke داخلی، یخ‌زدگی انتشار، تأیید Release. Secret در پاسخ نیست.
 
+## هوش مصنوعی
+\`GET/POST /api/ai\` نشست کاربر. \`GET/POST /api/ai/ops\` با \`ai.view\` / \`ai.manage\`. کلید Provider در پاسخ نیست. شکست AI روی \`503\` است و هستهٔ پیام را قطع نمی‌کند.
+
 ## Deprecation
 فعلاً Breaking Change عمومی اعلام‌شده نیست. حذف فیلد فقط با bump API_VERSION و یادداشت در CHANGELOG.md.
 
 ## Changelog API (0.1.0)
 - افزودن \`/api/version\`، \`/api/deploy\`، \`/api/docs\`، \`/api/i18n\`
-- \`X-NIXO-App-Version\``,
+- \`X-NIXO-App-Version\`
+- \`/api/ai\` و \`/api/ai/ops\``,
   }),
   page({
     slug: "realtime",
@@ -670,6 +676,24 @@ DAU/WAU/MAU، Retention، Cohort، Churn، قیف ثبت‌نام، پیام (ف
 
 ## Smoke
 ثبت‌نام تا استرداد روی Store و ماژول‌های موجود بررسی می‌شود؛ جایگزین E2E مرورگر کامل نیست.`,
+  }),
+  page({
+    slug: "ai",
+    title: "هوش مصنوعی",
+    group: "عملیات",
+    owner: DOCS_OWNERS.safety,
+    summary: "لایهٔ AI مستقل با Provider Abstraction، حریم، رضایت، سقف مصرف و Kill بدون قطع پیام‌رسانی.",
+    tags: ["ai", "privacy", "provider", "consent", "moderation", "credits"],
+    body: `مرکز کاربر: \`/app/ai\` و Settings → هوش مصنوعی. ادمین: زبانهٔ هوش مصنوعی. فایل: \`docs/AI.md\`. API \`/api/ai\` و \`/api/ai/ops\`.
+
+## جداسازی
+موتور داخلی پیش‌فرض است. کلید Provider به کلاینت نمی‌رود. شکست Provider هسته را Down نمی‌کند.
+
+## حریم
+Secret و کارت از Prompt حذف می‌شوند. جستجو فقط نتایج مجاز. تماس و ضبط بدون Policy وارد مدل نمی‌شود. Embedding و Cache با userId جدا می‌مانند.
+
+## ایمنی
+Injection، Safety Layer، خروجی Validateشده. Moderation کمکی است و Ban دائم نمی‌کند. محتوای AI برچسب دارد. Kill، Eval، Rollback پرامپت.`,
   }),
   page({
     slug: "changelog",

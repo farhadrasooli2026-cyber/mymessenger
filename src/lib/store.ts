@@ -34,6 +34,7 @@ import type {
   MiniAccessLog,
 } from "@/lib/bot-types";
 import type { AiChatRecord, AiLog, AiMemoryItem, AiMessageRecord, AiPrefs } from "@/lib/ai-types";
+import { emptyAiPersist, hydrateAiPersist, pruneAiPersist, type AiPersist } from "@/lib/ai-persist";
 import type {
   BusinessRecord,
   BusinessStaff,
@@ -2073,6 +2074,7 @@ export type StoreData = {
   aiMemory: AiMemoryItem[];
   aiPrefs: AiPrefs[];
   aiLogs: AiLog[];
+  aiSys: AiPersist;
   businesses: BusinessRecord[];
   bizStaff: BusinessStaff[];
   bizProducts: BizProduct[];
@@ -2229,6 +2231,7 @@ const EMPTY: StoreData = {
   aiMemory: [],
   aiPrefs: [],
   aiLogs: [],
+  aiSys: emptyAiPersist(),
   businesses: [],
   bizStaff: [],
   bizProducts: [],
@@ -2451,6 +2454,7 @@ async function readStore(): Promise<StoreData> {
       aiMemory: Array.isArray(parsed.aiMemory) ? parsed.aiMemory : [],
       aiPrefs: Array.isArray(parsed.aiPrefs) ? parsed.aiPrefs : [],
       aiLogs: Array.isArray(parsed.aiLogs) ? parsed.aiLogs : [],
+      aiSys: hydrateAiPersist(parsed.aiSys),
       businesses: Array.isArray(parsed.businesses) ? parsed.businesses : [],
       bizStaff: Array.isArray(parsed.bizStaff) ? parsed.bizStaff : [],
       bizProducts: (Array.isArray(parsed.bizProducts) ? parsed.bizProducts : []).map(hydrateProduct),
@@ -2713,6 +2717,8 @@ function prune(data: StoreData, now: number): void {
   data.bi = hydrateBiPersist(data.bi);
   data.billing = hydrateBillingPersist(data.billing);
   data.prod = hydrateProdPersist(data.prod);
+  data.aiSys = pruneAiPersist(hydrateAiPersist(data.aiSys), now);
+  data.aiLogs = (data.aiLogs ?? []).filter((l) => now - l.at < (data.aiSys.policy.retentionDays || 90) * 24 * 60 * 60 * 1000).slice(0, 800);
   syncBillingLifecycle(data, now);
   for (const user of data.users) expireStaleRestriction(user, now);
   data.callEvents = (data.callEvents ?? []).filter((e) => now - e.at < 7 * 24 * 60 * 60 * 1000).slice(-4000);
@@ -2804,6 +2810,13 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.aiMessages = (data.aiMessages ?? []).filter((m) => m.userId !== uid);
   data.aiMemory = (data.aiMemory ?? []).filter((m) => m.userId !== uid);
   data.aiPrefs = (data.aiPrefs ?? []).filter((p) => p.userId !== uid);
+  if (data.aiSys) {
+    data.aiSys.jobs = data.aiSys.jobs.filter((j) => j.userId !== uid);
+    data.aiSys.idempotency = data.aiSys.idempotency.filter((i) => i.userId !== uid);
+    data.aiSys.cache = data.aiSys.cache.filter((c) => c.userId !== uid);
+    data.aiSys.vectors = data.aiSys.vectors.filter((v) => v.userId !== uid);
+  }
+  data.aiLogs = (data.aiLogs ?? []).filter((l) => l.userId !== uid);
   const ownedBiz = (data.businesses ?? []).filter((b) => b.ownerUserId === uid).map((b) => b.id);
   data.businesses = (data.businesses ?? []).filter((b) => b.ownerUserId !== uid);
   data.bizStaff = (data.bizStaff ?? []).filter((s) => s.userId !== uid && !ownedBiz.includes(s.businessId));

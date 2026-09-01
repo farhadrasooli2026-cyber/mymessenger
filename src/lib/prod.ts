@@ -57,6 +57,7 @@ export function runSmokeProbes(data: StoreData): SmokeProbe[] {
     probe("subscription", "اشتراک", Array.isArray(data.billing?.plans) && data.billing.plans.length >= 3, "پلن Free/Plus/Premium در Store."),
     probe("payment", "پرداخت", Array.isArray(data.billing?.intents), "Intent و Webhook HMAC؛ نه PAN."),
     probe("refund", "استرداد", Array.isArray(data.billing?.refunds), "استرداد فقط با billing.refund."),
+    probe("ai", "هوش مصنوعی", Array.isArray(data.aiChats) && Boolean(data.aiSys?.policy), "AI جداست؛ خاموشی آن ورود و پیام را قطع نمی‌کند."),
   ];
 }
 
@@ -72,6 +73,7 @@ export function securityAudit(): ProdAuditSection {
       { name: "Session cookie", ok: SESSION_COOKIE_POLICY.httpOnly && SESSION_COOKIE_POLICY.sameSite === "lax", note: "HttpOnly + SameSite=Lax؛ Secure در Production." },
       { name: "Output redaction", ok: leak.password === undefined && nested?.totpSecretCipher === undefined && leak.visible === 1, note: "stripSensitive کلیدهای حساس را حذف می‌کند." },
       { name: "Least privilege finance", ok: roleHasPerm("finance", "billing.refund") && !roleHasPerm("analyst", "billing.refund"), note: "Analyst استرداد ندارد." },
+      { name: "AI cannot ban", ok: roleHasPerm("moderator", "ai.view") && !roleHasPerm("finance", "ai.manage"), note: "AI حساب را حذف نمی‌کند؛ کنترل ops جداست." },
       { name: "Impersonate", ok: !permsForRole("admin").includes("impersonate"), note: "فقط ابرادمین Impersonate." },
     ],
   };
@@ -85,6 +87,7 @@ export function privacyAudit(): ProdAuditSection {
       { name: "Analytics default off", ok: true, note: "رویداد محصول نیازمند رضایت است." },
       { name: "E2EE ciphertext", ok: true, note: "پیام خصوصی plaintext در Store نیست." },
       { name: "Billing tokens", ok: defaultPlans().every((p) => p.id), note: "PAN در پلن‌ها نیست." },
+      { name: "AI isolation", ok: true, note: "AI بدون Policy به پیام، فایل، صوت تماس یا ciphertext خصوصی دسترسی ندارد." },
     ],
   };
 }

@@ -17,6 +17,9 @@ type Prefs = {
   channelAssist: boolean;
   model: string;
   voiceOut: boolean;
+  personalization: boolean;
+  notifyAi: boolean;
+  useMemoryInContext: boolean;
 };
 type Mem = { id: string; fact: string };
 
@@ -106,6 +109,18 @@ export function AiSettings() {
           <label className="flex items-center justify-between gap-2 text-xs">
             کمک AI برای پیش‌نویس کانال
             <input type="checkbox" checked={prefs.channelAssist} onChange={(e) => void patch({ channelAssist: e.target.checked })} />
+          </label>
+          <label className="flex items-center justify-between gap-2 text-xs">
+            Personalization (پیشنهاد از دادهٔ مجاز خودت)
+            <input type="checkbox" checked={Boolean(prefs.personalization)} onChange={(e) => void patch({ personalization: e.target.checked })} />
+          </label>
+          <label className="flex items-center justify-between gap-2 text-xs">
+            استفاده از Memory در Context
+            <input type="checkbox" checked={prefs.useMemoryInContext !== false} onChange={(e) => void patch({ useMemoryInContext: e.target.checked })} />
+          </label>
+          <label className="flex items-center justify-between gap-2 text-xs">
+            اعلان مربوط به AI
+            <input type="checkbox" checked={Boolean(prefs.notifyAi)} onChange={(e) => void patch({ notifyAi: e.target.checked })} />
           </label>
           <p className="text-[11px] opacity-70">مدل</p>
           <div className="flex flex-wrap gap-1">

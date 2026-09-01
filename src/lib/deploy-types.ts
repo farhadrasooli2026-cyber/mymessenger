@@ -120,6 +120,7 @@ export function defaultFlags(): FeatureFlagRow[] {
   const now = 0;
   return [
     { key: "ai_suggestions", enabled: true, percent: 100, segment: "all", kill: false, updatedAt: now, updatedBy: null },
+    { key: "ai_core", enabled: true, percent: 100, segment: "all", kill: false, updatedAt: now, updatedBy: null },
     { key: "live_discovery", enabled: true, percent: 100, segment: "all", kill: false, updatedAt: now, updatedBy: null },
     { key: "music_radio", enabled: false, percent: 0, segment: "percent", kill: false, updatedAt: now, updatedBy: null },
     { key: "shop_new_checkout", enabled: false, percent: 0, segment: "percent", kill: false, updatedAt: now, updatedBy: null },

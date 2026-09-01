@@ -8,6 +8,7 @@ import {
   deleteAiMemory,
   getAiWorkspace,
   listAiMessages,
+  overrideAiMessage,
   sendAiMessage,
   setAiFeedback,
   setChatModel,
@@ -91,6 +92,11 @@ export async function POST(request: Request) {
   if (body.action === "model") {
     const model = body.model as AiModelId;
     const result = await setChatModel(user.id, String(body.chatId ?? ""), model);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (body.action === "override") {
+    const result = await overrideAiMessage(user.id, String(body.messageId ?? ""), String(body.text ?? ""));
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
   }

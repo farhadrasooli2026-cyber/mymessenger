@@ -50,6 +50,8 @@ export const ADMIN_PERMS = [
   "billing.export",
   "prod.view",
   "prod.manage",
+  "ai.view",
+  "ai.manage",
 ] as const;
 export type AdminPerm = (typeof ADMIN_PERMS)[number];
 
@@ -79,6 +81,7 @@ const ROLE_PERMS: Record<StaffRole, AdminPerm[]> = {
     "i18n.view",
     "analytics.view",
     "prod.view",
+    "ai.view",
   ],
   support: [
     "dashboard",
@@ -92,7 +95,7 @@ const ROLE_PERMS: Record<StaffRole, AdminPerm[]> = {
     "audit.view",
     "monitor",
   ],
-  analyst: ["dashboard", "users.view", "users.search", "reports.view", "audit.view", "export", "monitor", "backup.view", "deploy.view", "i18n.view", "analytics.view", "prod.view"],
+  analyst: ["dashboard", "users.view", "users.search", "reports.view", "audit.view", "export", "monitor", "backup.view", "deploy.view", "i18n.view", "analytics.view", "prod.view", "ai.view"],
   finance: ["dashboard", "audit.view", "export", "analytics.view", "billing.view", "billing.manage", "billing.refund", "billing.export"],
 };
 
