@@ -1,23 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, ShieldCheck, Smartphone } from "lucide-react";
+import { Loader2, Mail, ShieldCheck, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { NixoHeroLogo } from "@/components/nixo-mark";
+import { detectChannel } from "@/lib/identifiers";
 import { cn } from "@/lib/utils";
 
 type Step = "start" | "verify" | "profile" | "complete" | "twostep" | "device" | "recover";
 type Channel = "phone" | "email";
+type Method = "otp" | "password";
 
 type SessionPayload = {
   ok: boolean;
@@ -30,20 +28,22 @@ type SessionPayload = {
   } | null;
 };
 
-const STEPS: { id: Exclude<Step, "complete">; label: string }[] = [
-  { id: "start", label: "شناسه" },
-  { id: "verify", label: "تأیید کد" },
-  { id: "profile", label: "پروفایل" },
-];
+const inputClass =
+  "h-12 rounded-2xl border-sky-400/30 bg-[#050a12] text-white placeholder:text-slate-500 focus-visible:border-cyan-400/70 focus-visible:ring-cyan-400/30";
+const primaryBtn =
+  "h-12 w-full rounded-2xl bg-gradient-to-l from-cyan-400 to-blue-500 text-sm font-medium text-white shadow-[0_0_22px_rgba(56,189,248,0.32)] hover:from-cyan-300 hover:to-blue-400 disabled:pointer-events-none disabled:opacity-60";
+const ghostBtn =
+  "h-12 w-full rounded-2xl border border-sky-400/25 bg-[#070d18] text-sm text-slate-100 hover:bg-white/5";
 
 export function RegisterFlow() {
   const router = useRouter();
   const [boot, setBoot] = useState(true);
   const [step, setStep] = useState<Step>("start");
+  const [method, setMethod] = useState<Method>("otp");
   const [channel, setChannel] = useState<Channel>("phone");
   const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
   const [humanToken, setHumanToken] = useState("");
-  const [humanAcked, setHumanAcked] = useState(false);
   const [honeypot, setHoneypot] = useState("");
   const [masked, setMasked] = useState("");
   const [code, setCode] = useState("");
@@ -65,8 +65,44 @@ export function RegisterFlow() {
     const data = (await res.json()) as { ok: boolean; token?: string };
     if (data.ok && data.token) {
       setHumanToken(data.token);
-      setHumanAcked(false);
+      window.setTimeout(() => {
+        void fetch("/api/register/ack", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: data.token }),
+        });
+      }, 1700);
+      return data.token;
     }
+    return "";
+  }
+
+  async function ensureHuman(token: string) {
+    let current = token;
+    if (!current) current = (await loadChallenge()) || "";
+    if (!current) return "";
+    const ack = async () =>
+      fetch("/api/register/ack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: current }),
+      });
+    let res = await ack();
+    if (!res.ok) {
+      await new Promise((r) => setTimeout(r, 1700));
+      res = await ack();
+    }
+    if (!res.ok) {
+      current = (await loadChallenge()) || "";
+      if (!current) return "";
+      await new Promise((r) => setTimeout(r, 1700));
+      res = await fetch("/api/register/ack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: current }),
+      });
+    }
+    return res.ok ? current : "";
   }
 
   useEffect(() => {
@@ -121,8 +157,6 @@ export function RegisterFlow() {
     return () => window.clearInterval(id);
   }, [ttl]);
 
-  const stepIndex = useMemo(() => STEPS.findIndex((s) => s.id === step), [step]);
-
   async function parseError(res: Response) {
     const data = (await res.json()) as { error?: string; remainingAttempts?: number };
     if (typeof data.remainingAttempts === "number") {
@@ -131,41 +165,25 @@ export function RegisterFlow() {
     return data.error ?? "خطایی رخ داد.";
   }
 
-  async function onAck(checked: boolean) {
-    if (!checked) {
-      setHumanAcked(false);
-      return;
-    }
-    const res = await fetch("/api/register/ack", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: humanToken }),
-    });
-    if (!res.ok) {
-      setHumanAcked(false);
-      toast.error("تأیید امنیتی انجام نشد. صفحه را تازه‌سازی کنید.");
-      await loadChallenge();
-      return;
-    }
-    setHumanAcked(true);
-  }
-
   async function onStart(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!humanAcked) {
-      setError("برای ادامه، گزینه «من ربات نیستم» را تأیید کنید.");
-      return;
-    }
     setBusy(true);
     try {
+      const token = await ensureHuman(humanToken);
+      if (!token) {
+        setError("تأیید امنیتی انجام نشد. دوباره تلاش کنید.");
+        return;
+      }
+      setHumanToken(token);
+      const nextChannel = detectChannel(identifier);
       const res = await fetch("/api/register/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          channel,
+          channel: nextChannel,
           identifier,
-          humanToken,
+          humanToken: token,
           website: honeypot,
         }),
       });
@@ -189,6 +207,51 @@ export function RegisterFlow() {
       setInbox(null);
       setStep("verify");
       toast.success("کد تأیید ارسال شد.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const token = await ensureHuman(humanToken);
+      if (!token) {
+        setError("تأیید امنیتی انجام نشد. دوباره تلاش کنید.");
+        return;
+      }
+      setHumanToken(token);
+      const res = await fetch("/api/register/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          identifier,
+          password,
+          humanToken: token,
+          website: honeypot,
+        }),
+      });
+      if (!res.ok) {
+        setError(await parseError(res));
+        await loadChallenge();
+        return;
+      }
+      const data = (await res.json()) as { next?: string; hasPasskeys?: boolean };
+      if (data.next === "twostep") {
+        setHasPasskeys(Boolean(data.hasPasskeys));
+        setStep("twostep");
+        toast.message("عامل دوم لازم است.");
+        return;
+      }
+      if (data.next === "/device") {
+        toast.message("New login detected from a new device. منتظر تأیید دستگاه مورد اعتماد بمانید.");
+        router.push("/device");
+        return;
+      }
+      toast.success("ورود تکمیل شد.");
+      router.push(typeof data.next === "string" ? data.next : "/app");
     } finally {
       setBusy(false);
     }
@@ -380,7 +443,19 @@ export function RegisterFlow() {
     setCode("");
     setInbox(null);
     setError(null);
+    setPassword("");
     await loadChallenge();
+  }
+
+  function onChangeIdentifier() {
+    if (step === "verify" || step === "twostep") {
+      void onReset();
+      return;
+    }
+    setIdentifier("");
+    setPassword("");
+    setError(null);
+    document.getElementById("login-identifier")?.focus();
   }
 
   async function loadInbox() {
@@ -394,277 +469,313 @@ export function RegisterFlow() {
     setInboxOpen(true);
   }
 
+  const looksEmail = identifier.includes("@");
+
+  const shell = (inner: React.ReactNode) => (
+    <div
+      className="relative w-full overflow-hidden rounded-[2rem] border border-sky-400/30 bg-[#070d18]/80 p-6 text-white shadow-[0_0_48px_rgba(34,211,238,0.14)] backdrop-blur-xl sm:p-8"
+      dir="rtl"
+    >
+      {inner}
+    </div>
+  );
+
   if (boot) {
-    return (
-      <Card className="border-white/10 bg-[#0f2f2c]/80 text-white shadow-2xl">
-        <CardContent className="py-16 text-center text-sm text-emerald-100/80">
-          در حال آماده‌سازی نشست امن...
-        </CardContent>
-      </Card>
+    return shell(
+      <div className="py-16 text-center text-sm text-slate-300">در حال آماده‌سازی نشست امن...</div>,
     );
   }
 
-  return (
-    <Card className="border-white/10 bg-[#0f2f2c]/85 text-white shadow-2xl backdrop-blur">
-      <CardHeader className="gap-4">
-        <div className="flex items-center justify-between gap-3">
-          <Badge variant="secondary" className="bg-emerald-400/15 text-emerald-100">
-            ثبت‌نام NIXO
-          </Badge>
-          <span className="text-xs text-emerald-100/70">بدون تأیید کد، حساب فعال ساخته نمی‌شود</span>
-        </div>
-        <CardTitle className="text-2xl font-semibold tracking-tight">ساخت حساب جدید</CardTitle>
-        <CardDescription className="text-emerald-50/75">
-          مسیر اجباری: شماره یا ایمیل → کد تأیید سمت سرور → تکمیل پروفایل. گزینه رد کردن وجود ندارد.
-        </CardDescription>
-        <ol className="grid grid-cols-3 gap-2 pt-2">
-          {STEPS.map((item, index) => {
-            const active = item.id === step || (step === "complete" && item.id === "profile");
-            const done = index < stepIndex || step === "complete";
-            return (
-              <li
-                key={item.id}
-                className={cn(
-                  "rounded-xl border px-2 py-2 text-center text-xs",
-                  done && "border-emerald-400/40 bg-emerald-400/10 text-emerald-100",
-                  active && !done && "border-amber-300/50 bg-amber-300/10 text-amber-100",
-                  !active && !done && "border-white/10 text-white/45",
+  return shell(
+    <div className="space-y-6">
+      <NixoHeroLogo />
+      {step === "start" && (
+        <p className="text-center text-sm text-slate-200">با حساب خود وارد شوید</p>
+      )}
+
+      {error && (
+        <Alert variant="destructive" className="border-red-400/30 bg-red-500/10 text-red-100" role="alert">
+          <AlertDescription id="register-error">{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {step === "start" && (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className={cn(
+                "h-11 rounded-2xl text-sm transition",
+                method === "otp"
+                  ? "border border-cyan-400/80 bg-cyan-400/10 text-white shadow-[0_0_16px_rgba(34,211,238,0.28)]"
+                  : "border border-white/5 bg-[#0a1220] text-slate-400",
+              )}
+              onClick={() => {
+                setMethod("otp");
+                setError(null);
+              }}
+            >
+              تأیید با کد
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "h-11 rounded-2xl text-sm transition",
+                method === "password"
+                  ? "border border-cyan-400/80 bg-cyan-400/10 text-white shadow-[0_0_16px_rgba(34,211,238,0.28)]"
+                  : "border border-white/5 bg-[#0a1220] text-slate-400",
+              )}
+              onClick={() => {
+                setMethod("password");
+                setError(null);
+              }}
+            >
+              ورود با رمز عبور
+            </button>
+          </div>
+
+          {method === "otp" ? (
+            <form onSubmit={onStart} className="space-y-5">
+              <p className="text-center text-xs leading-6 text-slate-400">
+                کد را به ایمیل یا شماره موبایل شما ارسال می‌کنیم
+              </p>
+              <div className="relative">
+                {looksEmail ? (
+                  <Mail className="pointer-events-none absolute top-1/2 end-3 size-4 -translate-y-1/2 text-cyan-300/80" />
+                ) : (
+                  <Smartphone className="pointer-events-none absolute top-1/2 end-3 size-4 -translate-y-1/2 text-cyan-300/80" />
                 )}
-              >
-                <span className="block font-medium">{index + 1}. {item.label}</span>
-              </li>
-            );
-          })}
-        </ol>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {error && (
-          <Alert variant="destructive" className="border-red-400/30 bg-red-500/10 text-red-100" role="alert">
-            <AlertDescription id="register-error">{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {step === "start" && (
-          <form onSubmit={onStart} className="space-y-5">
-            <Tabs value={channel} onValueChange={(v) => setChannel(v as Channel)}>
-              <TabsList className="grid h-11 w-full grid-cols-2 bg-black/20">
-                <TabsTrigger value="phone" className="gap-1.5">
-                  <Smartphone className="size-4" />
-                  موبایل
-                </TabsTrigger>
-                <TabsTrigger value="email" className="gap-1.5">
-                  <Mail className="size-4" />
-                  ایمیل
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="phone" className="mt-4 space-y-2">
-                <Label htmlFor="phone">شماره موبایل ایران</Label>
                 <Input
-                  id="phone"
+                  id="login-identifier"
                   dir="ltr"
-                  inputMode="tel"
-                  autoComplete="tel"
-                  placeholder="09123456789"
-                  value={channel === "phone" ? identifier : ""}
+                  autoComplete="username"
+                  placeholder="ایمیل یا شماره موبایل"
+                  value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
-                  className="h-11 bg-black/20 text-left text-base"
-                  required={channel === "phone"}
-                  aria-required={channel === "phone"}
-                  aria-invalid={Boolean(error) && channel === "phone"}
-                  aria-describedby={error ? "register-error phone-hint" : "phone-hint"}
+                  className={cn(inputClass, "pe-11 text-left")}
+                  required
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? "register-error" : undefined}
                 />
-                <p id="phone-hint" className="text-xs text-emerald-100/60">کد فقط به همین شماره ارسال می‌شود.</p>
-              </TabsContent>
-              <TabsContent value="email" className="mt-4 space-y-2">
-                <Label htmlFor="email">ایمیل</Label>
-                <Input
-                  id="email"
-                  dir="ltr"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="you@example.com"
-                  value={channel === "email" ? identifier : ""}
-                  onChange={(e) => setIdentifier(e.target.value)}
-                  className="h-11 bg-black/20 text-left text-base"
-                  required={channel === "email"}
-                  aria-required={channel === "email"}
-                  aria-invalid={Boolean(error) && channel === "email"}
-                  aria-describedby="email-hint"
-                />
-                <p id="email-hint" className="text-xs text-emerald-100/60">کد فقط به همین ایمیل ارسال می‌شود.</p>
-              </TabsContent>
-            </Tabs>
-
-            <input
-              tabIndex={-1}
-              autoComplete="off"
-              aria-hidden="true"
-              className="absolute start-[-10000px] h-0 w-0 opacity-0"
-              name="website"
-              value={honeypot}
-              onChange={(e) => setHoneypot(e.target.value)}
-            />
-
-            <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/15 p-3 text-sm">
-              <Checkbox
-                checked={humanAcked}
-                onCheckedChange={(v) => onAck(v === true)}
-                className="mt-0.5 border-white/30"
-              />
-              <span>
-                من ربات نیستم. این تأیید برای جلوگیری از ثبت‌نام خودکار لازم است و جایگزین کد تأیید نمی‌شود.
-              </span>
-            </label>
-
-            <Button type="submit" size="lg" className="h-11 w-full bg-amber-300 text-[#102824] hover:bg-amber-200" disabled={busy}>
-              ارسال کد تأیید
-            </Button>
-          </form>
-        )}
-
-        {step === "verify" && (
-          <form onSubmit={onVerify} className="space-y-5">
-            <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm">
-              <p className="text-emerald-50/80">کد به این شناسه ارسال شد:</p>
-              <p className="mt-1 font-medium tracking-wide" dir="ltr">
-                {masked}
-              </p>
-              <p className="mt-2 text-xs text-emerald-100/60">
-                اعتبار کد: {ttl > 0 ? `${ttl} ثانیه` : "منقضی شده"}
-                {remainingAttempts !== null ? ` · تلاش باقی‌مانده: ${remainingAttempts}` : ""}
-              </p>
-            </div>
-            <div className="space-y-3">
-              <Label htmlFor="otp">کد یک‌بارمصرف ۶ رقمی</Label>
-              <div className="flex justify-center" dir="ltr">
-                <InputOTP maxLength={6} value={code} onChange={setCode} disabled={busy} aria-label="کد یک‌بارمصرف ۶ رقمی">
-                  <InputOTPGroup>
-                    {Array.from({ length: 6 }).map((_, i) => (
-                      <InputOTPSlot key={i} index={i} className="size-10 bg-black/30 text-lg" />
-                    ))}
-                  </InputOTPGroup>
-                </InputOTP>
               </div>
-            </div>
-            <Button type="submit" size="lg" className="h-11 w-full bg-amber-300 text-[#102824] hover:bg-amber-200" disabled={busy || code.length !== 6}>
-              تأیید کد و ادامه
+              <Honeypot value={honeypot} onChange={setHoneypot} />
+              <Button type="submit" className={primaryBtn} disabled={busy}>
+                {busy ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="size-4 animate-spin" />
+                    در حال ارسال...
+                  </span>
+                ) : (
+                  "ارسال کد"
+                )}
+              </Button>
+            </form>
+          ) : (
+            <form onSubmit={onPassword} className="space-y-5">
+              <div className="relative">
+                {looksEmail ? (
+                  <Mail className="pointer-events-none absolute top-1/2 end-3 size-4 -translate-y-1/2 text-cyan-300/80" />
+                ) : (
+                  <Smartphone className="pointer-events-none absolute top-1/2 end-3 size-4 -translate-y-1/2 text-cyan-300/80" />
+                )}
+                <Input
+                  id="login-identifier"
+                  dir="ltr"
+                  autoComplete="username"
+                  placeholder="ایمیل یا شماره موبایل"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  className={cn(inputClass, "pe-11 text-left")}
+                  required
+                />
+              </div>
+              <Input
+                type="password"
+                autoComplete="current-password"
+                placeholder="رمز عبور"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className={inputClass}
+                required
+              />
+              <Honeypot value={honeypot} onChange={setHoneypot} />
+              <Button type="submit" className={primaryBtn} disabled={busy}>
+                {busy ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="size-4 animate-spin" />
+                    در حال ورود...
+                  </span>
+                ) : (
+                  "ورود"
+                )}
+              </Button>
+            </form>
+          )}
+
+          <div className="space-y-3">
+            <p className="text-center text-xs text-slate-500">یا</p>
+            <Button type="button" className={ghostBtn} disabled={busy} onClick={onChangeIdentifier}>
+              تغییر شماره یا ایمیل
             </Button>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Button
+            <p className="pt-2 text-center text-sm text-slate-300">
+              حساب کاربری ندارید؟{" "}
+              <button
                 type="button"
-                variant="outline"
-                className="h-10 flex-1 border-white/15 bg-transparent text-white hover:bg-white/10"
-                disabled={busy || cooldown > 0}
-                onClick={onResend}
+                className="text-cyan-300 hover:underline"
+                onClick={() => {
+                  setMethod("otp");
+                  document.getElementById("login-identifier")?.focus();
+                }}
               >
-                {cooldown > 0 ? `ارسال مجدد (${cooldown})` : "ارسال مجدد کد"}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-10 flex-1 text-emerald-100 hover:bg-white/10"
-                disabled={busy}
-                onClick={onReset}
-              >
-                تغییر شماره یا ایمیل
-              </Button>
+                ثبت‌نام کنید
+              </button>
+            </p>
+          </div>
+        </>
+      )}
+
+      {step === "verify" && (
+        <form onSubmit={onVerify} className="space-y-5">
+          <p className="text-center text-sm text-slate-200">با حساب خود وارد شوید</p>
+          <div className="rounded-2xl border border-sky-400/15 bg-black/25 p-4 text-sm">
+            <p className="text-slate-300">کد به این شناسه ارسال شد:</p>
+            <p className="mt-1 font-medium tracking-wide text-white" dir="ltr">
+              {masked}
+            </p>
+            <p className="mt-2 text-xs text-slate-400">
+              اعتبار کد: {ttl > 0 ? `${ttl} ثانیه` : "منقضی شده"}
+              {remainingAttempts !== null ? ` · تلاش باقی‌مانده: ${remainingAttempts}` : ""}
+            </p>
+          </div>
+          <div className="space-y-3">
+            <Label htmlFor="otp" className="text-slate-200">
+              کد یک‌بارمصرف ۶ رقمی
+            </Label>
+            <div className="flex justify-center" dir="ltr">
+              <InputOTP maxLength={6} value={code} onChange={setCode} disabled={busy} aria-label="کد یک‌بارمصرف ۶ رقمی">
+                <InputOTPGroup>
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <InputOTPSlot key={i} index={i} className="size-10 border-sky-400/30 bg-black/40 text-lg" />
+                  ))}
+                </InputOTPGroup>
+              </InputOTP>
             </div>
-            <Separator className="bg-white/10" />
+          </div>
+          <Button type="submit" className={primaryBtn} disabled={busy || code.length !== 6}>
+            {busy ? (
+              <span className="inline-flex items-center gap-2">
+                <Loader2 className="size-4 animate-spin" />
+                در حال تأیید...
+              </span>
+            ) : (
+              "تأیید کد"
+            )}
+          </Button>
+          <Button
+            type="button"
+            className={ghostBtn}
+            disabled={busy || cooldown > 0}
+            onClick={onResend}
+          >
+            {cooldown > 0 ? `ارسال مجدد (${cooldown})` : "ارسال مجدد کد"}
+          </Button>
+          <p className="text-center text-xs text-slate-500">یا</p>
+          <Button type="button" className={ghostBtn} disabled={busy} onClick={onChangeIdentifier}>
+            تغییر شماره یا ایمیل
+          </Button>
+          {demoInbox ? (
             <div className="space-y-2">
-              {demoInbox ? (
-                <>
-              <Button
-                type="button"
-                variant="secondary"
-                className="h-10 w-full bg-emerald-400/15 text-emerald-50 hover:bg-emerald-400/25"
-                onClick={loadInbox}
-                disabled={busy}
-              >
+              <Button type="button" className={ghostBtn} onClick={loadInbox} disabled={busy}>
                 نمایش صندوق آزمایشی پیام
               </Button>
               {inboxOpen && inbox && (
-                <pre className="whitespace-pre-wrap rounded-lg bg-black/30 p-3 text-xs leading-6 text-emerald-50">
+                <pre className="whitespace-pre-wrap rounded-2xl bg-black/40 p-3 text-xs leading-6 text-slate-200">
                   {inbox}
                 </pre>
               )}
-              <p className="text-xs text-emerald-100/55">
-                صندوق آزمایشی فقط در development/testing است. در Production کد فقط از ایمیل یا پیامک واقعی خوانده می‌شود.
-              </p>
-                </>
-              ) : (
-              <p className="text-xs text-emerald-100/55">
-                کد تأیید به ایمیل یا شمارهٔ واقعی شما از سرور نیکسو ارسال می‌شود. این صفحه کد را نشان نمی‌دهد.
-              </p>
-              )}
             </div>
-          </form>
-        )}
+          ) : null}
+        </form>
+      )}
 
-        {step === "twostep" && (
-          <form onSubmit={onTwoStep} className="space-y-5">
-            <div className="rounded-xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm">
-              <p className="font-medium">رمز دومرحله‌ای</p>
-              <p className="mt-1 text-xs text-emerald-100/70">
-                کد یک‌بارمصرف تأیید شد. برای ورود، رمز عبور، کد بازیابی، یا Passkey لازم است. بازیابی با یک عامل ضعیف مالکیت حساب را نمی‌دهد.
+      {step === "twostep" && (
+        <form onSubmit={onTwoStep} className="space-y-5">
+          <div className="rounded-2xl border border-sky-400/20 bg-cyan-400/5 p-4 text-sm">
+            <p className="font-medium">رمز دومرحله‌ای</p>
+            <p className="mt-1 text-xs text-slate-400">
+              برای ورود، رمز عبور، کد بازیابی، یا Passkey لازم است.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label>رمز عبور</Label>
+            <Input
+              type="password"
+              value={twoStepPassword}
+              onChange={(e) => setTwoStepPassword(e.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>کد بازیابی (اختیاری)</Label>
+            <Input value={recovery} onChange={(e) => setRecovery(e.target.value)} className={cn(inputClass, "font-mono")} dir="ltr" />
+          </div>
+          <Button type="submit" className={primaryBtn} disabled={busy}>
+            {busy ? "در حال ورود..." : "ادامه ورود"}
+          </Button>
+          {hasPasskeys && (
+            <Button type="button" className={ghostBtn} disabled={busy} onClick={() => void onPasskeyLogin()}>
+              ورود با Passkey
+            </Button>
+          )}
+          <Button type="button" className={ghostBtn} disabled={busy} onClick={onChangeIdentifier}>
+            تغییر شماره یا ایمیل
+          </Button>
+        </form>
+      )}
+
+      {step === "profile" && (
+        <form onSubmit={onProfile} className="space-y-5">
+          <div className="flex items-start gap-3 rounded-2xl border border-sky-400/20 bg-cyan-400/5 p-4 text-sm">
+            <ShieldCheck className="mt-0.5 size-5 shrink-0 text-cyan-200" />
+            <div>
+              <p className="font-medium">شناسه تأیید شد</p>
+              <p className="mt-1 text-slate-300" dir="ltr">
+                {masked}
               </p>
             </div>
-            <div className="space-y-2">
-              <Label>رمز عبور</Label>
-              <Input
-                type="password"
-                value={twoStepPassword}
-                onChange={(e) => setTwoStepPassword(e.target.value)}
-                className="bg-black/30"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>کد بازیابی (اختیاری)</Label>
-              <Input value={recovery} onChange={(e) => setRecovery(e.target.value)} className="bg-black/30 font-mono" dir="ltr" />
-            </div>
-            <Button type="submit" size="lg" className="h-11 w-full bg-amber-300 text-[#102824] hover:bg-amber-200" disabled={busy}>
-              ادامه ورود
-            </Button>
-            {hasPasskeys && (
-              <Button type="button" variant="secondary" className="h-10 w-full" disabled={busy} onClick={() => void onPasskeyLogin()}>
-                ورود با Passkey
-              </Button>
-            )}
-          </form>
-        )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="name">نام نمایشی</Label>
+            <Input
+              id="name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="مثلاً سارا محمدی"
+              className={inputClass}
+              minLength={2}
+              maxLength={60}
+              required
+            />
+          </div>
+          <Button type="submit" className={primaryBtn} disabled={busy}>
+            فعال‌سازی حساب
+          </Button>
+        </form>
+      )}
+    </div>,
+  );
+}
 
-        {step === "profile" && (
-          <form onSubmit={onProfile} className="space-y-5">
-            <div className="flex items-start gap-3 rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-4 text-sm">
-              <ShieldCheck className="mt-0.5 size-5 shrink-0 text-emerald-200" />
-              <div>
-                <p className="font-medium">شناسه تأیید شد</p>
-                <p className="mt-1 text-emerald-50/75" dir="ltr">
-                  {masked}
-                </p>
-                <p className="mt-2 text-xs text-emerald-100/60">
-                  حساب هنوز فعال نیست. پس از ثبت نام نمایشی، وضعیت به فعال تغییر می‌کند.
-                </p>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="name">نام نمایشی</Label>
-              <Input
-                id="name"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="مثلاً سارا محمدی"
-                className="h-11 bg-black/20"
-                minLength={2}
-                maxLength={60}
-                required
-              />
-            </div>
-            <Button type="submit" size="lg" className="h-11 w-full bg-amber-300 text-[#102824] hover:bg-amber-200" disabled={busy}>
-              فعال‌سازی حساب
-            </Button>
-          </form>
-        )}
-      </CardContent>
-    </Card>
+function Honeypot({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <input
+      tabIndex={-1}
+      autoComplete="off"
+      aria-hidden="true"
+      className="absolute start-[-10000px] h-0 w-0 opacity-0"
+      name="website"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
   );
 }

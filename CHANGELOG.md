@@ -16,6 +16,7 @@
 - جستجوی پیشرفته (`/api/search`): Boolean، Tombstone، Hybrid مجاز، P95/P99، Discovery عمومی
 - گراف اجتماعی و پیشنهاد (`/api/graph`): Friend/Follow موجود، Block، Mute، پیشنهاد با فیلتر مجوز، کش per-user، Rollback مدل
 - ارسال OTP واقعی از Backend (Resend/SendGrid/Postmark/Mailgun/SMTP و Twilio/Kavenegar/sms.ir)؛ Demo Inbox فقط غیر Production
+- صفحهٔ Login نئونی (کارت شیشه‌ای، تأیید با کد / ورود با رمز)؛ معرفی محصول در `/about`
 - Dependency اصلی: Next 16.3، React 19، Zod 4، Vitest 4، Tailwind 4
 
 ### API

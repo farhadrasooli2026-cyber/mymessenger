@@ -341,10 +341,11 @@ data: {"type":"message","threadId":"thr_example","at":1710000000000}
     tags: ["auth", "session", "rbac", "authorization"],
     body: `## ثبت‌نام
 1. Human challenge
-2. \`POST /api/register/start\` کانال email/phone
+2. \`POST /api/register/start\` کانال email/phone (شناسه یکپارچه در UI با تشخیص @ → email)
 3. OTP هش‌شده؛ متن کد ذخیره نمی‌شود. ارسال فقط از Backend به مقصد واقعی (Resend/SendGrid/Postmark/Mailgun/SMTP و Twilio/Kavenegar/sms.ir). Demo Inbox در Production خاموش است.
 4. \`POST /api/register/verify\`
-5. پروفایل \`/setup\` تا حساب Active شود
+5. ورود با رمز (اختیاری، حساب فعال با passwordHash): \`POST /api/register/password\`
+6. پروفایل \`/setup\` تا حساب Active شود
 
 ## نشست
 کوکی HttpOnly \`nixo_reg\`. Logout / Logout All دستگاه‌ها را باطل می‌کند. Refresh rotate در لایهٔ امنیت حساب.

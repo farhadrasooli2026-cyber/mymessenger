@@ -39,6 +39,11 @@ export function normalizeIdentifier(channel: Channel, input: string): string | n
   return channel === "phone" ? normalizePhone(input) : normalizeEmail(input);
 }
 
+/** Email if the value contains `@`, otherwise treat as phone. */
+export function detectChannel(input: string): Channel {
+  return input.trim().includes("@") ? "email" : "phone";
+}
+
 /** E.164 for Twilio and similar. Iranian 09xxxxxxxxx → +98. */
 export function toE164Phone(input: string): string | null {
   const n = normalizePhone(input);

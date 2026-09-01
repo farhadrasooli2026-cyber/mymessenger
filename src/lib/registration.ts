@@ -80,7 +80,7 @@ export async function ackHumanChallenge(token: string, ipHash: string) {
   });
 }
 
-function consumeHuman(data: StoreData, token: string, ipHash: string, now: number) {
+export function consumeHumanInStore(data: StoreData, token: string, ipHash: string, now: number) {
   const row = data.humanChallenges.find((h) => h.id === token);
   if (!row || row.ipHash !== ipHash || row.consumedAt) return { ok: false as const, reason: "invalid" };
   if (now - row.issuedAt > config.human.tokenTtlMs) return { ok: false as const, reason: "expired" };
@@ -120,7 +120,7 @@ export async function startRegistration(input: z.infer<typeof startSchema>, ipHa
   const masked = input.channel === "phone" ? maskPhone(normalized) : maskEmail(normalized);
 
   const result = await mutateStore((data) => {
-    const human = consumeHuman(data, input.humanToken, ipHash, now);
+    const human = consumeHumanInStore(data, input.humanToken, ipHash, now);
     if (!human.ok) {
       return publicError("تأیید امنیتی انجام نشد. دوباره تلاش کنید.", 400);
     }

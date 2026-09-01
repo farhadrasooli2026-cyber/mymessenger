@@ -138,8 +138,8 @@
   top: -3rem;
   z-index: 100;
   border-radius: 0.5rem;
-  background: #fbbf24;
-  color: #102824;
+  background: #22d3ee;
+  color: #05070f;
   padding: 0.5rem 0.85rem;
   font-size: 0.875rem;
 }
@@ -148,7 +148,7 @@
 }
 
 :focus-visible {
-  outline: 3px solid #fbbf24;
+  outline: 3px solid #22d3ee;
   outline-offset: 2px;
 }
 

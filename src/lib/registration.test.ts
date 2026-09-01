@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { hashIp } from "./crypto-utils";
-import { normalizeEmail, normalizePhone, toE164Phone } from "./identifiers";
+import { normalizeEmail, normalizePhone, toE164Phone, detectChannel } from "./identifiers";
 import { getOutbox } from "./outbox";
 import { completeProfile } from "./profile";
 import {
@@ -31,6 +31,12 @@ describe("identifiers", () => {
   it("normalizes email", () => {
     expect(normalizeEmail("  A@B.Com ")).toBe("a@b.com");
     expect(normalizeEmail("bad")).toBeNull();
+  });
+
+  it("detects email vs phone from a unified identifier", () => {
+    expect(detectChannel("user@nixo.test")).toBe("email");
+    expect(detectChannel("09123456789")).toBe("phone");
+    expect(detectChannel("+98 912 345 6789")).toBe("phone");
   });
 });
 

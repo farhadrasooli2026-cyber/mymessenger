@@ -10,7 +10,12 @@ export function hitRateLimit(
   maxHits: number,
   now = Date.now(),
 ): { allowed: boolean; retryAfterSec: number; remaining: number } {
-  const protect = key.startsWith("send:") || key.startsWith("verify:") || key.startsWith("admin-login") || key.startsWith("human:");
+  const protect =
+    key.startsWith("send:") ||
+    key.startsWith("verify:") ||
+    key.startsWith("admin-login") ||
+    key.startsWith("human:") ||
+    key.startsWith("password-login:");
   const cap = protect ? maxHits : Math.max(2, Math.floor(maxHits * adaptiveRateFactor()));
   let bucket = data.rateBuckets.find((b) => b.key === key);
   if (!bucket) {

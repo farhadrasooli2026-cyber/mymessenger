@@ -1012,6 +1012,11 @@ export function userNeedsTwoStep(user: UserRecord | null | undefined) {
   return Boolean(user?.status === "active" && ((user.twoStepEnabled && user.passwordHash) || user.totpSecretCipher));
 }
 
+/** Remaining factors after a successful password-first login (not the same password). */
+export function userNeedsTotpOrPasskey(user: UserRecord | null | undefined) {
+  return Boolean(user?.totpSecretCipher || (user?.passkeys?.length ?? 0) > 0);
+}
+
 export function assertOpsUser(user: { username?: string | null } | null | undefined) {
   return isNixoOpsHandle(user?.username ?? undefined);
 }
