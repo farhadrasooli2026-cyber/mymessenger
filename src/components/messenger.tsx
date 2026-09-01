@@ -939,6 +939,10 @@ export function Messenger({
       router.push(`/app/business/b/${hit.target.businessId}/p/${hit.target.id}`);
       return;
     }
+    if (hit.target.type === "live") {
+      router.push(`/app/live/${hit.target.id}`);
+      return;
+    }
     if (hit.target.type === "user") {
       void fetch("/api/users/search", {
         method: "POST",
@@ -2110,6 +2114,12 @@ export function Messenger({
             </Link>
             <Link href="/app/settings/audio" className="block text-sm text-amber-200">
               تنظیمات → Voice & Audio
+            </Link>
+            <Link href="/app/live" className="block text-sm text-amber-200">
+              Live Streaming
+            </Link>
+            <Link href="/app/settings/live" className="block text-sm text-amber-200">
+              تنظیمات → Live
             </Link>
             <Link href="/app/files" className="block text-sm text-amber-200">
               Files & Documents

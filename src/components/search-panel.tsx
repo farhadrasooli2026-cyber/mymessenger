@@ -30,6 +30,7 @@ const KIND_FA: Record<SearchKind, string> = {
   voice: "صوت",
   music: "موسیقی",
   links: "لینک",
+  live: "لایو",
 };
 
 export function SearchPanel({
@@ -290,7 +291,7 @@ export function SearchPanel({
           {busy && <p className="text-xs text-amber-200">Loading…</p>}
           {error && <p className="text-xs text-rose-200">{error}</p>}
           {hits.length === 0 && !busy && !error && <p className="text-xs text-emerald-100/50">No results found</p>}
-          {(["user", "chat", "group", "channel", "community", "bot", "mini", "business"] as const).map((scope) => {
+              {(["user", "chat", "group", "channel", "community", "bot", "mini", "business", "live"] as const).map((scope) => {
             const group = hits.filter((h) => h.scope === scope || (scope === "chat" && h.scope === "chatLocal"));
             if (!group.length) return null;
             const label =

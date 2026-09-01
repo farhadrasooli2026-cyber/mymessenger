@@ -5,6 +5,7 @@ import type { Channel } from "@/lib/identifiers";
 import type { CatalogCategory, CatalogItem, UserPhoto, UsernameChange, Visibility } from "@/lib/profile-types";
 import { defaultUserFields } from "@/lib/profile-types";
 import type { GroupAdminPerms, GroupHistoryMode, GroupPerms, GroupRole } from "@/lib/group-types";
+import type { LivePrefs, LiveRecordingMeta, LiveStream } from "@/lib/live-types";
 import { DEFAULT_GROUP_ADMIN_PERMS, DEFAULT_GROUP_PERMS } from "@/lib/group-types";
 import type { CommunityPerms, CommunityRole, NotifyMode } from "@/lib/community-types";
 import { DEFAULT_COMMUNITY_PERMS } from "@/lib/community-types";
@@ -333,6 +334,7 @@ function hydratePubChannel(channel: PubChannelRecord): PubChannelRecord {
     liveTitle: channel.liveTitle ?? "",
     liveChatEnabled: channel.liveChatEnabled !== false,
     liveChat: Array.isArray(channel.liveChat) ? channel.liveChat : [],
+    liveStreamId: channel.liveStreamId ?? null,
     stories: Array.isArray(channel.stories) ? channel.stories : [],
     deletedAt: channel.deletedAt ?? null,
   };
@@ -791,7 +793,7 @@ export type ChatMessage = {
 export type SafetyReport = {
   id: string;
   reporterId: string;
-  targetKind: "user" | "chat" | "group" | "community" | "channel" | "story" | "bot" | "miniapp" | "business" | "sticker";
+  targetKind: "user" | "chat" | "group" | "community" | "channel" | "story" | "bot" | "miniapp" | "business" | "sticker" | "live";
   targetKey: string;
   threadId?: string;
   messageIds: string[];
@@ -1256,6 +1258,7 @@ export type PubChannelRecord = {
   liveTitle: string;
   liveChatEnabled: boolean;
   liveChat: ChannelLiveChat[];
+  liveStreamId?: string | null;
   stories: ChannelStory[];
   createdAt: number;
   updatedAt: number;
@@ -1551,6 +1554,9 @@ export type StoreData = {
   stickerPrefs: StickerPrefs[];
   stickerReports: StickerModeration[];
   fileAccessLogs: { id: string; userId: string; action: string; target: string; at: number }[];
+  lives: LiveStream[];
+  liveRecordings: LiveRecordingMeta[];
+  livePrefs: LivePrefs[];
 };
 
 const EMPTY: StoreData = {
@@ -1640,6 +1646,9 @@ const EMPTY: StoreData = {
   stickerPrefs: [],
   stickerReports: [],
   fileAccessLogs: [],
+  lives: [],
+  liveRecordings: [],
+  livePrefs: [],
 };
 
 const STORE_PATH = path.join(
@@ -1778,6 +1787,9 @@ async function readStore(): Promise<StoreData> {
       stickerPrefs: Array.isArray(parsed.stickerPrefs) ? parsed.stickerPrefs : [],
       stickerReports: Array.isArray(parsed.stickerReports) ? parsed.stickerReports : [],
       fileAccessLogs: Array.isArray(parsed.fileAccessLogs) ? parsed.fileAccessLogs : [],
+      lives: Array.isArray(parsed.lives) ? parsed.lives : [],
+      liveRecordings: Array.isArray(parsed.liveRecordings) ? parsed.liveRecordings : [],
+      livePrefs: Array.isArray(parsed.livePrefs) ? parsed.livePrefs : [],
     };
   } catch {
     return structuredClone(EMPTY);
@@ -1929,6 +1941,26 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.stickerPrefs = (data.stickerPrefs ?? []).filter((p) => p.userId !== uid);
   data.stickerReports = (data.stickerReports ?? []).filter((r) => r.reporterUserId !== uid);
   data.fileAccessLogs = (data.fileAccessLogs ?? []).filter((s) => s.userId !== uid);
+  data.lives = (data.lives ?? []).map((l) => {
+    if (l.hostUserId === uid && l.status !== "ended") {
+      return {
+        ...l,
+        status: "ended" as const,
+        endedAt: now,
+        emergencyStopped: l.emergencyStopped,
+        participants: l.participants.map((p) => (p.leftAt ? p : { ...p, leftAt: now })),
+      };
+    }
+    return {
+      ...l,
+      participants: l.participants.map((p) => (p.userId === uid && !p.leftAt ? { ...p, leftAt: now } : p)),
+      uniqueJoins: l.uniqueJoins.filter((id) => id !== uid),
+      reminders: l.reminders.filter((r) => r.userId !== uid),
+      guestQueue: l.guestQueue.filter((g) => g.userId !== uid),
+    };
+  });
+  data.liveRecordings = (data.liveRecordings ?? []).map((r) => (r.hostUserId === uid ? { ...r, deletedAt: now } : r));
+  data.livePrefs = (data.livePrefs ?? []).filter((p) => p.userId !== uid);
   data.stickerPacks = (data.stickerPacks ?? []).map((p) =>
     p.ownerUserId === uid
       ? { ...p, deletedAt: now, memberIds: p.memberIds.filter((id) => id !== uid) }

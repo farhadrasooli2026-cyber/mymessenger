@@ -68,6 +68,7 @@ type Ch = {
   liveTitle?: string;
   liveChatEnabled?: boolean;
   liveChat?: { id: string; authorName: string; body: string }[];
+  liveStreamId?: string | null;
   stories?: { id: string; body: string; createdAt: number; views: number }[];
   analytics?: { subscribers: number; posts: number; views: number; reactions: number; comments: number; forwards: number } | null;
   audit?: { at: number; actorName: string; kind: string; detail: string }[];
@@ -253,6 +254,9 @@ export function ChannelPane({
           {channel.liveActive && (
             <div className="rounded-2xl border border-rose-400/40 bg-rose-500/10 p-3 text-sm">
               <p className="font-medium">🔴 Live {channel.liveTitle}</p>
+              {channel.liveStreamId && (
+                <a href={`/app/live/${channel.liveStreamId}`} className="text-xs text-amber-200">تماشای استودیو Live نیکسو</a>
+              )}
               <p className="text-[11px] text-emerald-100/55">پخش زنده در این برش وضعیت روی سرور است؛ رسانهٔ استریم جداگانه است.</p>
               <div className="mt-2 max-h-28 space-y-1 overflow-auto text-xs">
                 {(channel.liveChat ?? []).map((m) => (

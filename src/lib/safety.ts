@@ -65,7 +65,7 @@ export async function listBlocked(userId: string) {
 }
 
 export const reportInputSchema = z.object({
-  targetKind: z.enum(["user", "chat", "group", "community", "channel", "story", "bot", "miniapp", "business", "sticker"]),
+  targetKind: z.enum(["user", "chat", "group", "community", "channel", "story", "bot", "miniapp", "business", "sticker", "live"]),
   targetKey: z.string().min(1).max(80),
   threadId: z.string().max(80).optional(),
   messageIds: z.array(z.string().max(80)).max(20).optional(),
@@ -119,9 +119,9 @@ export async function fileReport(
       const mini = (data.miniApps ?? []).find((m) => m.id === input.targetKey);
       if (!mini) return { ok: false as const, error: "مینی‌اپ یافت نشد.", status: 404 };
     }
-    if (input.targetKind === "business") {
-      const biz = (data.businesses ?? []).find((b) => b.id === input.targetKey);
-      if (!biz) return { ok: false as const, error: "کسب‌وکار یافت نشد.", status: 404 };
+    if (input.targetKind === "live") {
+      const live = (data.lives ?? []).find((l) => l.id === input.targetKey);
+      if (!live) return { ok: false as const, error: "Live یافت نشد.", status: 404 };
     }
     const report = {
       id: randomId(),

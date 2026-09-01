@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Flag, Lock, Phone, Pin, Search, Send, Users, Video } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Flag, Lock, Phone, Pin, Radio, Search, Send, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -99,6 +100,7 @@ export function GroupPane({
   username: string | null;
   onLeft: () => void;
 }) {
+  const router = useRouter();
   const [group, setGroup] = useState<GInfo | null>(null);
   const [messages, setMessages] = useState<GMsg[]>([]);
   const [draft, setDraft] = useState("");
@@ -202,6 +204,26 @@ export function GroupPane({
       setCallMin(false);
       setGroupCall(room);
     }
+  }
+
+  async function startNixoLive() {
+    const res = await fetch("/api/live", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: `${group?.name ?? "گروه"} Live`,
+        scope: "group",
+        groupId,
+        visibility: "members",
+        guestRequestsEnabled: true,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      toast.error(data.error ?? "Live شروع نشد.");
+      return;
+    }
+    router.push(`/app/live/${data.live.id}`);
   }
 
   async function joinLive() {
@@ -361,6 +383,9 @@ export function GroupPane({
         </Button>
         <Button type="button" variant="ghost" className="text-white" onClick={() => void startGroupCall("video")} aria-label="تماس تصویری گروهی">
           <Video className="size-4" />
+        </Button>
+        <Button type="button" variant="ghost" className="text-white" onClick={() => void startNixoLive()} aria-label="پخش زنده">
+          <Radio className="size-4" />
         </Button>
         <Button type="button" variant="ghost" className="text-white" onClick={() => setSearchOpen((v) => !v)} aria-label="Search in Conversation">
           <Search className="size-4" />

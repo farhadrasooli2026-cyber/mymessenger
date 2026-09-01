@@ -112,6 +112,7 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
   const wantGroups = kind === "all" || kind === "groups" || kind === "chats";
   const wantChannels = kind === "all" || kind === "channels" || kind === "chats";
   const wantCommunities = kind === "all" || kind === "communities";
+  const wantLive = kind === "all" || kind === "live";
   const wantContent =
     kind === "all" ||
     kind === "messages" ||
@@ -507,6 +508,32 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
           ),
         );
       }
+    }
+  }
+
+  if (wantLive) {
+    for (const l of data.lives ?? []) {
+      if (l.visibility !== "public" || l.emergencyStopped) continue;
+      if (!inRange(l.createdAt, input.fromDate, input.toDate)) continue;
+      const blob = `${l.title} ${l.description} ${l.tags.join(" ")} ${l.category} ${l.hostName}`;
+      if (!blobMatches(blob, q)) continue;
+      hits.push(
+        rank(
+          {
+            id: `live:${l.id}`,
+            scope: "live",
+            title: l.title,
+            preview: l.status === "live" ? "🔴 Live" : l.status,
+            sender: l.hostName,
+            chatName: "Live",
+            date: l.startedAt ?? l.createdAt,
+            kind: "live",
+            category: l.category,
+            target: { type: "live", id: l.id },
+          },
+          q,
+        ),
+      );
     }
   }
 

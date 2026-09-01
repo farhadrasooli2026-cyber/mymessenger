@@ -11,6 +11,7 @@ export const NOTIFY_CATEGORIES = [
   "stories",
   "bots",
   "ai",
+  "lives",
 ] as const;
 
 export type NotifyCategory = (typeof NOTIFY_CATEGORIES)[number];
@@ -66,6 +67,7 @@ export type NotifyPrefs = {
     payments: boolean;
     security: boolean;
     system: boolean;
+    lives: boolean;
   };
   mentions: boolean;
   replies: boolean;
@@ -99,6 +101,7 @@ export function defaultNotifyPrefs(userId: string): NotifyPrefs {
       payments: true,
       security: true,
       system: true,
+      lives: true,
     },
     mentions: true,
     replies: true,
@@ -114,7 +117,7 @@ export function defaultNotifyPrefs(userId: string): NotifyPrefs {
 }
 
 export type NotifyTarget = {
-  type: "chat" | "group" | "channel" | "story" | "business" | "bot" | "ai" | "order" | "security" | "call" | "system";
+  type: "chat" | "group" | "channel" | "story" | "business" | "bot" | "ai" | "order" | "security" | "call" | "system" | "live";
   id: string;
   href?: string;
 };
@@ -153,4 +156,5 @@ export const CATEGORY_FA: Record<NotifyCategory, string> = {
   stories: "استوری",
   bots: "ربات",
   ai: "هوش مصنوعی",
+  lives: "پخش زنده",
 };

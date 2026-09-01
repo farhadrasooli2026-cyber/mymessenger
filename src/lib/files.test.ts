@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { declaredExtAllowed, inspectZipSafety, sanitizeFileName, scanNamedFile, sniffFileBytes } from "./files";
-import { scanAttachment } from "./media";
 
 describe("files policy", () => {
   it("sanitizes path traversal names", () => {

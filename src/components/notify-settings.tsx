@@ -98,6 +98,7 @@ export function NotifySettings() {
               ["ai", "AI"],
               ["payments", "Payments"],
               ["security", "Security"],
+              ["lives", "Live"],
             ] as const
           ).map(([k, label]) => (
             <label key={k} className="flex items-center justify-between text-xs">
@@ -121,7 +122,7 @@ export function NotifySettings() {
             Group Admin Action
             <input type="checkbox" checked={prefs.groupAdmin} onChange={(e) => void patch({ groupAdmin: e.target.checked })} />
           </label>
-          <Link href="/app/settings/stickers" className="block text-xs text-amber-200">Settings → Stickers & Emoji → Reactions</Link>
+            <Link href="/app/settings/notifications" className="block text-sm text-amber-200">Settings → Notifications → Live</Link>
         </section>
 
         <section className="space-y-2 rounded-2xl bg-white/5 p-4 text-sm">

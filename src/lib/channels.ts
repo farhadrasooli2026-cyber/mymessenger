@@ -8,6 +8,7 @@ import { FILE_MAX_BYTES, sanitizeFileName, scanNamedFile, sniffFileBytes } from 
 import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf } from "@/lib/stickers";
 import { canChannelInvite } from "@/lib/privacy";
 import { emitNotification } from "@/lib/notify";
+import { insertLive } from "@/lib/live";
 import { rankRole } from "@/lib/group-types";
 import {
   CHANNEL_FLOOD_MAX,
@@ -126,6 +127,7 @@ function publicChannel(channel: PubChannelRecord, viewerId: string | null, data:
     liveTitle: channel.liveTitle ?? "",
     liveChatEnabled: channel.liveChatEnabled !== false,
     liveChat: channel.liveActive ? (channel.liveChat ?? []).slice(-40) : [],
+    liveStreamId: channel.liveStreamId ?? null,
     stories: (channel.stories ?? []).filter((s) => s.expiresAt > Date.now()).map((s) => ({
       id: s.id,
       body: s.body,
@@ -985,10 +987,39 @@ export async function setLive(userId: string, channelId: string, active: boolean
     if (!channel) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
     const me = staffOf(channel, userId);
     if (!canAdmin(me, "postMessages", channel)) return { ok: false as const, error: "اجازهٔ پخش زنده نداری.", status: 403 };
-    channel.liveActive = active;
-    if (typeof title === "string") channel.liveTitle = title.slice(0, 80);
     if (typeof chatEnabled === "boolean") channel.liveChatEnabled = chatEnabled;
-    if (!active) channel.liveChat = [];
+    if (active) {
+      const open = (data.lives ?? []).find((l) => l.channelId === channelId && l.status !== "ended" && !l.emergencyStopped);
+      if (open) {
+        channel.liveActive = true;
+        channel.liveTitle = title?.slice(0, 80) || open.title;
+        channel.liveStreamId = open.id;
+      } else {
+        const made = insertLive(data, userId, {
+          title: title || "پخش نیکسو",
+          scope: "channel",
+          channelId,
+          visibility: channel.visibility === "public" ? "public" : "members",
+          chatEnabled: channel.liveChatEnabled !== false,
+        });
+        if (!made.ok) return { ok: false as const, error: made.error, status: made.status };
+        channel.liveActive = true;
+        channel.liveTitle = made.live.title;
+        channel.liveStreamId = made.live.id;
+      }
+    } else {
+      channel.liveActive = false;
+      channel.liveChat = [];
+      const cur = (data.lives ?? []).find((l) => l.id === channel.liveStreamId);
+      if (cur && cur.status !== "ended") {
+        cur.status = "ended";
+        cur.endedAt = Date.now();
+        cur.participants.forEach((p) => {
+          if (!p.leftAt) p.leftAt = Date.now();
+        });
+      }
+    }
+    if (typeof title === "string") channel.liveTitle = title.slice(0, 80);
     if (me) pushAudit(channel, me, "live", active ? "Live On" : "Live Off");
     channel.updatedAt = Date.now();
     return { ok: true as const, channel: publicChannel(channel, userId, data) };

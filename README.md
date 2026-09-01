@@ -48,6 +48,8 @@
 
 33. Files & Documents: انتخاب چند فایل، پیش‌نمایش امن PDF/عکس/ویدیو/صوت بدون اجرای فایل خطرناک، سقف حجم سمت سرور، آپلود تکه‌تکه با درصد و لغو/ادامه/Retry، دانلود تکه‌تکه با درصد و لغو/Retry، تغییر نام محلی بدون تغییر نام سرور، Auto Download (Wi-Fi / Mobile / Never) و Data Saver، جستجو بر اساس نام/نوع/حجم/تاریخ/چت و مرتب‌سازی، Recent Files، Saved Messages، Forward/Share/Reply. فایل چت خصوصی و گروه E2EE و تکه‌تکه است؛ فایل کانال با امضای باینری، Zip Bomb و Path Traversal در آرشیو، جداسازی پوشهٔ کاربر، URL نشست‌دار و Rate Limit. ادمین گروه می‌تواند sendFiles، سقف حجم و فهرست پسوند اعلام‌شده را محدود کند (نوع واقعی فایل E2EE برای سرور قابل اسکن نیست). Settings → Files & Storage. تغییر File ID یا URL برای فایل دیگری کافی نیست.
 
+34. Live Streaming: ساخت Live با عنوان، توضیح، تصویر، Public/Private/Members/Invite، زمان‌بندی، Reminder، سقف بیننده، Audio Only، کیفیت Auto/Low/Medium/High، چت با Slow Mode، واکنش، Host/Co-Host/Guest، Kick/Mute/Ban، Recording/Replay با همان حریم، Discovery و Trending فقط برای Live عمومی، آمار بدون شناسهٔ بیننده. رسانه روی دستگاه میزبان حلقه می‌شود؛ سرور سیگنال، حضور و مجوز را نگه می‌دارد نه پیکسل CDN. لینک دعوت بدون نشست معتبر کار نمی‌کند. Settings → Live. تغییر Live ID یا URL برای دیدن پخش خصوصی دیگری کافی نیست.
+
 همگام‌سازی کلید چنددستگاهی در بخش جداگانه کامل می‌شود.
 
 مدیر پس‌زمینه‌ها: `/admin/backgrounds`

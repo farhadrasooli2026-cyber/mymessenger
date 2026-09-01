@@ -52,8 +52,9 @@ export async function startMediaLoop(opts: {
   return { local, remote, pcLocal, pcRemote };
 }
 
-export async function applyBitrate(pc: RTCPeerConnection, lowData: boolean, quality: "auto" | "saver" | "high" = "auto"): Promise<void> {
-  const videoMax = quality === "saver" || lowData ? 160_000 : quality === "high" ? 1_500_000 : 900_000;
+export async function applyBitrate(pc: RTCPeerConnection, lowData: boolean, quality: "auto" | "saver" | "high" | "low" | "medium" = "auto"): Promise<void> {
+  const videoMax =
+    quality === "saver" || quality === "low" || lowData ? 160_000 : quality === "high" ? 1_500_000 : quality === "medium" ? 700_000 : 900_000;
   const audioMax = quality === "saver" || lowData ? 20_000 : 48_000;
   for (const sender of pc.getSenders()) {
     const params = sender.getParameters();
