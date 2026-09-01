@@ -45,3 +45,22 @@ export function formatCallWhen(ts: number): string {
     timeStyle: "short",
   }).format(ts);
 }
+
+export function participantStateFa(state: string): string {
+  if (state === "invited") return "دعوت‌شده";
+  if (state === "ringing") return "زنگ";
+  if (state === "connecting") return "در حال اتصال";
+  if (state === "connected") return "متصل";
+  if (state === "muted") return "بی‌صدا";
+  if (state === "disconnected") return "قطع";
+  if (state === "declined") return "رد";
+  if (state === "missed") return "بی‌پاسخ";
+  if (state === "removed") return "حذف‌شده";
+  return state;
+}
+
+export const CALL_RINGTONES = [
+  { id: "nixo", label: "زنگ نیکسو" },
+  { id: "classic", label: "کلاسیک" },
+  { id: "silent", label: "بی‌صدا" },
+] as const;

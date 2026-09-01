@@ -14,6 +14,10 @@ export const CALL_FLOOD_WINDOW_MS = 60_000;
 export const CALL_FLOOD_MAX = 8;
 export const CALL_TOKEN_TTL_MS = 2 * 60 * 60 * 1000;
 export const CALL_RECONNECT_MAX = 8;
+export const CALL_RECONNECT_TIMEOUT_MS = 20_000;
+export const CALL_FANOUT_MAX = 6;
+export const CALL_RESTRICT_MS = 15 * 60_000;
+export const CALL_PEER_MAX = 3;
 
 export type PublicCall = {
   id: string;
@@ -44,6 +48,10 @@ export type PublicCall = {
     | "failed"
     | "busy";
   reconnects: number;
+  connectionState: "connecting" | "connected" | "reconnecting" | "disconnected" | "failed";
+  micMuted: boolean;
+  speakerMode: boolean;
+  participantId: string;
 };
 
 function noteMissedInChat(data: StoreData, call: CallRecord, now: number) {
@@ -104,6 +112,39 @@ function expireRinging(call: CallRecord, now: number, data?: StoreData): CallRec
   return call;
 }
 
+function expireReconnect(call: CallRecord, now: number, data?: StoreData): CallRecord {
+  if (!call.reconnecting || call.status !== "active") return call;
+  const started = call.reconnectStartedAt ?? call.connectedAt ?? call.createdAt;
+  if (now - started < CALL_RECONNECT_TIMEOUT_MS) return call;
+  call.status = "ended";
+  call.endedAt = now;
+  call.endReason = "failed";
+  call.reconnecting = false;
+  call.connectionState = "failed";
+  call.mediaTokenHash = undefined;
+  if (call.connectedAt) call.durationMs = now - call.connectedAt;
+  if (data) {
+    for (const copy of twins(data, call)) {
+      if (copy.id === call.id) continue;
+      copy.status = "ended";
+      copy.endedAt = now;
+      copy.endReason = "failed";
+      copy.reconnecting = false;
+      copy.connectionState = "failed";
+      copy.mediaTokenHash = undefined;
+      if (copy.connectedAt) copy.durationMs = now - copy.connectedAt;
+    }
+    appendCallEvent(data, { userId: call.ownerUserId, callId: call.id, kind: "reconnect_timeout" });
+  }
+  return call;
+}
+
+function expireCallTimers(call: CallRecord, now: number, data?: StoreData) {
+  expireRinging(call, now, data);
+  expireReconnect(call, now, data);
+  return call;
+}
+
 export function callPhase(call: CallRecord): PublicCall["phase"] {
   if (call.status === "missed") return "missed";
   if (call.status === "declined") return "rejected";
@@ -144,7 +185,7 @@ function ensurePeerThread(data: StoreData, fromId: string, toUser: { id: string;
 }
 
 export function publicCall(call: CallRecord, now = Date.now()): PublicCall {
-  expireRinging(call, now);
+  expireCallTimers(call, now);
   const durationMs =
     call.durationMs ??
     (call.connectedAt && (call.endedAt ?? (call.status === "active" ? now : null))
@@ -169,6 +210,10 @@ export function publicCall(call: CallRecord, now = Date.now()): PublicCall {
     bridged: Boolean(call.sessionId),
     phase: callPhase(call),
     reconnects: call.reconnects ?? 0,
+    connectionState: call.connectionState ?? (call.status === "active" ? (call.reconnecting ? "reconnecting" : "connected") : call.status === "ringing" ? "connecting" : call.endReason === "failed" ? "failed" : "disconnected"),
+    micMuted: Boolean(call.micMuted),
+    speakerMode: call.speakerMode !== false,
+    participantId: call.participantId ?? call.id,
   };
 }
 
@@ -189,7 +234,7 @@ function busyCall(data: StoreData, userId: string) {
   const now = Date.now();
   return data.calls.find((c) => {
     if (c.ownerUserId !== userId) return false;
-    expireRinging(c, now);
+    expireCallTimers(c, now);
     return c.status === "ringing" || c.status === "active";
   });
 }
@@ -199,7 +244,7 @@ export async function listCalls(userId: string, filter?: string) {
     const now = Date.now();
     let rows = data.calls
       .filter((c) => c.ownerUserId === userId && !c.hiddenAt)
-      .map((c) => publicCall(expireRinging(c, now, data), now));
+      .map((c) => publicCall(expireCallTimers(c, now, data), now));
     if (filter === "missed") rows = rows.filter((c) => c.status === "missed");
     else if (filter === "incoming") rows = rows.filter((c) => c.direction === "in");
     else if (filter === "outgoing") rows = rows.filter((c) => c.direction === "out");
@@ -216,7 +261,7 @@ export async function activeCall(userId: string) {
   const now = Date.now();
   const live = data.calls.find((c) => {
     if (c.ownerUserId !== userId) return false;
-    expireRinging(c, now);
+    expireCallTimers(c, now);
     return c.status === "ringing" || c.status === "active";
   });
   const waiting = data.calls.find((c) => {
@@ -230,6 +275,10 @@ export async function activeCall(userId: string) {
     lowDataCalls: Boolean(user?.lowDataCalls),
     hideCallOnLockScreen: Boolean(user?.hideCallOnLockScreen),
     callPrivacy: user?.callPrivacy ?? "everyone",
+    callRingtone: user?.callRingtone === "classic" || user?.callRingtone === "silent" ? user.callRingtone : "nixo",
+    callVibration: user?.callVibration !== false,
+    silentCallNotify: Boolean(user?.silentCallNotify),
+    callNotify: user?.callNotify !== false,
   };
 }
 
@@ -237,7 +286,14 @@ export async function startOutgoing(userId: string, threadId: string, kind: Call
   return mutateStore((data) => {
     const thread = data.threads.find((t) => t.id === threadId && t.ownerUserId === userId);
     if (!thread) return { ok: false as const, error: "گفتگو یافت نشد.", status: 404 };
+    if (thread.peerKey === userId) {
+      return { ok: false as const, error: "تماس با خودت مجاز نیست.", status: 400 };
+    }
     const now = Date.now();
+    const meUser = data.users.find((u) => u.id === userId);
+    if (meUser?.callRestrictedUntil && meUser.callRestrictedUntil > now) {
+      return { ok: false as const, error: "تماس‌های خروجی موقتاً محدود شده است.", status: 429 };
+    }
     const safety = blockState(data, userId, thread.peerKey);
     if (!safety.callsAllowed) {
       return { ok: false as const, error: "تماس با این شخص محدود شده است.", status: 403 };
@@ -251,6 +307,13 @@ export async function startOutgoing(userId: string, threadId: string, kind: Call
     }
     const flood = hitRateLimit(data, `callout:${userId}`, CALL_FLOOD_WINDOW_MS, CALL_FLOOD_MAX);
     if (!flood.allowed) return { ok: false as const, error: "تماس پیاپی محدود شد.", status: 429 };
+    const fan = hitRateLimit(data, `callfan:${userId}`, CALL_FLOOD_WINDOW_MS, CALL_FANOUT_MAX);
+    if (!fan.allowed) {
+      if (meUser) meUser.callRestrictedUntil = now + CALL_RESTRICT_MS;
+      return { ok: false as const, error: "تماس با افراد زیاد در این بازه محدود شد.", status: 429 };
+    }
+    const perPeer = hitRateLimit(data, `callpeer:${userId}:${thread.peerKey}`, CALL_FLOOD_WINDOW_MS, CALL_PEER_MAX);
+    if (!perPeer.allowed) return { ok: false as const, error: "زنگ پیاپی به این مخاطب محدود شد.", status: 429 };
     const peerUser = data.users.find((u) => u.id === thread.peerKey && u.status === "active");
     if (peerUser && !canReceiveCall(data, peerUser.id, userId)) {
       return { ok: false as const, error: "تنظیمات حریم خصوصی مخاطب تماس را محدود کرده است.", status: 403 };
@@ -259,7 +322,6 @@ export async function startOutgoing(userId: string, threadId: string, kind: Call
     const token = peerUser ? randomId() : undefined;
     const tokenHash = token ? hashCallToken(token) : undefined;
     const tokenExp = token ? now + CALL_TOKEN_TTL_MS : undefined;
-    const meUser = data.users.find((u) => u.id === userId);
     const call: CallRecord = {
       id: randomId(),
       ownerUserId: userId,
@@ -275,6 +337,8 @@ export async function startOutgoing(userId: string, threadId: string, kind: Call
       mediaTokenHash: tokenHash,
       mediaTokenExpiresAt: tokenExp,
       reconnects: 0,
+      connectionState: "connecting",
+      participantId: randomId(),
     };
     data.calls.push(call);
     appendCallEvent(data, { userId, callId: call.id, kind: "created" });
@@ -296,9 +360,12 @@ export async function startOutgoing(userId: string, threadId: string, kind: Call
         mediaTokenHash: tokenHash,
         mediaTokenExpiresAt: tokenExp,
         reconnects: 0,
+        connectionState: peerBusy ? "disconnected" : "connecting",
+        participantId: randomId(),
       };
       data.calls.push(incoming);
       appendCallEvent(data, { userId: peerUser.id, callId: incoming.id, kind: "incoming" });
+      if (peerUser.callNotify !== false) {
       const hide = Boolean(peerUser.hideCallOnLockScreen);
       emitNotification(data, {
         userId: peerUser.id,
@@ -312,6 +379,7 @@ export async function startOutgoing(userId: string, threadId: string, kind: Call
         muteId: peerThread.id,
         target: { type: "call", id: incoming.id },
       });
+      }
     }
     return { ok: true as const, call: publicCall(call, now), mediaToken: token ?? null };
   });
@@ -362,13 +430,14 @@ export async function startIncomingDemo(userId: string, kind: CallKind) {
 export async function actOnCall(
   userId: string,
   callId: string,
-  action: "accept" | "connect" | "decline" | "end" | "message-decline" | "end-current-accept" | "cancel" | "fail" | "reconnect",
+  action: "accept" | "connect" | "decline" | "end" | "message-decline" | "end-current-accept" | "cancel" | "fail" | "reconnect" | "recover" | "mute" | "unmute" | "handoff",
+  extra?: { deviceId?: string },
 ) {
   return mutateStore((data) => {
     const call = data.calls.find((c) => c.id === callId && c.ownerUserId === userId);
     if (!call) return { ok: false as const, error: "تماس یافت نشد.", status: 404 };
     const now = Date.now();
-    expireRinging(call, now, data);
+    expireCallTimers(call, now, data);
     const applyTwins = (fn: (c: CallRecord) => void) => {
       for (const copy of twins(data, call)) fn(copy);
     };
@@ -377,6 +446,39 @@ export async function actOnCall(
         appendCallEvent(data, { userId: copy.ownerUserId, callId: copy.id, kind });
       }
     };
+    if (action === "mute" || action === "unmute") {
+      if (call.status !== "active" && call.status !== "ringing") {
+        return { ok: false as const, error: "تماس فعال نیست.", status: 400 };
+      }
+      call.micMuted = action === "mute";
+      note(action);
+      return { ok: true as const, call: publicCall(call, now) };
+    }
+    if (action === "handoff") {
+      if (call.status !== "active" && call.status !== "ringing") {
+        return { ok: false as const, error: "تماس برای انتقال دستگاه آماده نیست.", status: 400 };
+      }
+      const token = randomId();
+      applyTwins((c) => {
+        c.mediaTokenHash = hashCallToken(token);
+        c.mediaTokenExpiresAt = now + CALL_TOKEN_TTL_MS;
+        c.deviceId = extra?.deviceId?.slice(0, 80) ?? null;
+      });
+      note("handoff");
+      return { ok: true as const, call: publicCall(call, now), mediaToken: token };
+    }
+    if (action === "recover") {
+      if (call.status !== "active" || !call.reconnecting) {
+        return { ok: false as const, error: "بازیابی برای این تماس ممکن نیست.", status: 400 };
+      }
+      applyTwins((c) => {
+        c.reconnecting = false;
+        c.connectionState = "connected";
+        c.reconnectStartedAt = undefined;
+      });
+      note("recovered");
+      return { ok: true as const, call: publicCall(call, now) };
+    }
     if (action === "reconnect") {
       if (call.status !== "active") return { ok: false as const, error: "تماس فعال نیست.", status: 400 };
       const n = (call.reconnects ?? 0) + 1;
@@ -395,6 +497,8 @@ export async function actOnCall(
       applyTwins((c) => {
         c.reconnects = n;
         c.reconnecting = true;
+        c.reconnectStartedAt = now;
+        c.connectionState = "reconnecting";
       });
       note("reconnect");
       return { ok: true as const, call: publicCall(call, now) };
@@ -409,6 +513,7 @@ export async function actOnCall(
       call.status = "active";
       call.connectedAt = call.connectedAt ?? now;
       call.reconnecting = false;
+      call.connectionState = "connected";
       note("connected");
     } else if (action === "accept") {
       if (call.direction !== "in" || (call.status !== "ringing" && call.status !== "queued")) {
@@ -418,6 +523,7 @@ export async function actOnCall(
         c.status = "active";
         c.connectedAt = now;
         c.reconnecting = false;
+        c.connectionState = "connected";
       });
       note("accepted");
     } else if (action === "end-current-accept") {
@@ -435,6 +541,7 @@ export async function actOnCall(
         c.status = "active";
         c.connectedAt = now;
         c.reconnecting = false;
+        c.connectionState = "connected";
       });
       note("accepted");
     } else if (action === "cancel") {
@@ -455,6 +562,7 @@ export async function actOnCall(
         c.endedAt = now;
         c.endReason = "failed";
         c.mediaTokenHash = undefined;
+        c.connectionState = "failed";
         if (c.connectedAt) c.durationMs = now - c.connectedAt;
       });
       note("failed");
@@ -506,6 +614,10 @@ export async function updateCallSettings(
     callAllowIds?: string[];
     hideCallOnLockScreen?: boolean;
     lowDataCalls?: boolean;
+    callRingtone?: "nixo" | "classic" | "silent";
+    callVibration?: boolean;
+    silentCallNotify?: boolean;
+    callNotify?: boolean;
   },
 ) {
   return mutateStore((data) => {
@@ -515,11 +627,21 @@ export async function updateCallSettings(
     if (patch.callAllowIds) user.callAllowIds = patch.callAllowIds.slice(0, 200);
     if (typeof patch.hideCallOnLockScreen === "boolean") user.hideCallOnLockScreen = patch.hideCallOnLockScreen;
     if (typeof patch.lowDataCalls === "boolean") user.lowDataCalls = patch.lowDataCalls;
+    if (patch.callRingtone === "nixo" || patch.callRingtone === "classic" || patch.callRingtone === "silent") {
+      user.callRingtone = patch.callRingtone;
+    }
+    if (typeof patch.callVibration === "boolean") user.callVibration = patch.callVibration;
+    if (typeof patch.silentCallNotify === "boolean") user.silentCallNotify = patch.silentCallNotify;
+    if (typeof patch.callNotify === "boolean") user.callNotify = patch.callNotify;
     return {
       ok: true as const,
       callPrivacy: user.callPrivacy,
       hideCallOnLockScreen: user.hideCallOnLockScreen,
       lowDataCalls: user.lowDataCalls,
+      callRingtone: user.callRingtone ?? "nixo",
+      callVibration: user.callVibration !== false,
+      silentCallNotify: Boolean(user.silentCallNotify),
+      callNotify: user.callNotify !== false,
     };
   });
 }

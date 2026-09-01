@@ -8,7 +8,7 @@ export type IceServerPublic = {
   credential?: string;
 };
 
-const TURN_TTL_SEC = 12 * 60 * 60;
+const TURN_TTL_SEC = 10 * 60;
 
 export function mintTurnCredential(userId: string) {
   const secret = config.turnSecret || config.turnCredential || config.sessionSecret;

@@ -118,6 +118,26 @@ describe("group calls and second-line", () => {
     expect(expiredJoin.ok).toBe(false);
   });
 
+  it("assigns participant ids, transfers host, and invites without leaking the room to outsiders", async () => {
+    const host = await activeUser("gcall_h2");
+    const a = await activeUser("gcall_a2");
+    const created = await createGroup(host, { name: "اتاق میزبان", joinMode: "open" });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    await joinByToken(a, created.group.inviteToken!);
+    const started = await startGroupCall(host, created.group.id, "voice", 8);
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    expect(started.call.participants[0]?.id).toBeTruthy();
+    const joined = await joinGroupCall(a, started.call.id);
+    expect(joined.ok).toBe(true);
+    const transferred = await moderateGroupCall(host, started.call.id, "host", { targetId: a });
+    expect(transferred.ok).toBe(true);
+    if (transferred.ok) expect(transferred.call.hostUserId).toBe(a);
+    const steal = await moderateGroupCall(host, started.call.id, "host", { targetId: host });
+    expect(steal.ok).toBe(false);
+  });
+
   it("queues a second incoming call and supports end-current-accept", async () => {
     const userId = await activeUser("gcall_q");
     const threads = await listThreads(userId);

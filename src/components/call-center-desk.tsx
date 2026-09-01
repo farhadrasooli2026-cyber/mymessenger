@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatCallClock, formatCallWhen } from "@/lib/call-copy";
+import { formatCallClock, formatCallWhen, CALL_RINGTONES } from "@/lib/call-copy";
 
 type Row = {
   id: string;
@@ -197,6 +197,63 @@ export function CallCenterDesk() {
         <Link href="/app/settings/privacy" className="block text-sm text-amber-200">
           تنظیمات → حریم خصوصی تماس
         </Link>
+        <section className="rounded-2xl bg-white/5 p-4 text-sm">
+          <h2 className="font-medium">زنگ، لرزش و اعلان</h2>
+          <p className="mt-1 text-[11px] opacity-70">اعلان ورودی می‌تواند بی‌صدا باشد. مجوز میکروفون را مرورگر می‌پرسد؛ بدون اجازه تماس ناقص شروع نمی‌شود.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {CALL_RINGTONES.map((r) => (
+              <Button
+                key={r.id}
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  void fetch("/api/calls/settings", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ callRingtone: r.id }),
+                  }).then((res) => {
+                    if (res.ok) toast.success(`زنگ: ${r.label}`);
+                  });
+                }}
+              >
+                {r.label}
+              </Button>
+            ))}
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                void fetch("/api/calls/settings", {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ callVibration: true, silentCallNotify: true }),
+                }).then((res) => {
+                  if (res.ok) toast.success("اعلان تماس بی‌صدا شد.");
+                });
+              }}
+            >
+              اعلان بی‌صدا
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                void fetch("/api/calls/settings", {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ callNotify: false }),
+                }).then((res) => {
+                  if (res.ok) toast.success("اعلان تماس خاموش شد.");
+                });
+              }}
+            >
+              قطع اعلان تماس
+            </Button>
+          </div>
+        </section>
       </div>
     </main>
   );

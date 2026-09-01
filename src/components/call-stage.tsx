@@ -363,6 +363,11 @@ export function CallStage({
     loopRef.current?.local.getAudioTracks().forEach((t) => {
       t.enabled = !next;
     });
+    void fetch(`/api/calls/${call.id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: next ? "mute" : "unmute" }),
+    });
   }
 
   function toggleCam() {

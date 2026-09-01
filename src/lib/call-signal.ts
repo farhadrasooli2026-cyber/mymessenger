@@ -87,6 +87,8 @@ export async function postCallSignal(
         if (n > CALL_RECONNECT_MAX) return { ok: false as const, error: "Reconnect به سقف رسید.", status: 429 };
         mine.reconnects = n;
         mine.reconnecting = true;
+        mine.reconnectStartedAt = Date.now();
+        mine.connectionState = "reconnecting";
       }
     }
     data.callSignals ??= [];

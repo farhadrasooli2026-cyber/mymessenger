@@ -5,11 +5,12 @@ import { ackHumanChallenge, issueHumanChallenge, startRegistration, verifyOtp } 
 import { getOutbox } from "./outbox";
 import { listMessages, listThreads, openDm } from "./chat";
 import { setBlocked } from "./safety";
-import { resetStoreForTests } from "./store";
-import { actOnCall, deleteCallHistory, listCalls, refuseCallRecording, startIncomingDemo, startOutgoing, updateCallSettings } from "./calls";
+import { mutateStore, resetStoreForTests } from "./store";
+import { actOnCall, deleteCallHistory, listCalls, refuseCallRecording, startIncomingDemo, startOutgoing, updateCallSettings, CALL_RECONNECT_TIMEOUT_MS } from "./calls";
 import { searchCallHistory, requestCallRecording } from "./call-center";
 import { mintTurnCredential } from "./ice";
 import { setMutedPeer } from "./privacy";
+import { postCallSignal } from "./call-signal";
 
 async function activeUser(username: string) {
   const ip = hashIp(`test-ip:${username}`);
@@ -148,5 +149,70 @@ describe("voice and video calls", () => {
     await actOnCall(userId, incoming.call.id, "end");
     const listed = await listMessages(userId, incoming.call.threadId);
     expect(listed?.messages.some((m) => m.kind === "system" && m.systemEvent?.type === "missed_call")).toBe(true);
+  });
+
+  it("rejects self-call, friends-only privacy, handoff token rotation, and reconnect timeout", async () => {
+    const a = await activeUser("call_sec_a");
+    const b = await activeUser("call_sec_b");
+    await mutateStore((data) => {
+      data.threads.push({
+        id: "self-thread",
+        ownerUserId: a,
+        peerKey: a,
+        peerName: "من",
+        peerTitle: "خودم",
+        color: "#34d399",
+        updatedAt: Date.now(),
+      });
+    });
+    const self = await startOutgoing(a, "self-thread", "voice");
+    expect(self.ok).toBe(false);
+
+    await updateCallSettings(b, { callPrivacy: "friends" });
+    const opened = await openDm(a, b);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const denied = await startOutgoing(a, opened.thread.id, "voice");
+    expect(denied.ok).toBe(false);
+    await mutateStore((data) => {
+      const ua = data.users.find((u) => u.id === a);
+      const ub = data.users.find((u) => u.id === b);
+      if (ua && ub) {
+        ua.friendIds = [...(ua.friendIds ?? []), b];
+        ub.friendIds = [...(ub.friendIds ?? []), a];
+      }
+    });
+    const allowed = await startOutgoing(a, opened.thread.id, "voice");
+    expect(allowed.ok).toBe(true);
+    if (!allowed.ok) return;
+    expect(allowed.call.participantId).toBeTruthy();
+    const accepted = await actOnCall(b, (await listCalls(b, "incoming"))[0]!.id, "accept");
+    expect(accepted.ok).toBe(true);
+    const oldToken = allowed.mediaToken;
+    const moved = await actOnCall(a, allowed.call.id, "handoff", { deviceId: "dev-2" });
+    expect(moved.ok).toBe(true);
+    if (moved.ok && oldToken) {
+      const stale = await postCallSignal(a, allowed.call.id, { type: "offer", body: "v=0\r\no=- nixo", token: oldToken });
+      expect(stale.ok).toBe(false);
+      const fresh = await postCallSignal(a, allowed.call.id, {
+        type: "offer",
+        body: "v=0\r\no=- nixo",
+        token: "mediaToken" in moved ? moved.mediaToken : undefined,
+      });
+      expect(fresh.ok).toBe(true);
+    }
+    await actOnCall(a, allowed.call.id, "end");
+
+    const seed = await startOutgoing(a, (await listThreads(a)).find((t) => t.peerKey === "arya")!.id, "voice");
+    expect(seed.ok).toBe(true);
+    if (!seed.ok) return;
+    await actOnCall(a, seed.call.id, "connect");
+    await actOnCall(a, seed.call.id, "reconnect");
+    await mutateStore((data) => {
+      const c = data.calls.find((x) => x.id === seed.call.id);
+      if (c) c.reconnectStartedAt = Date.now() - CALL_RECONNECT_TIMEOUT_MS - 1000;
+    });
+    const timed = await listCalls(a);
+    expect(timed.find((c) => c.id === seed.call.id)?.phase).toBe("failed");
   });
 });

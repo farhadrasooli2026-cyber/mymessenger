@@ -26,11 +26,15 @@ export async function POST(request: Request, ctx: Ctx) {
     action !== "end-current-accept" &&
     action !== "cancel" &&
     action !== "fail" &&
-    action !== "reconnect"
+    action !== "reconnect" &&
+    action !== "recover" &&
+    action !== "mute" &&
+    action !== "unmute" &&
+    action !== "handoff"
   ) {
     return jsonError("عملیات نامعتبر است.");
   }
-  const result = await actOnCall(user.id, id, action);
+  const result = await actOnCall(user.id, id, action, { deviceId: typeof (body as { deviceId?: string })?.deviceId === "string" ? (body as { deviceId: string }).deviceId : undefined });
   if (!result.ok) return jsonError(result.error, result.status);
-  return json({ ok: true, call: result.call });
+  return json({ ok: true, call: result.call, mediaToken: "mediaToken" in result ? result.mediaToken : undefined });
 }

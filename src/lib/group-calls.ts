@@ -2,7 +2,7 @@ import "server-only";
 import { randomId } from "@/lib/crypto-utils";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, type StoreData } from "@/lib/store";
-import type { CallKind, GroupCallParticipant, GroupCallRoom } from "@/lib/store";
+import type { CallKind, CallParticipantState, GroupCallParticipant, GroupCallRoom } from "@/lib/store";
 import { emitNotification } from "@/lib/notify";
 import { rankRole } from "@/lib/group-types";
 import { appendCallEvent } from "@/lib/call-events";
@@ -22,6 +22,20 @@ function liveMember(data: StoreData, groupId: string, userId: string) {
 
 function liveParts(room: GroupCallRoom) {
   return room.participants.filter((p) => !p.leftAt && !p.kicked);
+}
+
+function participantState(p: GroupCallParticipant, room: GroupCallRoom): CallParticipantState {
+  if (p.kicked) return "removed";
+  if (p.state === "declined" || p.state === "missed" || p.state === "invited") return p.state;
+  if (p.leftAt) return "disconnected";
+  if (p.mutedByHost || p.micMuted) return "muted";
+  if (p.state === "ringing" || p.state === "connecting") return p.state;
+  if (room.status === "ringing") return "ringing";
+  return "connected";
+}
+
+function makeParticipant(input: Omit<GroupCallParticipant, "id"> & { id?: string }): GroupCallParticipant {
+  return { ...input, id: input.id ?? randomId() };
 }
 
 function inviteLive(room: GroupCallRoom, now = Date.now()) {
@@ -46,9 +60,11 @@ export function publicGroupCall(room: GroupCallRoom, userId: string) {
     inviteToken: me && (me.role === "host" || me.role === "admin") ? (tokenLive ? room.inviteToken : null) : Boolean(tokenLive),
     inviteExpiresAt: me && (me.role === "host" || me.role === "admin") ? (tokenLive ? room.inviteExpiresAt ?? null : null) : null,
     participants: liveParts(room).map((p) => ({
+      id: p.id,
       userId: p.userId,
       name: p.name,
       role: p.role,
+      state: participantState(p, room),
       mutedByHost: p.mutedByHost,
       camOff: Boolean(p.camOff),
       micMuted: Boolean(p.micMuted),
@@ -85,7 +101,7 @@ export async function startGroupCall(userId: string, groupId: string, kind: Call
     }
     const cap = Math.min(GROUP_CALL_HARD_MAX, Math.max(2, maxParticipants ?? GROUP_CALL_DEFAULT_MAX));
     const now = Date.now();
-    const host: GroupCallParticipant = {
+    const host: GroupCallParticipant = makeParticipant({
       userId,
       name: ctx.member.name,
       role: "host",
@@ -93,7 +109,8 @@ export async function startGroupCall(userId: string, groupId: string, kind: Call
       leftAt: null,
       mutedByHost: false,
       kicked: false,
-    };
+      state: "connected",
+    });
     const room: GroupCallRoom = {
       id: randomId(),
       groupId,
@@ -104,6 +121,7 @@ export async function startGroupCall(userId: string, groupId: string, kind: Call
       maxParticipants: cap,
       inviteToken: null,
       inviteExpiresAt: null,
+      sessionId: randomId(),
       createdAt: now,
       endedAt: null,
       participants: [host],
@@ -146,8 +164,9 @@ export async function joinGroupCall(userId: string, callId: string) {
     if (existing) {
       existing.leftAt = null;
       existing.joinedAt = Date.now();
+      existing.state = "connected";
     } else {
-      room.participants.push({
+      room.participants.push(makeParticipant({
         userId,
         name: ctx.member.name,
         role: userId === room.hostUserId ? "host" : role,
@@ -155,7 +174,8 @@ export async function joinGroupCall(userId: string, callId: string) {
         leftAt: null,
         mutedByHost: false,
         kicked: false,
-      });
+        state: "connected",
+      }));
     }
     appendCallEvent(data, { userId, callId: room.id, kind: "join" });
     return { ok: true as const, call: publicGroupCall(room, userId) };
@@ -187,8 +207,9 @@ function joinGroupCallUnlocked(data: StoreData, userId: string, room: GroupCallR
     existing.leftAt = null;
     existing.joinedAt = Date.now();
     existing.kicked = false;
+    existing.state = "connected";
   } else {
-    room.participants.push({
+    room.participants.push(makeParticipant({
       userId,
       name: ctx.member.name,
       role: userId === room.hostUserId ? "host" : role,
@@ -196,7 +217,8 @@ function joinGroupCallUnlocked(data: StoreData, userId: string, room: GroupCallR
       leftAt: null,
       mutedByHost: false,
       kicked: false,
-    });
+      state: "connected",
+    }));
   }
   appendCallEvent(data, { userId, callId: room.id, kind: "join" });
   return { ok: true as const, call: publicGroupCall(room, userId) };
@@ -269,8 +291,9 @@ export async function addToGroupCall(actorId: string, callId: string, targetId: 
     if (existing) {
       existing.leftAt = null;
       existing.joinedAt = Date.now();
+      existing.state = "connected";
     } else {
-      room.participants.push({
+      room.participants.push(makeParticipant({
         userId: targetId,
         name: ctx.member.name,
         role: "member",
@@ -278,7 +301,8 @@ export async function addToGroupCall(actorId: string, callId: string, targetId: 
         leftAt: null,
         mutedByHost: false,
         kicked: false,
-      });
+        state: "connected",
+      }));
     }
     emitNotification(data, {
       userId: targetId,
@@ -298,7 +322,7 @@ export async function addToGroupCall(actorId: string, callId: string, targetId: 
 export async function moderateGroupCall(
   actorId: string,
   callId: string,
-  action: "kick" | "mute" | "unmute" | "leave" | "end" | "link" | "revoke" | "cap",
+  action: "kick" | "mute" | "unmute" | "leave" | "end" | "link" | "revoke" | "cap" | "host" | "invite",
   extra?: { targetId?: string; maxParticipants?: number },
 ) {
   return mutateStore((data) => {
@@ -307,7 +331,10 @@ export async function moderateGroupCall(
     const me = room.participants.find((p) => p.userId === actorId && !p.leftAt);
     if (!me && action !== "leave") return { ok: false as const, error: "داخل تماس نیستی.", status: 403 };
     if (action === "leave") {
-      if (me) me.leftAt = Date.now();
+      if (me) {
+        me.leftAt = Date.now();
+        me.state = "disconnected";
+      }
       if (room.hostUserId === actorId && room.status !== "ended") {
         const next = liveParts(room)[0];
         if (next) {
@@ -329,8 +356,59 @@ export async function moderateGroupCall(
       room.endedAt = Date.now();
       room.inviteToken = null;
       room.inviteExpiresAt = null;
-      for (const p of room.participants) if (!p.leftAt) p.leftAt = Date.now();
+      for (const p of room.participants) if (!p.leftAt) {
+        p.leftAt = Date.now();
+        p.state = "disconnected";
+      }
       appendCallEvent(data, { userId: actorId, callId: room.id, kind: "group_ended" });
+      return { ok: true as const, call: publicGroupCall(room, actorId) };
+    }
+    if (action === "host") {
+      if (room.hostUserId !== actorId) return { ok: false as const, error: "فقط Host می‌تواند میزبان را واگذار کند.", status: 403 };
+      const target = room.participants.find((p) => p.userId === extra?.targetId && !p.leftAt && !p.kicked);
+      if (!target) return { ok: false as const, error: "شرکت‌کننده داخل تماس نیست.", status: 404 };
+      const prev = room.participants.find((p) => p.userId === actorId);
+      room.hostUserId = target.userId;
+      target.role = "host";
+      if (prev && prev.userId !== target.userId) prev.role = "admin";
+      appendCallEvent(data, { userId: actorId, callId: room.id, kind: "host_transfer" });
+      return { ok: true as const, call: publicGroupCall(room, actorId) };
+    }
+    if (action === "invite") {
+      if (!canModerate(room, actorId)) return { ok: false as const, error: "اجازهٔ دعوت نداری.", status: 403 };
+      const targetId = extra?.targetId;
+      if (!targetId) return { ok: false as const, error: "عضو مشخص نیست.", status: 400 };
+      const ctx = liveMember(data, room.groupId, targetId);
+      if (!ctx) return { ok: false as const, error: "هدف عضو گروه نیست.", status: 400 };
+      const existing = room.participants.find((p) => p.userId === targetId);
+      if (existing?.kicked) return { ok: false as const, error: "این کاربر از تماس حذف شده.", status: 403 };
+      if (existing && !existing.leftAt) return { ok: true as const, call: publicGroupCall(room, actorId) };
+      if (existing) {
+        existing.state = "invited";
+      } else {
+        room.participants.push(makeParticipant({
+          userId: targetId,
+          name: ctx.member.name,
+          role: "member",
+          joinedAt: Date.now(),
+          leftAt: Date.now(),
+          mutedByHost: false,
+          kicked: false,
+          state: "invited",
+        }));
+      }
+      emitNotification(data, {
+        userId: targetId,
+        category: "calls",
+        kind: "group_call",
+        title: "دعوت به تماس گروهی",
+        senderName: room.groupName,
+        sourceId: `gcall:${room.id}`,
+        muteType: "group",
+        muteId: room.groupId,
+        target: { type: "call", id: room.id },
+      });
+      appendCallEvent(data, { userId: actorId, callId: room.id, kind: "invite" });
       return { ok: true as const, call: publicGroupCall(room, actorId) };
     }
     if (!canModerate(room, actorId)) return { ok: false as const, error: "اجازهٔ مدیریت تماس نداری.", status: 403 };
@@ -358,9 +436,15 @@ export async function moderateGroupCall(
     if (action === "kick") {
       target.kicked = true;
       target.leftAt = Date.now();
+      target.state = "removed";
       appendCallEvent(data, { userId: actorId, callId: room.id, kind: "kick" });
-    } else if (action === "mute") target.mutedByHost = true;
-    else if (action === "unmute") target.mutedByHost = false;
+    } else if (action === "mute") {
+      target.mutedByHost = true;
+      target.state = "muted";
+    } else if (action === "unmute") {
+      target.mutedByHost = false;
+      if (!target.leftAt) target.state = "connected";
+    }
     return { ok: true as const, call: publicGroupCall(room, actorId) };
   });
 }

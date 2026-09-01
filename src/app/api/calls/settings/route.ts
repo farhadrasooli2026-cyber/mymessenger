@@ -22,6 +22,10 @@ export async function PATCH(request: Request) {
     callAllowIds: Array.isArray(body.callAllowIds) ? body.callAllowIds.map(String) : undefined,
     hideCallOnLockScreen: typeof body.hideCallOnLockScreen === "boolean" ? body.hideCallOnLockScreen : undefined,
     lowDataCalls: typeof body.lowDataCalls === "boolean" ? body.lowDataCalls : undefined,
+    callRingtone: body.callRingtone === "nixo" || body.callRingtone === "classic" || body.callRingtone === "silent" ? body.callRingtone : undefined,
+    callVibration: typeof body.callVibration === "boolean" ? body.callVibration : undefined,
+    silentCallNotify: typeof body.silentCallNotify === "boolean" ? body.silentCallNotify : undefined,
+    callNotify: typeof body.callNotify === "boolean" ? body.callNotify : undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({
@@ -29,5 +33,9 @@ export async function PATCH(request: Request) {
     callPrivacy: result.callPrivacy,
     hideCallOnLockScreen: result.hideCallOnLockScreen,
     lowDataCalls: result.lowDataCalls,
+    callRingtone: result.callRingtone,
+    callVibration: result.callVibration,
+    silentCallNotify: result.silentCallNotify,
+    callNotify: result.callNotify,
   });
 }

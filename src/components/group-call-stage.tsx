@@ -19,7 +19,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { formatCallClock } from "@/lib/call-copy";
+import { formatCallClock, participantStateFa } from "@/lib/call-copy";
 import {
   applyBitrate,
   getMediaErrorMessage,
@@ -40,7 +40,7 @@ export type PublicGroupCallUi = {
   maxParticipants: number;
   createdAt: number;
   inviteToken: string | boolean | null;
-  participants: { userId: string; name: string; role: string; mutedByHost: boolean; camOff?: boolean; micMuted?: boolean; sharing?: boolean; speaking?: boolean; me: boolean }[];
+  participants: { id?: string; userId: string; name: string; role: string; state?: string; mutedByHost: boolean; camOff?: boolean; micMuted?: boolean; sharing?: boolean; speaking?: boolean; me: boolean }[];
   iAmHost: boolean;
   canModerate: boolean;
   activeSpeakerId?: string | null;
@@ -224,9 +224,10 @@ export function GroupCallStage({
         </p>
         <ul className="mt-2 max-h-28 space-y-1 overflow-auto text-xs">
           {room.participants.map((p) => (
-            <li key={p.userId} className={cn("flex items-center justify-between gap-2 rounded-lg px-2 py-1", (p.speaking || room.activeSpeakerId === p.userId) && "bg-amber-300/20")}>
+            <li key={p.id ?? p.userId} className={cn("flex items-center justify-between gap-2 rounded-lg px-2 py-1", (p.speaking || room.activeSpeakerId === p.userId) && "bg-amber-300/20")}>
               <span>
                 {p.name} · {p.role}
+                {p.state ? ` · ${participantStateFa(p.state)}` : ""}
                 {p.mutedByHost ? " · بی‌صدا از طرف Host" : ""}
                 {p.micMuted ? " · میکروفون خاموش" : ""}
                 {p.camOff ? " · دوربین خاموش" : ""}
@@ -242,6 +243,11 @@ export function GroupCallStage({
                   <button type="button" className="rounded bg-rose-500/80 px-2 py-0.5" onClick={() => void act("kick", { targetUserId: p.userId })}>
                     <UserMinus className="inline size-3" /> خروج
                   </button>
+                  {room.iAmHost && (
+                    <button type="button" className="rounded bg-white/10 px-2 py-0.5" onClick={() => void act("host", { targetUserId: p.userId })}>
+                      Host
+                    </button>
+                  )}
                 </span>
               )}
             </li>

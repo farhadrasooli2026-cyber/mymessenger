@@ -99,6 +99,11 @@ function hydrateUser(user: UserRecord): UserRecord {
     callAllowIds: Array.isArray(user.callAllowIds) ? user.callAllowIds : [],
     hideCallOnLockScreen: Boolean(user.hideCallOnLockScreen),
     lowDataCalls: Boolean(user.lowDataCalls),
+    callRestrictedUntil: user.callRestrictedUntil ?? null,
+    callRingtone: user.callRingtone === "classic" || user.callRingtone === "silent" ? user.callRingtone : "nixo",
+    callVibration: user.callVibration !== false,
+    silentCallNotify: Boolean(user.silentCallNotify),
+    callNotify: user.callNotify !== false,
     closeFriendIds: Array.isArray(user.closeFriendIds) ? user.closeFriendIds : [],
     mutedStoryUserIds: Array.isArray(user.mutedStoryUserIds) ? user.mutedStoryUserIds : [],
     storyNotifyOffIds: Array.isArray(user.storyNotifyOffIds) ? user.storyNotifyOffIds : [],
@@ -550,6 +555,11 @@ export type UserRecord = {
   callAllowIds: string[];
   hideCallOnLockScreen: boolean;
   lowDataCalls: boolean;
+  callRestrictedUntil?: number | null;
+  callRingtone?: "nixo" | "classic" | "silent";
+  callVibration?: boolean;
+  silentCallNotify?: boolean;
+  callNotify?: boolean;
   closeFriendIds: string[];
   mutedStoryUserIds: string[];
   storyNotifyOffIds: string[];
@@ -1169,7 +1179,13 @@ export type CallRecord = {
   mediaTokenExpiresAt?: number;
   reconnects?: number;
   reconnecting?: boolean;
+  reconnectStartedAt?: number;
   sharing?: boolean;
+  connectionState?: "connecting" | "connected" | "reconnecting" | "disconnected" | "failed";
+  micMuted?: boolean;
+  speakerMode?: boolean;
+  deviceId?: string | null;
+  participantId?: string;
 };
 
 export type CallSignal = {
@@ -1199,7 +1215,19 @@ export type CallEvent = {
   detail?: string;
 };
 
+export type CallParticipantState =
+  | "invited"
+  | "ringing"
+  | "connecting"
+  | "connected"
+  | "muted"
+  | "disconnected"
+  | "declined"
+  | "missed"
+  | "removed";
+
 export type GroupCallParticipant = {
+  id: string;
   userId: string;
   name: string;
   role: "host" | "admin" | "member";
@@ -1211,6 +1239,8 @@ export type GroupCallParticipant = {
   micMuted?: boolean;
   sharing?: boolean;
   speakingAt?: number;
+  state?: CallParticipantState;
+  deviceId?: string | null;
 };
 
 export type GroupCallRoom = {
@@ -1223,6 +1253,7 @@ export type GroupCallRoom = {
   maxParticipants: number;
   inviteToken: string | null;
   inviteExpiresAt?: number | null;
+  sessionId?: string;
   hiddenBy?: string[];
   createdAt: number;
   endedAt: number | null;
@@ -2309,7 +2340,16 @@ async function readStore(): Promise<StoreData> {
       pushJobs: Array.isArray(parsed.pushJobs) ? parsed.pushJobs : [],
       notifyDeadLetters: Array.isArray(parsed.notifyDeadLetters) ? parsed.notifyDeadLetters : [],
       notifyAudit: Array.isArray(parsed.notifyAudit) ? parsed.notifyAudit : [],
-      groupCalls: Array.isArray(parsed.groupCalls) ? parsed.groupCalls : [],
+      groupCalls: Array.isArray(parsed.groupCalls)
+        ? parsed.groupCalls.map((c: GroupCallRoom) => ({
+            ...c,
+            sessionId: c.sessionId || c.id,
+            participants: (c.participants ?? []).map((p) => ({
+              ...p,
+              id: p.id || `gcp_${c.id}_${p.userId}`,
+            })),
+          }))
+        : [],
       callSignals: Array.isArray(parsed.callSignals) ? parsed.callSignals : [],
       callQuality: Array.isArray(parsed.callQuality) ? parsed.callQuality : [],
       callEvents: Array.isArray(parsed.callEvents) ? parsed.callEvents : [],

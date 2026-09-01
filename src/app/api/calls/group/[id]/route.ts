@@ -50,7 +50,19 @@ export async function POST(request: Request, ctx: Ctx) {
     return json({ ok: true, call: r.call });
   }
   const mapped =
-    action === "revoke-link" ? "revoke" : action === "link" || action === "leave" || action === "end" || action === "kick" || action === "mute" || action === "unmute" || action === "cap" ? action : null;
+    action === "revoke-link"
+      ? "revoke"
+      : action === "link" ||
+          action === "leave" ||
+          action === "end" ||
+          action === "kick" ||
+          action === "mute" ||
+          action === "unmute" ||
+          action === "cap" ||
+          action === "host" ||
+          action === "invite"
+        ? action
+        : null;
   if (!mapped) return jsonError("عملیات نامعتبر است.");
   const r = await moderateGroupCall(user.id, id, mapped, {
     targetId: body?.targetUserId,
