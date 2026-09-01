@@ -1,5 +1,5 @@
 import "server-only";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Channel } from "@/lib/identifiers";
 import type { CatalogCategory, CatalogItem, UserPhoto, UsernameChange, Visibility } from "@/lib/profile-types";
@@ -2606,6 +2606,8 @@ export function writeStoreForTests(data: StoreData): Promise<void> {
 export function resetStoreForTests(): Promise<void> {
   return enqueue(async () => {
     await writeStore(structuredClone(EMPTY));
+    const lock = path.join(process.cwd(), ".data", `dr-lock.test.${process.env.VITEST_WORKER_ID ?? "0"}.json`);
+    await unlink(lock).catch(() => undefined);
   });
 }
 

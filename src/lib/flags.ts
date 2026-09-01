@@ -3,7 +3,10 @@ import type { FeatureFlagRow, FlagSegment } from "@/lib/deploy-types";
 function bucket(userId: string, key: string) {
   let h = 2166136261;
   const s = `${userId}:${key}`;
-  for (let i = 0; i < s.length; i += 1) h ^= s.charCodeAt(i), (h = Math.imul(h, 16777619));
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
   return Math.abs(h) % 100;
 }
 

@@ -426,7 +426,7 @@ export async function flushMonitor() {
   await maybeDrainPerf().catch(() => nixoLog("warn", "queue", "worker drain skipped"));
   const { maybeAutoRollback } = await import("@/lib/deploy");
   const errRate = live.api.requests ? (live.api.errors / live.api.requests) * 100 : 0;
-  await maybeAutoRollback(errRate, true).catch(() => nixoLog("warn", "deploy", "auto rollback skipped"));
+  await maybeAutoRollback(errRate, true).catch(() => nixoLog("warn", "monitor", "auto rollback skipped"));
 }
 
 export async function maybeFlush() {

@@ -117,7 +117,7 @@ describe("backup disaster recovery", () => {
     rememberPlatformMode("normal");
 
     const fo = await failover(pw, DR_CONFIRM.failover);
-    expect(fo.ok).toBe(true);
+    expect(fo.ok, !fo.ok ? fo.error : "").toBe(true);
     if (fo.ok) expect(fo.generation).toBeGreaterThan(1);
 
     const status = await publicStatus();

@@ -44,8 +44,6 @@ import {
   type PlatformMode,
 } from "@/lib/dr-types";
 
-const APP_VERSION = "0.1.0";
-
 function lockPath() {
   return path.join(process.cwd(), ".data", process.env.VITEST ? `dr-lock.test.${process.env.VITEST_WORKER_ID ?? "0"}.json` : "dr-lock.json");
 }
