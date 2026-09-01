@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { randomId } from "@/lib/crypto-utils";
 import { hitRateLimit } from "@/lib/rate-limit";
-import { mutateStore, readStoreSnapshot } from "@/lib/store";
+import { mutateStore } from "@/lib/store";
 import type { StoreData } from "@/lib/store";
 import { FILE_DL_PER_MIN, FILE_SEARCH_PER_MIN, FILE_SEND_PER_MIN } from "@/lib/files";
 
