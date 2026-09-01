@@ -143,6 +143,8 @@ function publicGroup(group: GroupRecord, viewerKey: string) {
     pendingRequests: me && adminCan(group, me, "addMembers") ? group.requests.filter((r) => r.status === "pending") : [],
     bans: me && adminCan(group, me, "removeMembers") ? group.bans : [],
     audit: staff ? (group.audit ?? []).slice(0, 40) : [],
+    fileMaxBytes: group.fileMaxBytes ?? null,
+    allowedFileExts: group.allowedFileExts ?? null,
   };
 }
 
@@ -314,6 +316,8 @@ export async function updateGroup(
     maxMembers: number;
     reactionsEnabled: boolean;
     allowedReactions: string[] | null;
+    fileMaxBytes?: number | null;
+    allowedFileExts?: string[] | null;
   }>,
 ) {
   return mutateStore((data) => {
@@ -391,6 +395,23 @@ export async function updateGroup(
         return { ok: false as const, error: "اجازهٔ مدیریت واکنش نداری.", status: 403 };
       }
       group.allowedReactions = patch.allowedReactions === null ? null : allowedReactionSet(patch.allowedReactions);
+    }
+    if (typeof patch.fileMaxBytes === "number") {
+      if (!(me.role === "owner" || adminCan(group, me, "managePermissions"))) {
+        return { ok: false as const, error: "اجازهٔ محدودیت فایل نداری.", status: 403 };
+      }
+      group.fileMaxBytes = Math.max(64 * 1024, Math.min(28 * 1024 * 1024, Math.floor(patch.fileMaxBytes)));
+      pushAudit(group, me, "files", `سقف فایل ${group.fileMaxBytes}`);
+    }
+    if (patch.allowedFileExts !== undefined) {
+      if (!(me.role === "owner" || adminCan(group, me, "managePermissions"))) {
+        return { ok: false as const, error: "اجازهٔ محدودیت فایل نداری.", status: 403 };
+      }
+      group.allowedFileExts =
+        patch.allowedFileExts === null
+          ? null
+          : patch.allowedFileExts.map((e) => e.replace(/^\./, "").toLowerCase().slice(0, 8)).filter(Boolean).slice(0, 24);
+      pushAudit(group, me, "files", "فرمت‌های مجاز فایل تغییر کرد");
     }
     group.updatedAt = now;
     pushSystem(data, group, "تنظیمات گروه به‌روز شد.", now);
@@ -688,6 +709,7 @@ export async function sendGroupMessage(
     tags?: string[];
     blobId?: string;
     chunkCount?: number;
+    byteLength?: number;
     poll?: { question: string; options: string[]; anonymous?: boolean; multiple?: boolean; closesAt?: number | null };
     stickerId?: string;
     durationMs?: number;
@@ -804,6 +826,20 @@ export async function sendGroupMessage(
     if (payload.enc !== "e2ee-v1" || ciphertext.length < 8 || nonce.length < 8 || !B64.test(ciphertext) || !B64.test(nonce)) {
       return { ok: false as const, error: "فقط پاکت رمزنگاری‌شده پذیرفته می‌شود.", status: 400 };
     }
+    if (kind === "photo" || kind === "video" || kind === "file") {
+      const flim = hitRateLimit(data, `file:up:${userId}`, 60_000, 24, now);
+      if (!flim.allowed) return { ok: false as const, error: "ارسال فایل پیاپی محدود شد.", status: 429 };
+      const cap = group.fileMaxBytes && group.fileMaxBytes > 0 ? Math.min(group.fileMaxBytes, 28 * 1024 * 1024) : 28 * 1024 * 1024;
+      if (typeof payload.byteLength === "number" && payload.byteLength > cap) {
+        return { ok: false as const, error: "حجم فایل از سقف این گروه بیشتر است.", status: 413 };
+      }
+      const blobId = typeof payload.blobId === "string" ? payload.blobId : "";
+      if (!/^[a-f0-9]{8,64}$/i.test(blobId)) return { ok: false as const, error: "شناسه فایل نامعتبر است.", status: 400 };
+      const dup = data.groupMessages.find(
+        (m) => m.groupId === groupId && m.senderKey === userId && m.blobId === blobId && !m.deleted && now - m.createdAt < 180_000,
+      );
+      if (dup) return { ok: true as const, message: publicGroupMessage(dup, userId, data) };
+    }
     if (kind === "voice") {
       const d = validateVoiceDuration(payload.durationMs);
       if (!d.ok) return { ok: false as const, error: d.error, status: 400 };
@@ -842,6 +878,7 @@ export async function sendGroupMessage(
       reactions: [],
       blobId: payload.blobId,
       chunkCount: payload.chunkCount,
+      byteLength: payload.byteLength,
       durationMs: kind === "voice" ? payload.durationMs : undefined,
     };
     data.groupMessages.push(msg);

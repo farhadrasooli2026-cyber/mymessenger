@@ -2111,6 +2111,12 @@ export function Messenger({
             <Link href="/app/settings/audio" className="block text-sm text-amber-200">
               تنظیمات → Voice & Audio
             </Link>
+            <Link href="/app/files" className="block text-sm text-amber-200">
+              Files & Documents
+            </Link>
+            <Link href="/app/settings/files" className="block text-sm text-amber-200">
+              تنظیمات → Files & Storage
+            </Link>
             <Link href="/app/gallery" className="block text-sm text-amber-200">
               گالری نیکسو
             </Link>

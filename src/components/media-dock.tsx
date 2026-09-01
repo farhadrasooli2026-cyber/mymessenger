@@ -19,6 +19,7 @@ import {
   type MediaMeta,
   type Quality,
 } from "@/lib/media";
+import { sanitizeFileName, sniffFileBytes } from "@/lib/files";
 import { DisappearPicker, msFromChoice, type TimerChoice } from "@/components/disappear-picker";
 
 type Draft = {
@@ -37,10 +38,14 @@ export function MediaDock({
   threadId,
   disabled,
   onSent,
+  sendPath,
+  blobBase,
 }: {
   threadId: string;
   disabled?: boolean;
   onSent: () => void;
+  sendPath?: string;
+  blobBase?: string;
 }) {
   const galleryRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -79,12 +84,20 @@ export function MediaDock({
         toast.error(scan.warning ?? "فایل مجاز نیست.");
         return;
       }
+      const safeName = sanitizeFileName(file.name);
+      const renamed = safeName !== file.name ? new File([file], safeName, { type: file.type }) : file;
       next.push({
         id: newId(),
-        file,
-        url: URL.createObjectURL(file),
+        file: renamed,
+        url: URL.createObjectURL(renamed),
         kind: kindFromClass(scan.mimeClass),
         warning: scan.warning,
+      });
+      void file.slice(0, 16_384).arrayBuffer().then((buf) => {
+        const sniff = sniffFileBytes(new Uint8Array(buf));
+        if (!sniff.ok) {
+          toast.error(sniff.error ?? "امضای فایل رد شد.");
+        }
       });
     });
     if (!next.length) return;
@@ -136,12 +149,22 @@ export function MediaDock({
     const key = await loadOrCreateThreadKey(threadId);
     const blobId = newId().replace(/-/g, "").slice(0, 24);
     const chunks = Math.ceil(bytes.length / MEDIA_CHUNK);
+    const base = blobBase ?? (threadId.startsWith("group:") ? `/api/groups/${threadId.slice(6)}` : `/api/chats/${threadId}`);
     const resumeKey = `nixo.media.chunks.${blobId}`;
     let done: number[] = [];
     try {
       done = JSON.parse(localStorage.getItem(resumeKey) ?? "[]") as number[];
     } catch {
       done = [];
+    }
+    try {
+      const listed = await fetch(`${base}/blobs/${blobId}`);
+      if (listed.ok) {
+        const data = (await listed.json()) as { uploaded?: number[] };
+        if (Array.isArray(data.uploaded)) done = [...new Set([...done, ...data.uploaded])];
+      }
+    } catch {
+      /* offline resume from local list */
     }
     for (let i = 0; i < chunks; i += 1) {
       while (pauseRef.current && !abortRef.current) {
@@ -154,7 +177,7 @@ export function MediaDock({
       }
       const slice = bytes.slice(i * MEDIA_CHUNK, (i + 1) * MEDIA_CHUNK);
       const envelope = await encryptBytes(key, slice);
-      const res = await fetch(`/api/chats/${threadId}/blobs/${blobId}/chunks/${i}`, {
+      const res = await fetch(`${base}/blobs/${blobId}/chunks/${i}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(envelope),
@@ -187,7 +210,7 @@ export function MediaDock({
       durationMs: draft.kind === "video" ? Math.max(0, (trimEnd || 0) * 1000) : undefined,
     };
     if (disappearAfterMs !== undefined) body.disappearAfterMs = disappearAfterMs;
-    const sent = await fetch(`/api/chats/${threadId}`, {
+    const sent = await fetch(sendPath ?? `/api/chats/${threadId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

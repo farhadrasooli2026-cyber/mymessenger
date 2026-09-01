@@ -977,6 +977,8 @@ export type GroupRecord = {
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
+  fileMaxBytes?: number;
+  allowedFileExts?: string[] | null;
 };
 
 export type GroupPoll = {
@@ -1006,6 +1008,7 @@ export type GroupMessage = {
   poll?: GroupPoll;
   blobId?: string;
   chunkCount?: number;
+  byteLength?: number;
   deleted?: boolean;
   stickerId?: string;
   durationMs?: number;
@@ -1547,6 +1550,7 @@ export type StoreData = {
   stickers: StickerItem[];
   stickerPrefs: StickerPrefs[];
   stickerReports: StickerModeration[];
+  fileAccessLogs: { id: string; userId: string; action: string; target: string; at: number }[];
 };
 
 const EMPTY: StoreData = {
@@ -1635,6 +1639,7 @@ const EMPTY: StoreData = {
   stickers: [],
   stickerPrefs: [],
   stickerReports: [],
+  fileAccessLogs: [],
 };
 
 const STORE_PATH = path.join(
@@ -1772,6 +1777,7 @@ async function readStore(): Promise<StoreData> {
       stickers: Array.isArray(parsed.stickers) ? parsed.stickers : [],
       stickerPrefs: Array.isArray(parsed.stickerPrefs) ? parsed.stickerPrefs : [],
       stickerReports: Array.isArray(parsed.stickerReports) ? parsed.stickerReports : [],
+      fileAccessLogs: Array.isArray(parsed.fileAccessLogs) ? parsed.fileAccessLogs : [],
     };
   } catch {
     return structuredClone(EMPTY);
@@ -1922,6 +1928,7 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.chatFolders = (data.chatFolders ?? []).filter((f) => f.ownerUserId !== uid);
   data.stickerPrefs = (data.stickerPrefs ?? []).filter((p) => p.userId !== uid);
   data.stickerReports = (data.stickerReports ?? []).filter((r) => r.reporterUserId !== uid);
+  data.fileAccessLogs = (data.fileAccessLogs ?? []).filter((s) => s.userId !== uid);
   data.stickerPacks = (data.stickerPacks ?? []).map((p) =>
     p.ownerUserId === uid
       ? { ...p, deletedAt: now, memberIds: p.memberIds.filter((id) => id !== uid) }

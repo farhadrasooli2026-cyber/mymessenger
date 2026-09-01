@@ -35,6 +35,8 @@ export async function PATCH(request: Request, ctx: Ctx) {
     maxMembers: typeof body.maxMembers === "number" ? body.maxMembers : undefined,
     reactionsEnabled: typeof body.reactionsEnabled === "boolean" ? body.reactionsEnabled : undefined,
     allowedReactions: Array.isArray(body.allowedReactions) ? body.allowedReactions.map(String) : body.allowedReactions === null ? null : undefined,
+    fileMaxBytes: typeof body.fileMaxBytes === "number" ? body.fileMaxBytes : undefined,
+    allowedFileExts: Array.isArray(body.allowedFileExts) ? body.allowedFileExts.map(String) : body.allowedFileExts === null ? null : undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, group: result.group });

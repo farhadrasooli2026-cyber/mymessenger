@@ -4,6 +4,7 @@ import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { ChannelPost, ChannelStaff, PubChannelRecord, StoreData } from "@/lib/store";
 import { sniffVoiceBytes, validateVoiceDuration, VOICE_UPLOAD_MAX } from "@/lib/voice";
+import { FILE_MAX_BYTES, sanitizeFileName, scanNamedFile, sniffFileBytes } from "@/lib/files";
 import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf } from "@/lib/stickers";
 import { canChannelInvite } from "@/lib/privacy";
 import { emitNotification } from "@/lib/notify";
@@ -639,6 +640,8 @@ export async function createPost(
     album?: string[];
     durationMs?: number;
     voiceDataUrl?: string;
+    fileDataUrl?: string;
+    fileName?: string;
   },
 ) {
   return mutateStore((data) => {
@@ -656,7 +659,7 @@ export async function createPost(
         ? input.kind
         : "text";
     let body = (input.body ?? "").trim().slice(0, 4000);
-    const caption = (input.caption ?? "").trim().slice(0, 1000);
+    let caption = (input.caption ?? "").trim().slice(0, 1000);
     if (kind === "poll" || kind === "quiz") {
       const question = input.poll?.question?.trim() ?? "";
       const options = (input.poll?.options ?? []).map((o) => o.trim()).filter(Boolean).slice(0, 8);
@@ -677,6 +680,24 @@ export async function createPost(
       const sniff = sniffVoiceBytes(new Uint8Array(buf));
       if (!sniff.ok) return { ok: false as const, error: sniff.error ?? "امضای فایل صوت پذیرفته نشد.", status: 400 };
       body = raw;
+    } else if (kind === "file") {
+      const raw = String(input.fileDataUrl ?? input.body ?? "");
+      const m = /^data:([a-zA-Z0-9.+/-]+);base64,([A-Za-z0-9+/]+=*)$/.exec(raw);
+      if (!m) return { ok: false as const, error: "فایل نامعتبر است.", status: 400 };
+      let buf: Buffer;
+      try {
+        buf = Buffer.from(m[2]!, "base64");
+      } catch {
+        return { ok: false as const, error: "فایل خراب است.", status: 400 };
+      }
+      if (buf.length > FILE_MAX_BYTES) return { ok: false as const, error: "حجم فایل از سقف سرور بیشتر است.", status: 413 };
+      const name = sanitizeFileName(String(input.fileName ?? "file.bin"));
+      const named = scanNamedFile(name, m[1] ?? "", buf.length);
+      if (!named.ok) return { ok: false as const, error: named.warning ?? "فایل مجاز نیست.", status: 400 };
+      const sniff = sniffFileBytes(new Uint8Array(buf));
+      if (!sniff.ok) return { ok: false as const, error: sniff.error ?? "امضای فایل پذیرفته نشد.", status: 400 };
+      body = raw;
+      if (!caption) caption = name;
     } else if (kind !== "album" && body.length < 1 && caption.length < 1) {
       return { ok: false as const, error: "پست خالی است.", status: 400 };
     }

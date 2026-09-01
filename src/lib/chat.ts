@@ -256,6 +256,26 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
           ? payload.disappearAfterMs
           : null;
     const kind = payload.kind ?? "text";
+    if (kind === "photo" || kind === "video" || kind === "file") {
+      const flood = hitRateLimit(data, `file:up:${userId}`, 60_000, 24, now);
+      if (!flood.allowed) return { ok: false as const, error: "ارسال فایل پیاپی محدود شد.", status: 429 };
+      const dup = data.messages.find(
+        (m) =>
+          m.ownerUserId === userId &&
+          Boolean(m.blobId) &&
+          m.blobId === payload.blobId &&
+          !m.deletedEverywhere &&
+          now - m.createdAt < 180_000,
+      );
+      if (dup) {
+        const messages = data.messages
+          .filter((m) => m.threadId === threadId && m.ownerUserId === userId)
+          .sort((a, b) => a.createdAt - b.createdAt)
+          .map((m) => publicMessage(m, userId, now, blobs, data))
+          .filter((m): m is NonNullable<typeof m> => Boolean(m));
+        return { ok: true as const, thread, messages, ...safety, duplicate: true };
+      }
+    }
     if (kind === "voice") {
       const d = validateVoiceDuration(payload.durationMs);
       if (!d.ok) return { ok: false as const, error: d.error, status: 400 };
@@ -331,7 +351,7 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
         kind: kind === "voice" ? "voice" : "message",
         title: label,
         senderName: label,
-        body: kind === "voice" ? "پیام صوتی جدید" : "پیام رمزنگاری‌شده جدید",
+        body: kind === "voice" ? "پیام صوتی جدید" : kind === "file" || kind === "photo" || kind === "video" ? "فایل جدید" : "پیام رمزنگاری‌شده جدید",
         e2ee: true,
         sourceId: `chat:${userId}`,
         muteType: "chat",

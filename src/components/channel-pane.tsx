@@ -13,6 +13,7 @@ import { CHANNEL_PERM_FA, formatSubscribers, type ChannelAdminPerms } from "@/li
 import { ROLE_FA } from "@/lib/group-types";
 import { blobMatches } from "@/lib/search-match";
 import { ChannelVoicePlayer } from "@/components/voice-player";
+import { previewMode } from "@/lib/files";
 
 type Post = {
   id: string;
@@ -103,6 +104,8 @@ export function ChannelPane({
   const [storyBody, setStoryBody] = useState("");
   const [voiceFile, setVoiceFile] = useState<string>("");
   const [voiceMs, setVoiceMs] = useState(0);
+  const [fileUrl, setFileUrl] = useState("");
+  const [fileName, setFileName] = useState("");
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/channels/${channelId}`, { cache: "no-store" });
@@ -287,6 +290,8 @@ export function ChannelPane({
                   caption,
                   voiceDataUrl: kind === "voice" ? voiceFile : undefined,
                   durationMs: kind === "voice" ? voiceMs : undefined,
+                  fileDataUrl: kind === "file" ? fileUrl : undefined,
+                  fileName: kind === "file" ? fileName : undefined,
                   poll: kind === "poll" || kind === "quiz" ? { question: pollQ, options: pollOpts.split("\n").filter(Boolean), anonymous: kind === "poll", multiple: false, quiz: kind === "quiz", correctIndex: kind === "quiz" ? 0 : null } : undefined,
                   album: kind === "album" ? draft.split("\n") : undefined,
                 });
@@ -294,6 +299,8 @@ export function ChannelPane({
                 setCaption("");
                 setVoiceFile("");
                 setVoiceMs(0);
+                setFileUrl("");
+                setFileName("");
               }}
             >
               <div className="flex flex-wrap gap-1 text-[11px]">
@@ -303,7 +310,21 @@ export function ChannelPane({
                   </button>
                 ))}
               </div>
-              {kind === "voice" ? (
+              {kind === "file" ? (
+                <input
+                  type="file"
+                  className="text-xs"
+                  aria-label="انتخاب فایل"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    setFileName(f.name);
+                    const reader = new FileReader();
+                    reader.onload = () => setFileUrl(String(reader.result ?? ""));
+                    reader.readAsDataURL(f);
+                  }}
+                />
+              ) : kind === "voice" ? (
                 <input
                   type="file"
                   accept="audio/webm,audio/ogg,audio/mpeg,audio/mp4,audio/wav,.webm,.ogg,.mp3,.m4a,.wav"
@@ -388,6 +409,8 @@ export function ChannelPane({
                   </div>
                 ) : p.kind === "voice" ? (
                   <ChannelVoicePlayer src={p.body} durationMs={p.durationMs} />
+                ) : p.kind === "file" ? (
+                  <ChannelFilePreview src={p.body} name={p.caption || "فایل"} />
                 ) : p.kind === "album" ? (
                   <ul className="mt-2 list-disc pr-4">{p.album.map((item) => <li key={item}>{item}</li>)}</ul>
                 ) : (
@@ -609,6 +632,27 @@ export function ChannelPane({
           </section>
         </div>
       </ScrollArea>
+    </div>
+  );
+}
+
+function ChannelFilePreview({ src, name }: { src: string; name: string }) {
+  const semi = src.indexOf(";");
+  const mime = src.startsWith("data:") && semi > 5 ? src.slice(5, semi) : "";
+  const mode = previewMode(mime, name);
+  if (!src.startsWith("data:")) return <p className="text-xs">فایل کانال</p>;
+  return (
+    <div className="mt-2 space-y-2">
+      <p className="text-xs font-medium">{name}</p>
+      {mode === "pdf" ? <iframe title={name} src={src} className="h-40 w-full rounded bg-white" /> : null}
+      {mode === "image" ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src} alt="" className="max-h-40 rounded object-cover" />
+      ) : null}
+      {mode === "video" ? <video src={src} controls className="max-h-40 w-full rounded" /> : null}
+      {mode === "audio" ? <audio src={src} controls className="w-full" /> : null}
+      {mode === "none" || mode === "text" ? <p className="text-[11px] opacity-60">پیش‌نمایش اجرایی نیست. دانلود با مجوز عضو کانال.</p> : null}
+      <a href={src} download={name} className="text-xs text-amber-200">دانلود</a>
     </div>
   );
 }

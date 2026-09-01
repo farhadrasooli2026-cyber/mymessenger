@@ -34,14 +34,19 @@ function newBlobId() {
   return Array.from(bytes, (n) => n.toString(16).padStart(2, "0")).join("");
 }
 
-async function loadBlob(threadId: string, msg: MediaMsg): Promise<{ blob: Blob; meta: MediaMeta } | null> {
+async function loadBlob(
+  threadId: string,
+  msg: MediaMsg,
+  chunkBase?: string,
+): Promise<{ blob: Blob; meta: MediaMeta } | null> {
   if (!msg.blobId || !msg.chunkCount || msg.enc !== "e2ee-v1") return null;
   const key = await loadOrCreateThreadKey(threadId);
   const metaRaw = await decryptText(key, { enc: "e2ee-v1", ciphertext: msg.ciphertext, nonce: msg.nonce });
   const meta = JSON.parse(metaRaw) as MediaMeta;
+  const base = chunkBase ?? `/api/chats/${threadId}`;
   const parts: Uint8Array[] = [];
   for (let i = 0; i < msg.chunkCount; i += 1) {
-    const res = await fetch(`/api/chats/${threadId}/blobs/${msg.blobId}/chunks/${i}`);
+    const res = await fetch(`${base}/blobs/${msg.blobId}/chunks/${i}`);
     if (!res.ok) return null;
     const data = (await res.json()) as { chunk: CipherEnvelope };
     parts.push(await decryptBytes(key, data.chunk));
@@ -62,12 +67,16 @@ export function MediaBubble({
   threads,
   onGone,
   onOpen,
+  chunkBase,
+  senderLabel,
 }: {
   msg: MediaMsg;
   threadId: string;
   threads: { id: string; peerName: string }[];
   onGone?: () => void;
   onOpen?: (url: string, meta: MediaMeta, msg: MediaMsg) => void;
+  chunkBase?: string;
+  senderLabel?: string;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [meta, setMeta] = useState<MediaMeta | null>(null);
@@ -82,7 +91,7 @@ export function MediaBubble({
     let revoke: string | null = null;
     let cancelled = false;
     if (msg.expired || !msg.blobId || msg.enc !== "e2ee-v1" || (msg.viewOnce && !unlocked)) return;
-    loadBlob(threadId, msg).then((loaded) => {
+    loadBlob(threadId, msg, chunkBase).then((loaded) => {
       if (cancelled) return;
       if (!loaded) {
         setSpent(true);
@@ -97,7 +106,7 @@ export function MediaBubble({
       cancelled = true;
       if (revoke) URL.revokeObjectURL(revoke);
     };
-  }, [msg, threadId, unlocked]);
+  }, [msg, threadId, unlocked, chunkBase]);
 
   async function markViewed(mode: "open" | "play") {
     await fetch(`/api/chats/${threadId}/messages/${msg.id}/played`, { method: "POST" });
@@ -232,7 +241,18 @@ export function MediaBubble({
         <div className="px-2 py-1 text-xs">
           <p className="font-medium">{meta?.name ?? "فایل"}</p>
           <p className="text-emerald-100/60">{meta?.mime} · {formatBytes(msg.byteLength ?? 0)}</p>
-          {url && meta?.mime === "application/pdf" && <iframe title={meta.name} src={url} className="mt-2 h-40 w-full rounded bg-white" />}
+          {url && (meta?.mime === "application/pdf" || meta?.name?.toLowerCase().endsWith(".pdf")) && (
+            <iframe title={meta?.name ?? "pdf"} src={url} className="mt-2 h-40 w-full rounded bg-white" />
+          )}
+          {url && meta?.mime.startsWith("audio/") && <audio src={url} controls className="mt-2 w-full" />}
+          {url && meta?.mime.startsWith("image/") && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={url} alt="" className="mt-2 max-h-40 rounded object-cover" />
+          )}
+          {url && meta?.mime.startsWith("video/") && <video src={url} controls className="mt-2 max-h-40 w-full rounded" />}
+          <p className="mt-1 text-[10px] opacity-50">
+            {senderLabel ?? (msg.sender === "me" ? "تو" : "مخاطب")} · {new Date(msg.createdAt).toLocaleString("fa-IR")}
+          </p>
         </div>
       )}
       {meta?.caption && <p className="px-2 text-xs">{meta.caption}</p>}
@@ -266,7 +286,8 @@ export function MediaBubble({
             if (!url || !meta || restricted) return;
             const a = document.createElement("a");
             a.href = url;
-            a.download = meta.name || "nixo-file";
+            const name = window.prompt("نام فایل روی دستگاه", meta.name || "nixo-file") || meta.name;
+            a.download = name;
             a.click();
           }}
         >

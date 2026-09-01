@@ -26,6 +26,11 @@ function prefsOf(data: StoreData, userId: string): GalleryPrefs {
     row = { userId, ...DEFAULT_GALLERY_PREFS };
     data.galleryPrefs.push(row);
   }
+  if (typeof row.dataSaver !== "boolean") row.dataSaver = false;
+  if (row.autoFiles !== "wifi" && row.autoFiles !== "mobile" && row.autoFiles !== "never") {
+    row.autoFiles = row.dataSaver ? "never" : "wifi";
+  }
+  if (typeof row.previewFiles !== "boolean") row.previewFiles = true;
   return row;
 }
 
@@ -101,6 +106,9 @@ export async function listGallery(
           uploadQuality: prefs.uploadQuality,
           downloadQuality: prefs.downloadQuality,
           lockEnabled: true,
+          dataSaver: prefs.dataSaver,
+          autoFiles: prefs.autoFiles ?? "wifi",
+          previewFiles: prefs.previewFiles !== false,
         },
       };
     }
@@ -152,6 +160,9 @@ export async function listGallery(
       uploadQuality: prefs.uploadQuality,
       downloadQuality: prefs.downloadQuality,
       lockEnabled: Boolean(prefs.lockHash),
+      dataSaver: Boolean(prefs.dataSaver),
+      autoFiles: prefs.autoFiles === "mobile" || prefs.autoFiles === "never" ? prefs.autoFiles : "wifi",
+      previewFiles: prefs.previewFiles !== false,
     },
   };
 }
@@ -375,7 +386,7 @@ export async function saveAlbum(userId: string, input: { id?: string; name: stri
 
 export async function updateGalleryPrefs(
   userId: string,
-  patch: Partial<Pick<GalleryPrefs, "autoWifi" | "autoMobile" | "autoRoaming" | "autoSave" | "uploadQuality" | "downloadQuality">> & { lockPin?: string | null },
+  patch: Partial<Pick<GalleryPrefs, "autoWifi" | "autoMobile" | "autoRoaming" | "autoSave" | "uploadQuality" | "downloadQuality" | "dataSaver" | "autoFiles" | "previewFiles">> & { lockPin?: string | null },
 ) {
   return mutateStore((data) => {
     const p = prefsOf(data, userId);
@@ -385,6 +396,9 @@ export async function updateGalleryPrefs(
     if (typeof patch.autoSave === "boolean") p.autoSave = patch.autoSave;
     if (patch.uploadQuality === "standard" || patch.uploadQuality === "high" || patch.uploadQuality === "original") p.uploadQuality = patch.uploadQuality;
     if (patch.downloadQuality === "standard" || patch.downloadQuality === "high" || patch.downloadQuality === "original") p.downloadQuality = patch.downloadQuality;
+    if (typeof patch.dataSaver === "boolean") p.dataSaver = patch.dataSaver;
+    if (patch.autoFiles === "wifi" || patch.autoFiles === "mobile" || patch.autoFiles === "never") p.autoFiles = patch.autoFiles;
+    if (typeof patch.previewFiles === "boolean") p.previewFiles = patch.previewFiles;
     if (patch.lockPin === "") {
       p.lockHash = null;
       p.lockSalt = null;

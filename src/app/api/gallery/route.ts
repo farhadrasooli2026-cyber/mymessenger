@@ -58,6 +58,9 @@ export async function POST(request: Request) {
       autoSave: typeof body.autoSave === "boolean" ? body.autoSave : undefined,
       uploadQuality: body.uploadQuality === "standard" || body.uploadQuality === "high" || body.uploadQuality === "original" ? body.uploadQuality : undefined,
       downloadQuality: body.downloadQuality === "standard" || body.downloadQuality === "high" || body.downloadQuality === "original" ? body.downloadQuality : undefined,
+      dataSaver: typeof body.dataSaver === "boolean" ? body.dataSaver : undefined,
+      autoFiles: body.autoFiles === "wifi" || body.autoFiles === "mobile" || body.autoFiles === "never" ? body.autoFiles : undefined,
+      previewFiles: typeof body.previewFiles === "boolean" ? body.previewFiles : undefined,
       lockPin: typeof body.lockPin === "string" ? body.lockPin : undefined,
     });
     if (!result.ok) return jsonError("ذخیره نشد.");

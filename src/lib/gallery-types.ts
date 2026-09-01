@@ -29,6 +29,9 @@ export type GalleryPrefs = {
   lockHash: string | null;
   lockSalt: string | null;
   unlockedUntil: number;
+  dataSaver: boolean;
+  autoFiles: "wifi" | "mobile" | "never";
+  previewFiles: boolean;
 };
 
 export const DEFAULT_GALLERY_PREFS = {
@@ -41,4 +44,7 @@ export const DEFAULT_GALLERY_PREFS = {
   lockHash: null as string | null,
   lockSalt: null as string | null,
   unlockedUntil: 0,
+  dataSaver: false,
+  autoFiles: "wifi" as const,
+  previewFiles: true,
 };

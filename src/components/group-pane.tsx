@@ -21,6 +21,8 @@ import { GroupCallStage, type PublicGroupCallUi } from "@/components/group-call-
 import { VoiceComposer } from "@/components/voice-composer";
 import { VoicePlayer } from "@/components/voice-player";
 import { VoiceQueueProvider } from "@/components/voice-queue";
+import { MediaDock } from "@/components/media-dock";
+import { MediaBubble } from "@/components/media-bubble";
 
 type GMember = {
   key: string;
@@ -47,6 +49,7 @@ type GInfo = {
   pinIds: string[];
   reactionsEnabled?: boolean;
   allowedReactions?: string[] | null;
+  fileMaxBytes?: number | null;
   myRole: GroupRole | null;
   notifyMutedUntil: number | null;
   members: GMember[];
@@ -78,6 +81,9 @@ type GMsg = {
   text?: string;
   stickerId?: string;
   durationMs?: number;
+  blobId?: string;
+  chunkCount?: number;
+  byteLength?: number;
 };
 
 export function GroupPane({
@@ -135,8 +141,8 @@ export function GroupPane({
     const key = await loadOrCreateThreadKey(`group:${groupId}`);
     const next: GMsg[] = [];
     for (const raw of data.messages as GMsg[]) {
-      if (raw.kind === "system" || raw.kind === "poll" || raw.kind === "sticker" || raw.kind === "voice" || raw.enc !== "e2ee-v1") {
-        next.push({ ...raw, text: raw.kind === "voice" ? "پیام صوتی" : (raw.bodyFa ?? "") });
+      if (raw.kind === "system" || raw.kind === "poll" || raw.kind === "sticker" || raw.kind === "voice" || raw.kind === "photo" || raw.kind === "video" || raw.kind === "file" || raw.enc !== "e2ee-v1") {
+        next.push({ ...raw, text: raw.kind === "voice" ? "پیام صوتی" : raw.kind === "file" || raw.kind === "photo" || raw.kind === "video" ? "فایل" : (raw.bodyFa ?? "") });
         continue;
       }
       try {
@@ -224,8 +230,8 @@ export function GroupPane({
           const key = await loadOrCreateThreadKey(`group:${groupId}`);
           const next: GMsg[] = [];
           for (const raw of data.messages as GMsg[]) {
-            if (raw.kind === "system" || raw.kind === "poll" || raw.kind === "sticker" || raw.kind === "voice" || raw.enc !== "e2ee-v1") {
-              next.push({ ...raw, text: raw.kind === "voice" ? "پیام صوتی" : (raw.bodyFa ?? "") });
+            if (raw.kind === "system" || raw.kind === "poll" || raw.kind === "sticker" || raw.kind === "voice" || raw.kind === "photo" || raw.kind === "video" || raw.kind === "file" || raw.enc !== "e2ee-v1") {
+              next.push({ ...raw, text: raw.kind === "voice" ? "پیام صوتی" : raw.kind === "file" || raw.kind === "photo" || raw.kind === "video" ? "فایل" : (raw.bodyFa ?? "") });
               continue;
             }
             try {
@@ -403,6 +409,26 @@ export function GroupPane({
                     {msg.replyToId && <p className="text-[10px] opacity-60">پاسخ</p>}
                     {msg.kind === "sticker" ? (
                       <p>استیکر</p>
+                    ) : msg.kind === "photo" || msg.kind === "video" || msg.kind === "file" ? (
+                      <MediaBubble
+                        msg={{
+                          id: msg.id,
+                          sender: msg.senderKey === userIdHint ? "me" : "peer",
+                          createdAt: msg.createdAt,
+                          enc: msg.enc,
+                          ciphertext: msg.ciphertext,
+                          nonce: msg.nonce,
+                          kind: msg.kind,
+                          blobId: msg.blobId,
+                          chunkCount: msg.chunkCount,
+                          byteLength: msg.byteLength,
+                        }}
+                        threadId={`group:${groupId}`}
+                        threads={[]}
+                        chunkBase={`/api/groups/${groupId}`}
+                        senderLabel={msg.senderName}
+                        onGone={() => void load()}
+                      />
                     ) : msg.kind === "voice" ? (
                       <VoicePlayer
                         msg={{
@@ -490,6 +516,13 @@ export function GroupPane({
           <button type="button" onClick={() => setReplyTo(null)}>×</button>
         </div>
       )}
+      <MediaDock
+        threadId={`group:${groupId}`}
+        sendPath={`/api/groups/${groupId}/messages`}
+        blobBase={`/api/groups/${groupId}`}
+        disabled={busy || group.perms.sendFiles === false}
+        onSent={() => void load()}
+      />
       <VoiceComposer
         threadId={`group:${groupId}`}
         sendPath={`/api/groups/${groupId}/messages`}
@@ -698,6 +731,21 @@ export function GroupPane({
                     />
                   </label>
                 ))}
+                <label className="flex items-center justify-between gap-2">
+                  <span>سقف حجم فایل (بایت)</span>
+                  <input
+                    type="number"
+                    defaultValue={group.fileMaxBytes ?? 28 * 1024 * 1024}
+                    className="h-8 w-32 rounded bg-black/30 px-2"
+                    onBlur={(e) =>
+                      void fetch(`/api/groups/${groupId}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ fileMaxBytes: Number(e.target.value) }),
+                      }).then(load)
+                    }
+                  />
+                </label>
                 <Textarea
                   defaultValue={group.description}
                   placeholder="توضیحات گروه"
