@@ -24,6 +24,8 @@ export const config = {
   turnUrl: process.env.NIXO_TURN_URL || "",
   turnUser: process.env.NIXO_TURN_USERNAME || "",
   turnCredential: process.env.NIXO_TURN_CREDENTIAL || "",
+  turnSecret: process.env.NIXO_TURN_SECRET || "",
+  callRegion: process.env.NIXO_CALL_REGION || "default",
   otp: {
     length: 6,
     ttlMs: 3 * 60 * 1000,

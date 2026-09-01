@@ -5,6 +5,7 @@ import { mutateStore, type StoreData } from "@/lib/store";
 import type { CallKind, GroupCallParticipant, GroupCallRoom } from "@/lib/store";
 import { emitNotification } from "@/lib/notify";
 import { rankRole } from "@/lib/group-types";
+import { appendCallEvent } from "@/lib/call-events";
 
 export const GROUP_CALL_DEFAULT_MAX = 8;
 export const GROUP_CALL_HARD_MAX = 16;
@@ -109,6 +110,7 @@ export async function startGroupCall(userId: string, groupId: string, kind: Call
     };
     data.groupCalls ??= [];
     data.groupCalls.unshift(room);
+    appendCallEvent(data, { userId, callId: room.id, kind: "group_created" });
     for (const m of ctx.group.members) {
       if (m.leftAt || m.key === userId || m.kind !== "user") continue;
       emitNotification(data, {
@@ -155,6 +157,7 @@ export async function joinGroupCall(userId: string, callId: string) {
         kicked: false,
       });
     }
+    appendCallEvent(data, { userId, callId: room.id, kind: "join" });
     return { ok: true as const, call: publicGroupCall(room, userId) };
   });
 }
@@ -195,6 +198,7 @@ function joinGroupCallUnlocked(data: StoreData, userId: string, room: GroupCallR
       kicked: false,
     });
   }
+  appendCallEvent(data, { userId, callId: room.id, kind: "join" });
   return { ok: true as const, call: publicGroupCall(room, userId) };
 }
 
@@ -314,6 +318,7 @@ export async function moderateGroupCall(
           room.endedAt = Date.now();
         }
       }
+      appendCallEvent(data, { userId: actorId, callId: room.id, kind: "leave" });
       return { ok: true as const, call: publicGroupCall(room, actorId) };
     }
     if (action === "end") {
@@ -325,6 +330,7 @@ export async function moderateGroupCall(
       room.inviteToken = null;
       room.inviteExpiresAt = null;
       for (const p of room.participants) if (!p.leftAt) p.leftAt = Date.now();
+      appendCallEvent(data, { userId: actorId, callId: room.id, kind: "group_ended" });
       return { ok: true as const, call: publicGroupCall(room, actorId) };
     }
     if (!canModerate(room, actorId)) return { ok: false as const, error: "اجازهٔ مدیریت تماس نداری.", status: 403 };
@@ -352,6 +358,7 @@ export async function moderateGroupCall(
     if (action === "kick") {
       target.kicked = true;
       target.leftAt = Date.now();
+      appendCallEvent(data, { userId: actorId, callId: room.id, kind: "kick" });
     } else if (action === "mute") target.mutedByHost = true;
     else if (action === "unmute") target.mutedByHost = false;
     return { ok: true as const, call: publicGroupCall(room, actorId) };
@@ -373,7 +380,7 @@ export async function setOwnCallMedia(userId: string, callId: string, patch: { c
   });
 }
 
-function expireAbandonedGroupCalls(data: StoreData, now = Date.now()) {
+export function expireAbandonedGroupCalls(data: StoreData, now = Date.now()) {
   for (const room of data.groupCalls ?? []) {
     if (room.status === "ended") continue;
     const live = liveParts(room);
@@ -381,6 +388,7 @@ function expireAbandonedGroupCalls(data: StoreData, now = Date.now()) {
       room.status = "ended";
       room.endedAt = now;
       room.inviteToken = null;
+      appendCallEvent(data, { userId: "system", callId: room.id, kind: "room_cleanup" });
     }
   }
 }

@@ -3,10 +3,13 @@ import { hashIp } from "./crypto-utils";
 import { completeProfile } from "./profile";
 import { ackHumanChallenge, issueHumanChallenge, startRegistration, verifyOtp } from "./registration";
 import { getOutbox } from "./outbox";
-import { listMessages, listThreads } from "./chat";
+import { listMessages, listThreads, openDm } from "./chat";
 import { setBlocked } from "./safety";
 import { resetStoreForTests } from "./store";
 import { actOnCall, deleteCallHistory, listCalls, refuseCallRecording, startIncomingDemo, startOutgoing, updateCallSettings } from "./calls";
+import { searchCallHistory, requestCallRecording } from "./call-center";
+import { mintTurnCredential } from "./ice";
+import { setMutedPeer } from "./privacy";
 
 async function activeUser(username: string) {
   const ip = hashIp(`test-ip:${username}`);
@@ -111,6 +114,30 @@ describe("voice and video calls", () => {
     expect(mine.cleared).toBe(1);
     expect((await listCalls(a)).some((c) => c.id === first.call.id)).toBe(false);
     expect(refuseCallRecording().status).toBe(403);
+  });
+
+  it("does not treat mute as a call block and paginates only the owner's history", async () => {
+    const a = await activeUser("call_mute_a");
+    const b = await activeUser("call_mute_b");
+    const mute = await setMutedPeer(b, a, true);
+    expect(mute.ok).toBe(true);
+    const opened = await openDm(a, b);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const started = await startOutgoing(a, opened.thread.id, "voice");
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    const page = await searchCallHistory(a, { filter: "outgoing", limit: 5 });
+    expect(page.calls.some((c) => c.id === started.call.id)).toBe(true);
+    const other = await searchCallHistory(b, { limit: 40 });
+    expect(other.calls.some((c) => c.id === started.call.id)).toBe(false);
+    const rec = await requestCallRecording(a, started.call.id);
+    expect(rec.status).toBe(403);
+    const stolen = await requestCallRecording(b, started.call.id);
+    expect(stolen.status).toBe(404);
+    const turn = mintTurnCredential(a);
+    expect(turn.username).toMatch(/^\d+:/);
+    expect(turn.username.includes(a.slice(0, 8))).toBe(true);
   });
 
   it("writes a missed-call system line into the chat", async () => {

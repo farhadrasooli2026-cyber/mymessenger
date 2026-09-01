@@ -1106,6 +1106,15 @@ export type CallQualitySample = {
   at: number;
 };
 
+export type CallEvent = {
+  id: string;
+  userId: string;
+  callId: string;
+  kind: string;
+  at: number;
+  detail?: string;
+};
+
 export type GroupCallParticipant = {
   userId: string;
   name: string;
@@ -1859,6 +1868,7 @@ export type StoreData = {
   groupCalls: GroupCallRoom[];
   callSignals: CallSignal[];
   callQuality: CallQualitySample[];
+  callEvents: CallEvent[];
   contacts: ContactRecord[];
   contactInvites: ContactInvite[];
   contactRequests: ContactRequest[];
@@ -1983,6 +1993,7 @@ const EMPTY: StoreData = {
   groupCalls: [],
   callSignals: [],
   callQuality: [],
+  callEvents: [],
   contacts: [],
   contactInvites: [],
   contactRequests: [],
@@ -2174,6 +2185,7 @@ async function readStore(): Promise<StoreData> {
       groupCalls: Array.isArray(parsed.groupCalls) ? parsed.groupCalls : [],
       callSignals: Array.isArray(parsed.callSignals) ? parsed.callSignals : [],
       callQuality: Array.isArray(parsed.callQuality) ? parsed.callQuality : [],
+      callEvents: Array.isArray(parsed.callEvents) ? parsed.callEvents : [],
       contacts: Array.isArray(parsed.contacts)
         ? parsed.contacts.map((c) => ({
             ...c,
@@ -2314,6 +2326,9 @@ function prune(data: StoreData, now: number): void {
   data.vaultJobs = (data.vaultJobs ?? []).filter((j) => now - j.createdAt < 7 * 24 * 60 * 60 * 1000);
   data.dbJobs = (data.dbJobs ?? []).filter((j) => now - j.createdAt < 30 * 24 * 60 * 60 * 1000);
   data.dbAudit = (data.dbAudit ?? []).filter((j) => now - j.at < 30 * 24 * 60 * 60 * 1000);
+  data.callEvents = (data.callEvents ?? []).filter((e) => now - e.at < 7 * 24 * 60 * 60 * 1000).slice(-4000);
+  data.callSignals = (data.callSignals ?? []).filter((s) => now - s.createdAt < 10 * 60 * 1000).slice(-800);
+  data.callQuality = (data.callQuality ?? []).filter((q) => now - q.at < 10 * 60 * 1000).slice(-400);
   repairOrphans(data);
   // Accounts are never removed for inactivity. Only a confirmed pending deletion past its grace period is purged.
   finalizeDueAccounts(data, now);
@@ -2351,6 +2366,7 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.backups = (data.backups ?? []).filter((b) => b.userId !== uid);
   data.calls = (data.calls ?? []).filter((c) => c.ownerUserId !== uid && c.peerKey !== uid);
   data.callSignals = (data.callSignals ?? []).filter((s) => s.fromUserId !== uid);
+  data.callEvents = (data.callEvents ?? []).filter((e) => e.userId !== uid);
   const liveCallIds = new Set((data.calls ?? []).map((c) => c.id).concat((data.groupCalls ?? []).map((c) => c.id)));
   data.callQuality = (data.callQuality ?? []).filter((q) => liveCallIds.has(q.callId));
   data.userStories = (data.userStories ?? []).filter((s) => s.ownerUserId !== uid);

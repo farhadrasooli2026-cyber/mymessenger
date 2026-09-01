@@ -1,6 +1,7 @@
 "use client";
 
 import { Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing, Video } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { callKindFa, callStatusFa, formatCallClock, formatCallWhen } from "@/lib/call-copy";
@@ -48,6 +49,10 @@ export function CallsTab({
       <h2 className="text-xl font-semibold">تماس‌ها</h2>
       <p className="mt-1 text-xs leading-6 text-emerald-100/60">
         Incoming / Outgoing / Missed / Declined. برای هر تماس: Caller، تاریخ، ساعت، مدت، نوع و وضعیت. سابقه روی سرور فقط فراداده است.
+        {" "}
+        <Link href="/app/calls" className="text-amber-200">
+          مرکز تماس
+        </Link>
       </p>
       {blockedHint && <p className="mt-2 text-xs text-rose-200">{blockedHint}</p>}
       <div className="mt-3 flex flex-wrap gap-1">

@@ -1,15 +1,18 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
+import { requestOriginAllowed } from "@/lib/security";
 import { updateCallSettings } from "@/lib/calls";
 
 export async function PATCH(request: Request) {
   const user = await requireActiveUser();
   if (!user) return jsonError("نشست فعال نیست.", 401);
+  if (!requestOriginAllowed(request)) return jsonError("Origin مجاز نیست.", 403, { code: "csrf" });
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return jsonError("درخواست نامعتبر است.");
   const callPrivacy =
     body.callPrivacy === "everyone" ||
     body.callPrivacy === "contacts" ||
+    body.callPrivacy === "friends" ||
     body.callPrivacy === "nobody" ||
     body.callPrivacy === "selected"
       ? body.callPrivacy

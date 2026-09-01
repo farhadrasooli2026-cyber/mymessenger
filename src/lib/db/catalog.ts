@@ -39,6 +39,10 @@ export const DB_COLLECTIONS: DbCollection[] = [
   { name: "mediaJobs", pk: "id", ownerField: "ownerUserId", service: "media", owner: "user", lifecycle: "ttl", notes: "صف پردازش." },
   { name: "searchIndex", pk: "gen", service: "search", owner: "system", lifecycle: "hot", notes: "ایندکس عمومی؛ محتوای خصوصی و E2EE وارد نمی‌شود." },
   { name: "searchDocs", pk: "id", service: "search", owner: "system", lifecycle: "hot", notes: "اسناد عمومی همگام با Store." },
+  { name: "calls", pk: "id", ownerField: "ownerUserId", service: "calls", owner: "user", lifecycle: "purge-on-account", notes: "سابقهٔ ۱:۱؛ بدون SDP و توکن رسانه." },
+  { name: "groupCalls", pk: "id", service: "calls", owner: "shared-public", lifecycle: "ttl", notes: "اتاق گروهی؛ ورود فقط عضو مجاز." },
+  { name: "callSignals", pk: "id", service: "calls", owner: "system", lifecycle: "ttl", notes: "Offer/Answer/ICE کوتاه‌عمر؛ بدنه برای غیر فرستنده در API." },
+  { name: "callEvents", pk: "id", ownerField: "userId", service: "calls", owner: "user", lifecycle: "ttl", notes: "رویداد تماس بدون PII و بدون SDP." },
 ];
 
 export const SCHEMA_VERSION = 1;

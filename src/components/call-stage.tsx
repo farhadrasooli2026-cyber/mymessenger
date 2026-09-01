@@ -281,6 +281,41 @@ export function CallStage({
   }, [phase, call.id, call.mediaToken]);
 
   useEffect(() => {
+    if (!incoming) return;
+    try {
+      navigator.vibrate?.([220, 80, 220, 80, 400]);
+    } catch {
+      /* unsupported */
+    }
+    let ctx: AudioContext | null = null;
+    let stop = false;
+    const beep = async () => {
+      const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AC) return;
+      ctx = new AC();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = 480;
+      osc.type = "sine";
+      gain.gain.value = 0.05;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      await new Promise((r) => window.setTimeout(r, 350));
+      if (!stop) osc.stop();
+    };
+    void beep();
+    const t = window.setInterval(() => {
+      if (!stop) void beep();
+    }, 1800);
+    return () => {
+      stop = true;
+      window.clearInterval(t);
+      void ctx?.close();
+    };
+  }, [incoming]);
+
+  useEffect(() => {
     if (!hideLockInfo && incoming && "Notification" in window && Notification.permission === "granted") {
       new Notification("تماس ورودی نیکسو", { body: `${call.peerName} · ${callKindFa(call.kind)}` });
     } else if (hideLockInfo && incoming && "Notification" in window && Notification.permission === "granted") {

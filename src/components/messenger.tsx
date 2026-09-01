@@ -405,7 +405,7 @@ export function Messenger({
   const [callFilter, setCallFilter] = useState("all");
   const [lowDataCalls, setLowDataCalls] = useState(false);
   const [hideCallLock, setHideCallLock] = useState(false);
-  const [callPrivacy, setCallPrivacy] = useState<"everyone" | "contacts" | "nobody" | "selected">("everyone");
+  const [callPrivacy, setCallPrivacy] = useState<"everyone" | "contacts" | "friends" | "nobody" | "selected">("everyone");
   const [, setGroups] = useState<{ id: string; name: string; color: string; memberCount: number; updatedAt: number }[]>([]);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [createGroup, setCreateGroup] = useState(false);
@@ -2404,6 +2404,12 @@ export function Messenger({
             <Link href="/app/settings/live" className="block text-sm text-amber-200">
               تنظیمات → Live
             </Link>
+            <Link href="/app/calls" className="block text-sm text-amber-200">
+              مرکز تماس
+            </Link>
+            <Link href="/app/settings/calls" className="block text-sm text-amber-200">
+              تنظیمات → تماس
+            </Link>
             <Link href="/app/storage" className="block text-sm text-amber-200">
               فضای رسانه و فایل
             </Link>
@@ -2481,6 +2487,7 @@ export function Messenger({
                 [
                   ["everyone", "همه"],
                   ["contacts", "مخاطبین"],
+                  ["friends", "دوستان"],
                   ["nobody", "هیچ‌کس"],
                   ["selected", "افراد انتخاب‌شده"],
                 ] as const
