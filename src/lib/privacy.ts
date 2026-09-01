@@ -127,6 +127,8 @@ export function snapshotPrivacy(user: UserRecord) {
     privacyFollow: user.privacyFollow ?? "everyone",
     hideFollowers: Boolean(user.hideFollowers),
     hideFollowing: Boolean(user.hideFollowing),
+    privacyFriends: user.privacyFriends ?? "friends",
+    privacyFriendCount: user.privacyFriendCount ?? "friends",
     friendCount: (user.friendIds ?? []).length,
     mutedPeerKeys: user.mutedPeerKeys ?? [],
     privacyBirthday: user.privacyBirthday ?? "nobody",
@@ -154,6 +156,8 @@ export function privacyCheckup(user: UserRecord) {
     { id: "groups", label: "افزودن به گروه", value: user.privacyGroups, warn: user.privacyGroups === "everyone" },
     { id: "mentions", label: "منشن", value: user.privacyMentions ?? "everyone", warn: (user.privacyMentions ?? "everyone") === "everyone" },
     { id: "follow", label: "Follow", value: user.privacyFollow ?? "everyone", warn: (user.privacyFollow ?? "everyone") === "everyone" },
+    { id: "friends", label: "فهرست دوستان", value: user.privacyFriends ?? "friends", warn: (user.privacyFriends ?? "friends") === "everyone" },
+    { id: "friendCount", label: "تعداد دوستان", value: user.privacyFriendCount ?? "friends", warn: (user.privacyFriendCount ?? "friends") === "everyone" },
   ];
   return items;
 }
@@ -262,6 +266,10 @@ export async function updatePrivacy(userId: string, patch: Record<string, unknow
     if (sm) me.privacyStoryMentions = sm;
     const fol = vis4(patch.privacyFollow);
     if (fol) me.privacyFollow = fol;
+    const fr = vis4(patch.privacyFriends);
+    if (fr) me.privacyFriends = fr;
+    const fc = vis4(patch.privacyFriendCount);
+    if (fc) me.privacyFriendCount = fc;
     if (typeof patch.hideFollowers === "boolean") me.hideFollowers = patch.hideFollowers;
     if (typeof patch.hideFollowing === "boolean") me.hideFollowing = patch.hideFollowing;
     if (typeof patch.locationEnabled === "boolean") me.locationEnabled = patch.locationEnabled;
@@ -484,6 +492,16 @@ export async function setBlockedPeer(userId: string, peerKey: string, blocked: b
     if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
     const key = peerKey.trim();
     if (!key || key === userId) return { ok: false as const, error: "کاربر نامعتبر است.", status: 400 };
+    const flood = hitRateLimit(data, `blockop:${userId}`, 60 * 60_000, 40);
+    if (!flood.allowed) return { ok: false as const, error: "مسدودسازی محدود شد.", status: 429 };
+    const burst = hitRateLimit(data, `block-burst:${userId}`, 10 * 60_000, 12);
+    if (!burst.allowed) {
+      data.audit = [
+        { id: `blkf-${Date.now()}`, userId, kind: "suspicious" as const, createdAt: Date.now(), detail: "block-flood" },
+        ...(data.audit ?? []),
+      ].slice(0, 400);
+      return { ok: false as const, error: "مسدودسازی محدود شد.", status: 429 };
+    }
     if (blocked) {
       if (!me.blockedPeerKeys.includes(key)) me.blockedPeerKeys.push(key);
       me.friendIds = (me.friendIds ?? []).filter((id) => id !== key);
@@ -491,6 +509,9 @@ export async function setBlockedPeer(userId: string, peerKey: string, blocked: b
       if (peer) peer.friendIds = (peer.friendIds ?? []).filter((id) => id !== userId);
       data.follows = (data.follows ?? []).filter(
         (f) => !((f.followerId === userId && f.followeeId === key) || (f.followerId === key && f.followeeId === userId)),
+      );
+      data.friendships = (data.friendships ?? []).filter(
+        (f) => !((f.userA === userId && f.userB === key) || (f.userA === key && f.userB === userId)),
       );
       for (const r of data.contactRequests ?? []) {
         if (r.status === "pending" && ((r.fromUserId === userId && r.toUserId === key) || (r.toUserId === userId && r.fromUserId === key))) {
@@ -507,8 +528,11 @@ export async function setBlockedPeer(userId: string, peerKey: string, blocked: b
           c.endReason = "declined";
         }
       }
+      me.relationshipRev = (me.relationshipRev ?? 0) + 1;
+      if (peer) peer.relationshipRev = (peer.relationshipRev ?? 0) + 1;
     } else {
       me.blockedPeerKeys = me.blockedPeerKeys.filter((k) => k !== key);
+      me.relationshipRev = (me.relationshipRev ?? 0) + 1;
     }
     bumpDiscoveryCaches(data);
     data.audit = [

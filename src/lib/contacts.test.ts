@@ -22,6 +22,12 @@ import {
   listSocialGraph,
   followUser,
   muteUser,
+  cancelRequest,
+  removeFriend,
+  revokeInvite,
+  previewInvite,
+  hideSuggestion,
+  unfollowUser,
 } from "./contacts";
 
 async function activeUser(username: string, channel: "email" | "phone" = "email", identifier?: string) {
@@ -173,5 +179,88 @@ describe("NIXO contacts", () => {
     expect(afterBlock.ok).toBe(false);
     const paged = await listContacts(a, { limit: 1 });
     expect(paged.ok && (paged.nextCursor === null || typeof paged.nextCursor === "string")).toBe(true);
+  });
+
+  it("expires friend requests, revokes QR, and keeps friendship IDs owner-scoped", async () => {
+    const a = await activeUser("ct_exp_a");
+    const b = await activeUser("ct_exp_b");
+    const c = await activeUser("ct_exp_c");
+    const self = await sendRequest(a, a);
+    expect(self.ok).toBe(false);
+    const req = await sendRequest(a, b);
+    expect(req.ok).toBe(true);
+    if (!req.ok) return;
+    const dup = await sendRequest(a, b);
+    expect(dup.ok && dup.requestId === req.requestId).toBe(true);
+    await mutateStore((data) => {
+      const row = data.contactRequests.find((r) => r.id === req.requestId);
+      if (row) {
+        row.createdAt = Date.now() - 20 * 24 * 60 * 60_000;
+        row.expiresAt = Date.now() - 1000;
+      }
+      return true;
+    });
+    const listed = await listContacts(b);
+    expect(listed.ok && listed.requestsIn.every((r) => r.id !== req.requestId)).toBe(true);
+    const again = await sendRequest(a, b);
+    expect(again.ok && again.requestId !== req.requestId).toBe(true);
+    if (!again.ok) return;
+    const accepted = await resolveRequest(b, again.requestId, "accept");
+    expect(accepted.ok && "friendshipId" in accepted && Boolean(accepted.friendshipId)).toBe(true);
+    const stolenFriend = await removeFriend(c, "", accepted.ok ? accepted.friendshipId ?? undefined : undefined);
+    expect(stolenFriend.ok).toBe(false);
+    const view = await viewPerson(c, "ct_exp_b");
+    expect(view.ok && view.friendCount === null && view.mutualFriends.length === 0).toBe(true);
+    await updatePrivacy(b, { privacyFriendCount: "everyone" });
+    const viewCount = await viewPerson(c, "ct_exp_b");
+    expect(viewCount.ok && viewCount.friendCount === 1 && viewCount.mutualFriends.length === 0).toBe(true);
+    const inv = await createInvite(a, 1, 60_000);
+    expect(inv.ok).toBe(true);
+    if (!inv.ok) return;
+    const stolenRevoke = await revokeInvite(c, inv.invite.token);
+    expect(stolenRevoke.ok).toBe(false);
+    const revoked = await revokeInvite(a, inv.invite.token);
+    expect(revoked.ok).toBe(true);
+    const preview = await previewInvite(inv.invite.token);
+    expect(preview.ok).toBe(false);
+  });
+
+  it("hides nicknames, suggestions, and tears down friendship on block", async () => {
+    const a = await activeUser("ct_nick_a");
+    const b = await activeUser("ct_nick_b", "phone", "09123330001");
+    const c = await activeUser("ct_nick_c");
+    await saveContact(a, { name: "رسمی", username: "ct_nick_b", nickname: "راز خصوصی", notes: "یادداشت من" });
+    const otherView = await viewPerson(c, "ct_nick_b");
+    expect(otherView.ok).toBe(true);
+    if (otherView.ok) {
+      expect(JSON.stringify(otherView)).not.toContain("راز خصوصی");
+      expect(JSON.stringify(otherView)).not.toContain("یادداشت من");
+    }
+    const mine = await viewPerson(a, "ct_nick_b");
+    expect(mine.ok && mine.localContact?.nickname === "راز خصوصی").toBe(true);
+    const extra = await activeUser("ct_sug_e", "phone", "09123330009");
+    await updatePrivacy(extra, { privacyFindPhone: "everyone" });
+    await mutateStore((data) => {
+      const me = data.users.find((u) => u.id === a);
+      const peer = data.users.find((u) => u.id === extra);
+      if (me && peer) me.syncedContactHashes = [...(me.syncedContactHashes ?? []), peer.identifierHash];
+      return true;
+    });
+    const sug = await suggestions(a);
+    expect(sug.ok && sug.suggestions.some((s) => s.id === extra)).toBe(true);
+    await hideSuggestion(a, extra, "not-interested");
+    const after = await suggestions(a);
+    expect(after.ok && after.suggestions.every((s) => s.id !== extra)).toBe(true);
+    const req = await sendRequest(a, b);
+    if (req.ok && req.requestId !== "friends") await resolveRequest(b, req.requestId, "accept");
+    await followUser(c, b);
+    await blockPerson(b, a, true);
+    const friendsA = await listSocialGraph(a, a, "friends");
+    expect(friendsA.ok && friendsA.people.every((p) => p.id !== b)).toBe(true);
+    const followAgain = await followUser(a, b);
+    expect(followAgain.ok).toBe(false);
+    const stolenFollow = await unfollowUser(c, b, "not-a-real-follow");
+    expect(stolenFollow.ok).toBe(false);
+    await cancelRequest(c, "missing");
   });
 });

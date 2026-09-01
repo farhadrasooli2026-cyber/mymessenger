@@ -3,7 +3,7 @@ import { decryptText, encryptText, hmacIdentifier, randomId } from "@/lib/crypto
 import { normalizeEmail, normalizePhone } from "@/lib/identifiers";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { bumpDiscoveryCaches, mutateStore, readStoreSnapshot } from "@/lib/store";
-import type { ContactGroupKind, ContactRecord, StoreData } from "@/lib/store";
+import type { ContactGroupKind, ContactRecord, FriendshipRecord, StoreData } from "@/lib/store";
 import { audienceAllows, canFindByUsername, pairBlocked, setBlockedPeer } from "@/lib/privacy";
 import { publicProfile } from "@/lib/profile";
 import { normalizeUsername } from "@/lib/username";
@@ -22,6 +22,8 @@ export const CONTACT_GROUPS: { id: ContactGroupKind; label: string }[] = [
 const PHOTO_MAX = 80_000;
 const NOTES_MAX = 2_000;
 const NAME_MAX = 80;
+const REQUEST_TTL_MS = 14 * 24 * 60 * 60_000;
+const SUGGESTION_CAP = 12;
 
 function ensureArrays(data: StoreData) {
   data.contacts ??= [];
@@ -29,6 +31,85 @@ function ensureArrays(data: StoreData) {
   data.contactRequests ??= [];
   data.contactLists ??= [];
   data.follows ??= [];
+  data.friendships ??= [];
+}
+
+function bumpRel(data: StoreData, ...userIds: string[]) {
+  for (const id of userIds) {
+    const u = data.users.find((x) => x.id === id);
+    if (u) u.relationshipRev = (u.relationshipRev ?? 0) + 1;
+  }
+}
+
+function friendPair(a: string, b: string) {
+  return a < b ? `${a}:${b}` : `${b}:${a}`;
+}
+
+function upsertFriendship(data: StoreData, a: string, b: string): FriendshipRecord {
+  ensureArrays(data);
+  const pairKey = friendPair(a, b);
+  const existing = data.friendships.find((f) => f.pairKey === pairKey);
+  if (existing) return existing;
+  const userA = a < b ? a : b;
+  const userB = a < b ? b : a;
+  const row: FriendshipRecord = { id: randomId(), pairKey, userA, userB, createdAt: Date.now() };
+  data.friendships.push(row);
+  return row;
+}
+
+function dropFriendship(data: StoreData, a: string, b: string) {
+  const pairKey = friendPair(a, b);
+  data.friendships = (data.friendships ?? []).filter((f) => f.pairKey !== pairKey);
+}
+
+function expireStaleRequests(data: StoreData) {
+  const now = Date.now();
+  for (const r of data.contactRequests ?? []) {
+    const exp = r.expiresAt ?? r.createdAt + REQUEST_TTL_MS;
+    if (r.status === "pending" && exp < now) {
+      r.status = "expired";
+      r.updatedAt = now;
+    }
+  }
+}
+
+function cleanupOrphans(data: StoreData) {
+  const active = new Set(
+    data.users.filter((u) => u.status === "active" && (u.accountStatus ?? "active") === "active").map((u) => u.id),
+  );
+  for (const u of data.users) {
+    const before = u.friendIds?.length ?? 0;
+    u.friendIds = (u.friendIds ?? []).filter((id) => active.has(id));
+    if ((u.friendIds?.length ?? 0) !== before) u.relationshipRev = (u.relationshipRev ?? 0) + 1;
+  }
+  for (const c of data.contacts ?? []) {
+    if (c.nixoUserId && !active.has(c.nixoUserId)) c.nixoUserId = null;
+  }
+  data.friendships = (data.friendships ?? []).filter((f) => active.has(f.userA) && active.has(f.userB));
+  data.follows = (data.follows ?? []).filter((f) => active.has(f.followerId) && active.has(f.followeeId));
+}
+
+function canSeeFriendList(target: { id: string; privacyFriends?: string; friendIds?: string[] }, viewerId: string) {
+  if (target.id === viewerId) return true;
+  const vis = target.privacyFriends ?? "friends";
+  if (vis === "nobody") return false;
+  if (vis === "everyone") return true;
+  return (target.friendIds ?? []).includes(viewerId);
+}
+
+function canSeeFriendCount(target: { id: string; privacyFriendCount?: string; friendIds?: string[] }, viewerId: string) {
+  if (target.id === viewerId) return true;
+  const vis = target.privacyFriendCount ?? "friends";
+  if (vis === "nobody") return false;
+  if (vis === "everyone") return true;
+  return (target.friendIds ?? []).includes(viewerId);
+}
+
+function relationshipAudit(data: StoreData, userId: string, detail: string) {
+  data.audit = [
+    { id: `rel-${Date.now()}-${randomId().slice(0, 6)}`, userId, kind: "privacy" as const, createdAt: Date.now(), detail },
+    ...(data.audit ?? []),
+  ].slice(0, 400);
 }
 
 function notesOf(row: ContactRecord) {
@@ -65,6 +146,9 @@ function publicContact(row: ContactRecord) {
     lastContactedAt: row.lastContactedAt,
     deviceStamp: row.deviceStamp,
     mutedUntil: row.mutedUntil ?? null,
+    nickname: row.nickname ?? null,
+    notifyPreview: row.notifyPreview !== false,
+    notifySound: row.notifySound !== false,
   };
 }
 
@@ -101,71 +185,89 @@ export async function listContacts(
   userId: string,
   opts: { q?: string; sort?: string; group?: string; favorites?: boolean; recently?: boolean; offset?: number; limit?: number; cursor?: string } = {},
 ) {
-  const data = await readStoreSnapshot();
-  const me = data.users.find((u) => u.id === userId);
-  if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
-  ensureArrays(data);
-  const needle = (opts.q ?? "").trim().toLowerCase().replace(/^@/, "");
-  let rows = data.contacts.filter((c) => c.ownerUserId === userId);
-  if (opts.favorites) rows = rows.filter((c) => c.favorite);
-  if (opts.group) rows = rows.filter((c) => c.group === opts.group);
-  if (needle) {
-    rows = rows.filter((c) => {
-      const blob = `${c.name} ${c.username} ${c.phone} ${c.email} ${c.labels.join(" ")} ${notesOf(c)}`.toLowerCase();
-      return blob.includes(needle);
-    });
-  }
-  if (opts.recently) {
-    rows = rows.filter((c) => c.lastContactedAt > 0).sort((a, b) => b.lastContactedAt - a.lastContactedAt);
-  } else if (opts.sort === "added") {
-    rows.sort((a, b) => b.createdAt - a.createdAt);
-  } else if (opts.sort === "contacted") {
-    rows.sort((a, b) => b.lastContactedAt - a.lastContactedAt || b.updatedAt - a.updatedAt);
-  } else if (opts.sort === "favorites") {
-    rows.sort((a, b) => Number(b.favorite) - Number(a.favorite) || a.name.localeCompare(b.name, "fa"));
-  } else {
-    rows.sort((a, b) => a.name.localeCompare(b.name, "fa"));
-  }
-  const duplicates = findDuplicateIds(rows);
-  const offset = Math.max(0, opts.offset ?? 0);
-  const limit = Math.min(50, Math.max(1, opts.limit ?? 40));
-  const start = opts.cursor ? Math.max(0, rows.findIndex((c) => c.id === opts.cursor) + 1) : offset;
-  const page = rows.slice(start, start + limit);
-  const last = page[page.length - 1];
-  const pending = data.contactRequests.filter((r) => r.toUserId === userId && r.status === "pending");
-  const outgoing = data.contactRequests.filter((r) => r.fromUserId === userId && r.status === "pending");
-  const friends = (me.friendIds ?? [])
-    .map((id) => data.users.find((u) => u.id === id && u.status === "active"))
-    .filter(Boolean)
-    .map((u) => publicProfile(u!, userId));
-  return {
-    ok: true as const,
-    contacts: page.map(publicContact),
-    hasMore: start + page.length < rows.length,
-    nextOffset: start + page.length,
-    nextCursor: start + page.length < rows.length && last ? last.id : null,
-    total: rows.length,
-    favorites: data.contacts.filter((c) => c.ownerUserId === userId && c.favorite).map(publicContact),
-    recently: data.contacts
-      .filter((c) => c.ownerUserId === userId && c.lastContactedAt > 0)
-      .sort((a, b) => b.lastContactedAt - a.lastContactedAt)
-      .slice(0, 20)
-      .map(publicContact),
-    labels: [...new Set(data.contacts.filter((c) => c.ownerUserId === userId).flatMap((c) => c.labels))],
-    duplicates,
-    requestsIn: pending.map((r) => requestView(data, r, userId)),
-    requestsOut: outgoing.map((r) => requestView(data, r, userId)),
-    friends,
-    mutedPeerKeys: me.mutedPeerKeys ?? [],
-    permission: me.contactOsPermission,
-    syncEnabled: me.contactSyncEnabled,
-    autoSync: Boolean(me.contactAutoSync),
-    notifyJoin: me.contactNotifyJoin,
-    syncStatus: me.contactSyncStatus ?? "idle",
-    syncError: me.contactSyncError ?? "",
-    lastSyncAt: me.contactLastSyncAt ?? 0,
-    lists: (data.contactLists ?? []).filter((l) => l.ownerUserId === userId),
-  };
+  return mutateStore((data) => {
+    const me = data.users.find((u) => u.id === userId);
+    if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    ensureArrays(data);
+    expireStaleRequests(data);
+    cleanupOrphans(data);
+    const needle = (opts.q ?? "").trim().toLowerCase().replace(/^@/, "");
+    let rows = data.contacts.filter((c) => c.ownerUserId === userId);
+    if (opts.favorites) rows = rows.filter((c) => c.favorite);
+    if (opts.group) rows = rows.filter((c) => c.group === opts.group);
+    if (needle) {
+      rows = rows.filter((c) => {
+        const nick = (c.nickname ?? "").toLowerCase();
+        const blob = `${c.name} ${nick} ${c.username} ${c.phone} ${c.email} ${c.labels.join(" ")} ${notesOf(c)}`.toLowerCase();
+        return blob.includes(needle);
+      });
+    }
+    if (opts.recently) {
+      rows = rows.filter((c) => c.lastContactedAt > 0).sort((a, b) => b.lastContactedAt - a.lastContactedAt);
+    } else if (opts.sort === "added") {
+      rows.sort((a, b) => b.createdAt - a.createdAt);
+    } else if (opts.sort === "contacted") {
+      rows.sort((a, b) => b.lastContactedAt - a.lastContactedAt || b.updatedAt - a.updatedAt);
+    } else if (opts.sort === "favorites") {
+      rows.sort((a, b) => Number(b.favorite) - Number(a.favorite) || a.name.localeCompare(b.name, "fa"));
+    } else {
+      rows.sort((a, b) => (a.nickname || a.name).localeCompare(b.nickname || b.name, "fa"));
+    }
+    const duplicates = findDuplicateIds(rows);
+    const offset = Math.max(0, opts.offset ?? 0);
+    const limit = Math.min(50, Math.max(1, opts.limit ?? 40));
+    const start = opts.cursor ? Math.max(0, rows.findIndex((c) => c.id === opts.cursor) + 1) : offset;
+    const page = rows.slice(start, start + limit);
+    const last = page[page.length - 1];
+    const pending = data.contactRequests.filter((r) => r.toUserId === userId && r.status === "pending");
+    const outgoing = data.contactRequests.filter((r) => r.fromUserId === userId && r.status === "pending");
+    const friends = (me.friendIds ?? [])
+      .map((id) => data.users.find((u) => u.id === id && u.status === "active"))
+      .filter(Boolean)
+      .map((u) => publicProfile(u!, userId));
+    const myInvites = data.contactInvites
+      .filter((i) => i.ownerUserId === userId)
+      .map((i) => ({
+        id: i.id,
+        token: i.token,
+        maxUses: i.maxUses,
+        uses: i.uses,
+        expiresAt: i.expiresAt,
+        revokedAt: i.revokedAt ?? null,
+        path: `/join/invite/${i.token}`,
+      }));
+    return {
+      ok: true as const,
+      contacts: page.map(publicContact),
+      hasMore: start + page.length < rows.length,
+      nextOffset: start + page.length,
+      nextCursor: start + page.length < rows.length && last ? last.id : null,
+      total: rows.length,
+      favorites: data.contacts.filter((c) => c.ownerUserId === userId && c.favorite).map(publicContact),
+      recently: data.contacts
+        .filter((c) => c.ownerUserId === userId && c.lastContactedAt > 0)
+        .sort((a, b) => b.lastContactedAt - a.lastContactedAt)
+        .slice(0, 20)
+        .map(publicContact),
+      labels: [...new Set(data.contacts.filter((c) => c.ownerUserId === userId).flatMap((c) => c.labels))],
+      duplicates,
+      requestsIn: pending.map((r) => requestView(data, r, userId)),
+      requestsOut: outgoing.map((r) => requestView(data, r, userId)),
+      friends,
+      friendCount: friends.length,
+      mutedPeerKeys: me.mutedPeerKeys ?? [],
+      permission: me.contactOsPermission,
+      syncEnabled: me.contactSyncEnabled,
+      autoSync: Boolean(me.contactAutoSync),
+      notifyJoin: me.contactNotifyJoin,
+      syncStatus: me.contactSyncStatus ?? "idle",
+      syncError: me.contactSyncError ?? "",
+      lastSyncAt: me.contactLastSyncAt ?? 0,
+      lists: (data.contactLists ?? []).filter((l) => l.ownerUserId === userId),
+      invites: myInvites,
+      relationshipRev: me.relationshipRev ?? 0,
+    };
+  });
 }
 
 function requestView(data: StoreData, r: StoreData["contactRequests"][number], viewerId: string) {
@@ -177,6 +279,7 @@ function requestView(data: StoreData, r: StoreData["contactRequests"][number], v
     toUserId: r.toUserId,
     status: r.status === "declined" ? "rejected" : r.status,
     createdAt: r.createdAt,
+    expiresAt: r.expiresAt ?? r.createdAt + REQUEST_TTL_MS,
     peer: other ? publicProfile(other, viewerId) : null,
   };
 }
@@ -209,6 +312,10 @@ export type ContactPatch = {
   deviceStamp?: string;
   updatedAt?: number;
   force?: boolean;
+  nickname?: string | null;
+  mutedUntil?: number | null;
+  notifyPreview?: boolean;
+  notifySound?: boolean;
 };
 
 export async function saveContact(userId: string, patch: ContactPatch) {
@@ -242,10 +349,15 @@ export async function saveContact(userId: string, patch: ContactPatch) {
       if (patch.group !== undefined) row.group = patch.group;
       if (typeof patch.favorite === "boolean") row.favorite = patch.favorite;
       if (patch.localPhoto !== undefined) row.localPhoto = patch.localPhoto.slice(0, PHOTO_MAX);
+      if (patch.nickname !== undefined) row.nickname = patch.nickname ? String(patch.nickname).trim().slice(0, NAME_MAX) : null;
+      if (patch.mutedUntil !== undefined) row.mutedUntil = typeof patch.mutedUntil === "number" ? patch.mutedUntil : null;
+      if (typeof patch.notifyPreview === "boolean") row.notifyPreview = patch.notifyPreview;
+      if (typeof patch.notifySound === "boolean") row.notifySound = patch.notifySound;
       row.updatedAt = now;
       row.deviceStamp = String(patch.deviceStamp ?? row.deviceStamp ?? "").slice(0, 80);
       row.nixoUserId = linkNixoUser(data, userId, row.phone, row.email, row.username);
       addToContactIds(data, userId, row.nixoUserId);
+      bumpRel(data, userId);
       bumpDiscoveryCaches(data);
       return { ok: true as const, contact: publicContact(row) };
     }
@@ -277,12 +389,16 @@ export async function saveContact(userId: string, patch: ContactPatch) {
       updatedAt: now,
       lastContactedAt: 0,
       deviceStamp: String(patch.deviceStamp ?? "").slice(0, 80),
-      mutedUntil: null,
+      mutedUntil: typeof patch.mutedUntil === "number" ? patch.mutedUntil : null,
       matchHash: "",
+      nickname: patch.nickname ? String(patch.nickname).trim().slice(0, NAME_MAX) : null,
+      notifyPreview: patch.notifyPreview !== false,
+      notifySound: patch.notifySound !== false,
     };
     if (patch.notes) setNotes(row, patch.notes);
     data.contacts.push(row);
     addToContactIds(data, userId, row.nixoUserId);
+    bumpRel(data, userId);
     bumpDiscoveryCaches(data);
     return { ok: true as const, contact: publicContact(row) };
   });
@@ -298,6 +414,7 @@ export async function deleteContact(userId: string, contactId: string) {
     if (me && linked && !data.contacts.some((c) => c.ownerUserId === userId && c.nixoUserId === linked)) {
       me.contactIds = me.contactIds.filter((id) => id !== linked);
     }
+    bumpRel(data, userId);
     const still = data.users.find((u) => u.id === linked);
     bumpDiscoveryCaches(data);
     return { ok: true as const, accountKept: Boolean(still) };
@@ -380,6 +497,9 @@ export async function ingestPhoneBook(
           deviceStamp: "os-sync",
           mutedUntil: null,
           matchHash: "",
+          nickname: null,
+          notifyPreview: true,
+          notifySound: true,
         };
         data.contacts.push(row);
         imported += 1;
@@ -471,17 +591,38 @@ export async function viewPerson(viewerId: string, username: string) {
     : 0;
   const mine = data.contacts.find((c) => c.ownerUserId === viewerId && c.nixoUserId === target.id);
   const viewer = data.users.find((u) => u.id === viewerId);
+  const friendship = (data.friendships ?? []).find(
+    (f) => (f.userA === viewerId && f.userB === target.id) || (f.userA === target.id && f.userB === viewerId),
+  );
+  const follow = (data.follows ?? []).find((f) => f.followerId === viewerId && f.followeeId === target.id && f.status !== "blocked");
+  const mutualFriendIds =
+    viewer && canSeeFriendList(target, viewerId)
+      ? (target.friendIds ?? []).filter((id) => (viewer.friendIds ?? []).includes(id) && id !== viewerId && id !== target.id && !pairBlocked(data, viewerId, id))
+      : [];
+  const mutualFriends = mutualFriendIds
+    .slice(0, 8)
+    .map((id) => data.users.find((u) => u.id === id && u.status === "active"))
+    .filter(Boolean)
+    .map((u) => ({ id: u!.id, username: u!.username ?? null, displayName: u!.displayName || u!.username || "کاربر" }));
+  const friendCount = canSeeFriendCount(target, viewerId) ? (target.friendIds ?? []).filter((id) => data.users.some((u) => u.id === id && u.status === "active")).length : null;
+  const localSafe = mine
+    ? publicContact(mine)
+    : null;
   return {
     ok: true as const,
     profile,
     mutualGroups,
     mutualChannels,
+    mutualFriends,
+    friendCount,
+    friendshipId: friendship && (friendship.userA === viewerId || friendship.userB === viewerId) ? friendship.id : null,
+    followId: follow?.id ?? null,
     sharedMedia,
-    localContact: mine ? publicContact(mine) : null,
+    localContact: localSafe,
     qrPayload: { t: "nixo-contact", u: target.username },
     othersContactsHidden: true,
     friend: Boolean(viewer?.friendIds?.includes(target.id)),
-    following: Boolean((data.follows ?? []).some((f) => f.followerId === viewerId && f.followeeId === target.id)),
+    following: Boolean(follow),
     muted: Boolean(viewer?.mutedPeerKeys?.includes(target.id)),
     blocked: pairBlocked(data, viewerId, target.id),
   };
@@ -499,11 +640,24 @@ export async function createInvite(userId: string, maxUses: number | null, ttlMs
       ownerUserId: userId,
       maxUses: maxUses && maxUses > 0 ? Math.min(50, Math.floor(maxUses)) : null,
       uses: 0,
-      expiresAt: ttlMs && ttlMs > 0 ? now + Math.min(ttlMs, 30 * 24 * 60 * 60_000) : null,
+      expiresAt: ttlMs && ttlMs > 0 ? now + Math.min(ttlMs, 30 * 24 * 60 * 60_000) : now + 7 * 24 * 60 * 60_000,
       createdAt: now,
+      revokedAt: null as number | null,
     };
     data.contactInvites.push(invite);
-    return { ok: true as const, invite: { token: invite.token, maxUses: invite.maxUses, expiresAt: invite.expiresAt, path: `/join/invite/${invite.token}` } };
+    return { ok: true as const, invite: { id: invite.id, token: invite.token, maxUses: invite.maxUses, expiresAt: invite.expiresAt, path: `/join/invite/${invite.token}` } };
+  });
+}
+
+export async function revokeInvite(userId: string, token: string) {
+  return mutateStore((data) => {
+    ensureArrays(data);
+    const invite = data.contactInvites.find((i) => i.token === token && i.ownerUserId === userId);
+    if (!invite) return { ok: false as const, error: "دعوت یافت نشد.", status: 404 };
+    invite.revokedAt = Date.now();
+    bumpRel(data, userId);
+    relationshipAudit(data, userId, "qr-revoke");
+    return { ok: true as const };
   });
 }
 
@@ -512,6 +666,7 @@ export async function previewInvite(token: string) {
   const invite = data.contactInvites.find((i) => i.token === token);
   if (!invite) return { ok: false as const, error: "لینک دعوت نامعتبر است.", status: 404 };
   const now = Date.now();
+  if (invite.revokedAt) return { ok: false as const, error: "لینک دعوت باطل شده است.", status: 410 };
   if (invite.expiresAt && invite.expiresAt < now) return { ok: false as const, error: "لینک دعوت منقضی شده است.", status: 410 };
   if (invite.maxUses !== null && invite.uses >= invite.maxUses) return { ok: false as const, error: "سقف استفاده از لینک پر شده است.", status: 410 };
   const owner = data.users.find((u) => u.id === invite.ownerUserId);
@@ -529,6 +684,7 @@ export async function acceptInvite(userId: string, token: string) {
     const invite = data.contactInvites.find((i) => i.token === token);
     if (!invite) return { ok: false as const, error: "لینک دعوت نامعتبر است.", status: 404 };
     const now = Date.now();
+    if (invite.revokedAt) return { ok: false as const, error: "لینک دعوت باطل شده است.", status: 410 };
     if (invite.expiresAt && invite.expiresAt < now) return { ok: false as const, error: "لینک دعوت منقضی شده است.", status: 410 };
     if (invite.maxUses !== null && invite.uses >= invite.maxUses) return { ok: false as const, error: "سقف استفاده از لینک پر شده است.", status: 410 };
     if (invite.ownerUserId === userId) return { ok: false as const, error: "نمی‌توانید دعوت خودتان را بپذیرید.", status: 400 };
@@ -562,6 +718,9 @@ export async function acceptInvite(userId: string, token: string) {
         deviceStamp: "",
         mutedUntil: null,
         matchHash: "",
+        nickname: null,
+        notifyPreview: true,
+        notifySound: true,
       });
     }
     return { ok: true as const, username: owner.username };
@@ -574,13 +733,15 @@ export async function sendRequest(userId: string, targetId: string) {
     if (!flood.allowed) return { ok: false as const, error: "درخواست ارتباط محدود شد.", status: 429 };
     if (userId === targetId) return { ok: false as const, error: "نامعتبر.", status: 400 };
     ensureArrays(data);
+    expireStaleRequests(data);
     if (pairBlocked(data, userId, targetId)) return { ok: false as const, error: "ارتباط مسدود است.", status: 403 };
-    const target = data.users.find((u) => u.id === targetId && u.status === "active");
+    const target = data.users.find((u) => u.id === targetId && u.status === "active" && (u.accountStatus ?? "active") === "active");
     if (!target) return { ok: false as const, error: "کاربر یافت نشد.", status: 404 };
     const me = data.users.find((u) => u.id === userId);
     if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
     if ((me.friendIds ?? []).includes(targetId) || (target.friendIds ?? []).includes(userId)) {
-      return { ok: true as const, requestId: "friends", status: "accepted" as const };
+      const friendship = upsertFriendship(data, userId, targetId);
+      return { ok: true as const, requestId: "friends", status: "accepted" as const, friendshipId: friendship.id };
     }
     const existing = data.contactRequests.find(
       (r) => r.status === "pending" && ((r.fromUserId === userId && r.toUserId === targetId) || (r.fromUserId === targetId && r.toUserId === userId)),
@@ -594,15 +755,18 @@ export async function sendRequest(userId: string, targetId: string) {
       ].slice(0, 400);
       return { ok: false as const, error: "درخواست ارتباط محدود شد.", status: 429 };
     }
+    const now = Date.now();
     const row = {
       id: randomId(),
       fromUserId: userId,
       toUserId: targetId,
       status: "pending" as const,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + REQUEST_TTL_MS,
     };
     data.contactRequests.push(row);
+    bumpRel(data, userId, targetId);
     emitNotification(data, {
       userId: targetId,
       category: "system",
@@ -640,6 +804,12 @@ export async function resolveRequest(userId: string, requestId: string, action: 
       req.updatedAt = Date.now();
       const me = data.users.find((u) => u.id === userId);
       if (me && !me.blockedPeerKeys.includes(req.fromUserId)) me.blockedPeerKeys.push(req.fromUserId);
+      dropFriendship(data, userId, req.fromUserId);
+      data.follows = data.follows.filter(
+        (f) => !((f.followerId === userId && f.followeeId === req.fromUserId) || (f.followerId === req.fromUserId && f.followeeId === userId)),
+      );
+      bumpRel(data, userId, req.fromUserId);
+      relationshipAudit(data, userId, "friend-request-block");
       bumpDiscoveryCaches(data);
       return { ok: true as const };
     }
@@ -647,19 +817,26 @@ export async function resolveRequest(userId: string, requestId: string, action: 
       if (req.toUserId !== userId) return { ok: false as const, error: "اجازه نیست.", status: 403 };
       req.status = "rejected";
       req.updatedAt = Date.now();
+      bumpRel(data, userId, req.fromUserId);
       return { ok: true as const };
     }
     if (req.toUserId !== userId) return { ok: false as const, error: "اجازه نیست.", status: 403 };
+    expireStaleRequests(data);
+    if (req.status !== "pending") return { ok: false as const, error: "این درخواست قابل پذیرش نیست.", status: 400 };
     req.status = "accepted";
     req.updatedAt = Date.now();
     addToContactIds(data, userId, req.fromUserId);
     addToContactIds(data, req.fromUserId, userId);
     const me = data.users.find((u) => u.id === userId);
     const other = data.users.find((u) => u.id === req.fromUserId);
+    let friendshipId: string | null = null;
     if (me && other) {
       if (!me.friendIds.includes(other.id)) me.friendIds.push(other.id);
       if (!other.friendIds.includes(me.id)) other.friendIds.push(me.id);
+      friendshipId = upsertFriendship(data, me.id, other.id).id;
     }
+    bumpRel(data, userId, req.fromUserId);
+    relationshipAudit(data, userId, "friend-accept");
     emitNotification(data, {
       userId: req.fromUserId,
       category: "system",
@@ -672,7 +849,7 @@ export async function resolveRequest(userId: string, requestId: string, action: 
       target: { type: "system", id: req.id, href: "/app/contacts" },
     });
     bumpDiscoveryCaches(data);
-    return { ok: true as const };
+    return { ok: true as const, friendshipId };
   });
 }
 
@@ -684,18 +861,29 @@ export async function cancelRequest(userId: string, requestId: string) {
     if (req.status !== "pending") return { ok: false as const, error: "این درخواست قابل لغو نیست.", status: 400 };
     req.status = "cancelled";
     req.updatedAt = Date.now();
+    bumpRel(data, userId, req.toUserId);
     return { ok: true as const };
   });
 }
 
-export async function removeFriend(userId: string, peerId: string) {
+export async function removeFriend(userId: string, peerId: string, friendshipId?: string) {
   return mutateStore((data) => {
+    ensureArrays(data);
+    if (friendshipId) {
+      const row = data.friendships.find((f) => f.id === friendshipId);
+      if (!row) return { ok: false as const, error: "دوستی یافت نشد.", status: 404 };
+      if (row.userA !== userId && row.userB !== userId) return { ok: false as const, error: "اجازه نیست.", status: 403 };
+      peerId = row.userA === userId ? row.userB : row.userA;
+    }
     if (userId === peerId) return { ok: false as const, error: "نامعتبر.", status: 400 };
     const me = data.users.find((u) => u.id === userId);
     const other = data.users.find((u) => u.id === peerId);
     if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
     me.friendIds = (me.friendIds ?? []).filter((id) => id !== peerId);
     if (other) other.friendIds = (other.friendIds ?? []).filter((id) => id !== userId);
+    dropFriendship(data, userId, peerId);
+    bumpRel(data, userId, peerId);
+    relationshipAudit(data, userId, "unfriend");
     bumpDiscoveryCaches(data);
     return { ok: true as const, friendIds: me.friendIds };
   });
@@ -722,10 +910,11 @@ export async function followUser(userId: string, peerId: string) {
     if (!audienceAllows(target.privacyFollow ?? "everyone", target.contactIds, [], userId, target.friendIds)) {
       return { ok: false as const, error: "Follow برای تو مجاز نیست.", status: 403 };
     }
-    const existing = data.follows.find((f) => f.followerId === userId && f.followeeId === peerId);
+    const existing = data.follows.find((f) => f.followerId === userId && f.followeeId === peerId && f.status !== "blocked");
     if (existing) return { ok: true as const, followId: existing.id, reused: true as const };
-    const row = { id: randomId(), followerId: userId, followeeId: peerId, createdAt: Date.now() };
+    const row = { id: randomId(), followerId: userId, followeeId: peerId, createdAt: Date.now(), status: "active" as const };
     data.follows.push(row);
+    bumpRel(data, userId, peerId);
     emitNotification(data, {
       userId: peerId,
       category: "system",
@@ -742,12 +931,29 @@ export async function followUser(userId: string, peerId: string) {
   });
 }
 
-export async function unfollowUser(userId: string, peerId: string) {
+export async function unfollowUser(userId: string, peerId: string, followId?: string) {
   return mutateStore((data) => {
     ensureArrays(data);
+    const flood = hitRateLimit(data, `unfollow:${userId}`, 60 * 60_000, 40);
+    if (!flood.allowed) return { ok: false as const, error: "Unfollow محدود شد.", status: 429 };
+    const burst = hitRateLimit(data, `unfollow-burst:${userId}`, 10 * 60_000, 20);
+    if (!burst.allowed) {
+      data.audit = [
+        { id: `unf-${Date.now()}`, userId, kind: "suspicious" as const, createdAt: Date.now(), detail: "mass-unfollow" },
+        ...(data.audit ?? []),
+      ].slice(0, 400);
+      return { ok: false as const, error: "Unfollow محدود شد.", status: 429 };
+    }
+    if (followId) {
+      const row = data.follows.find((f) => f.id === followId);
+      if (!row) return { ok: false as const, error: "Follow یافت نشد.", status: 404 };
+      if (row.followerId !== userId) return { ok: false as const, error: "اجازه نیست.", status: 403 };
+      peerId = row.followeeId;
+    }
     const before = data.follows.length;
     data.follows = data.follows.filter((f) => !(f.followerId === userId && f.followeeId === peerId));
     if (data.follows.length === before) return { ok: false as const, error: "Follow یافت نشد.", status: 404 };
+    bumpRel(data, userId, peerId);
     bumpDiscoveryCaches(data);
     return { ok: true as const };
   });
@@ -761,7 +967,12 @@ function graphPeople(data: StoreData, viewerId: string, ids: string[]) {
     .map((u) => publicProfile(u!, viewerId));
 }
 
-export async function listSocialGraph(viewerId: string, targetId: string, which: "followers" | "following" | "friends") {
+export async function listSocialGraph(
+  viewerId: string,
+  targetId: string,
+  which: "followers" | "following" | "friends",
+  opts: { offset?: number; limit?: number; cursor?: string } = {},
+) {
   const data = await readStoreSnapshot();
   const target = data.users.find((u) => u.id === targetId && u.status === "active");
   if (!target) return { ok: false as const, error: "کاربر یافت نشد.", status: 404 as const };
@@ -769,18 +980,48 @@ export async function listSocialGraph(viewerId: string, targetId: string, which:
     return { ok: false as const, error: "در دسترس نیست.", status: 404 as const };
   }
   const own = viewerId === targetId;
+  const limit = Math.min(40, Math.max(1, opts.limit ?? 30));
+  const offset = Math.max(0, opts.offset ?? 0);
+  function page(ids: string[]) {
+    const people = graphPeople(data, viewerId, ids);
+    const start = opts.cursor ? Math.max(0, people.findIndex((p) => p.id === opts.cursor) + 1) : offset;
+    const slice = people.slice(start, start + limit);
+    const last = slice[slice.length - 1];
+    return {
+      people: slice,
+      hasMore: start + slice.length < people.length,
+      nextCursor: start + slice.length < people.length && last ? last.id : null,
+      total: people.length,
+    };
+  }
   if (which === "friends") {
-    if (!own) return { ok: true as const, hidden: true as const, people: [] as ReturnType<typeof publicProfile>[] };
-    return { ok: true as const, hidden: false as const, people: graphPeople(data, viewerId, target.friendIds ?? []) };
+    if (!own && !canSeeFriendList(target, viewerId)) {
+      const count = canSeeFriendCount(target, viewerId) ? (target.friendIds ?? []).length : null;
+      return {
+        ok: true as const,
+        hidden: true as const,
+        people: [] as ReturnType<typeof publicProfile>[],
+        friendCount: count,
+        hasMore: false,
+        nextCursor: null,
+        total: 0,
+      };
+    }
+    const paged = page(target.friendIds ?? []);
+    return { ok: true as const, hidden: false as const, ...paged, friendCount: paged.total };
   }
   if (which === "followers") {
-    if (!own && target.hideFollowers) return { ok: true as const, hidden: true as const, people: [] as ReturnType<typeof publicProfile>[] };
-    const ids = (data.follows ?? []).filter((f) => f.followeeId === targetId).map((f) => f.followerId);
-    return { ok: true as const, hidden: false as const, people: graphPeople(data, viewerId, ids) };
+    if (!own && target.hideFollowers) {
+      return { ok: true as const, hidden: true as const, people: [] as ReturnType<typeof publicProfile>[], hasMore: false, nextCursor: null, total: 0 };
+    }
+    const ids = (data.follows ?? []).filter((f) => f.followeeId === targetId && f.status !== "blocked").map((f) => f.followerId);
+    return { ok: true as const, hidden: false as const, ...page(ids) };
   }
-  if (!own && target.hideFollowing) return { ok: true as const, hidden: true as const, people: [] as ReturnType<typeof publicProfile>[] };
-  const ids = (data.follows ?? []).filter((f) => f.followerId === targetId).map((f) => f.followeeId);
-  return { ok: true as const, hidden: false as const, people: graphPeople(data, viewerId, ids) };
+  if (!own && target.hideFollowing) {
+    return { ok: true as const, hidden: true as const, people: [] as ReturnType<typeof publicProfile>[], hasMore: false, nextCursor: null, total: 0 };
+  }
+  const ids = (data.follows ?? []).filter((f) => f.followerId === targetId && f.status !== "blocked").map((f) => f.followeeId);
+  return { ok: true as const, hidden: false as const, ...page(ids) };
 }
 
 export async function muteUser(userId: string, peerId: string, muted: boolean) {
@@ -791,9 +1032,16 @@ export async function muteUser(userId: string, peerId: string, muted: boolean) {
     if (!key || key === userId) return { ok: false as const, error: "کاربر نامعتبر است.", status: 400 };
     if (muted) {
       if (!me.mutedPeerKeys.includes(key)) me.mutedPeerKeys.push(key);
+      for (const c of data.contacts) {
+        if (c.ownerUserId === userId && c.nixoUserId === key) c.mutedUntil = Date.now() + 10 * 365 * 24 * 60 * 60_000;
+      }
     } else {
       me.mutedPeerKeys = me.mutedPeerKeys.filter((id) => id !== key);
+      for (const c of data.contacts) {
+        if (c.ownerUserId === userId && c.nixoUserId === key) c.mutedUntil = null;
+      }
     }
+    bumpRel(data, userId);
     bumpDiscoveryCaches(data);
     return { ok: true as const, mutedPeerKeys: me.mutedPeerKeys, blocked: me.blockedPeerKeys.includes(key) };
   });
@@ -817,21 +1065,75 @@ export async function suggestions(userId: string) {
   const mine = new Set(
     data.contacts.filter((c) => c.ownerUserId === userId && c.nixoUserId).map((c) => c.nixoUserId as string),
   );
-  const suggested = data.users.filter((u) => {
-    if (u.id === userId || u.status !== "active") return false;
-    if (mine.has(u.id) || me.contactIds.includes(u.id)) return false;
-    if (pairBlocked(data, userId, u.id)) return false;
-    if (!me.syncedContactHashes.includes(u.identifierHash)) return false;
-    return audienceAllows(u.privacyFindPhone, u.contactIds, u.findPhoneAllowIds, userId);
-  });
+  const hidden = new Set([...(me.hideSuggestionIds ?? []), ...(me.notInterestedUserIds ?? []), ...(me.friendIds ?? [])]);
+  const myFriends = new Set(me.friendIds ?? []);
+  const myGroups = new Set(
+    (data.groups ?? []).filter((g) => !g.deletedAt && g.members.some((m) => m.key === userId && !m.leftAt)).map((g) => g.id),
+  );
+  const scored: { id: string; username: string | null; displayName: string; reason: string; score: number }[] = [];
+  for (const u of data.users) {
+    if (u.id === userId || u.status !== "active") continue;
+    if ((u.accountStatus ?? "active") !== "active") continue;
+    if (mine.has(u.id) || me.contactIds.includes(u.id) || hidden.has(u.id)) continue;
+    if (pairBlocked(data, userId, u.id)) continue;
+    let score = 0;
+    let reason = "";
+    const mutual = (u.friendIds ?? []).filter((id) => myFriends.has(id)).length;
+    if (mutual > 0 && canSeeFriendList(u, userId)) {
+      score += Math.min(5, mutual) * 3;
+      reason = "mutual-friends";
+    }
+    if (me.syncedContactHashes.includes(u.identifierHash) && audienceAllows(u.privacyFindPhone, u.contactIds, u.findPhoneAllowIds, userId)) {
+      score += 8;
+      reason = reason || "contacts";
+    }
+    const sharedGroup = (data.groups ?? []).some(
+      (g) => !g.deletedAt && myGroups.has(g.id) && g.joinMode === "open" && g.members.some((m) => m.key === u.id && !m.leftAt),
+    );
+    if (sharedGroup) {
+      score += 2;
+      reason = reason || "mutual-groups";
+    }
+    const contacted = data.contacts.some((c) => c.ownerUserId === userId && c.nixoUserId === u.id && c.lastContactedAt > 0);
+    if (contacted) {
+      score += 1;
+      reason = reason || "interaction";
+    }
+    if (score <= 0) continue;
+    scored.push({
+      id: u.id,
+      username: u.username ?? null,
+      displayName: u.displayName || u.username || "کاربر",
+      reason,
+      score,
+    });
+  }
+  scored.sort((a, b) => b.score - a.score);
   return {
     ok: true as const,
-    suggestions: suggested.slice(0, 20).map((u) => ({
-      id: u.id,
-      username: u.username,
-      displayName: u.displayName || u.username || "کاربر",
+    suggestions: scored.slice(0, SUGGESTION_CAP).map((row) => ({
+      id: row.id,
+      username: row.username,
+      displayName: row.displayName,
+      reason: row.reason,
     })),
   };
+}
+
+export async function hideSuggestion(userId: string, peerId: string, mode: "hide" | "not-interested") {
+  return mutateStore((data) => {
+    const me = data.users.find((u) => u.id === userId);
+    if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    const id = peerId.trim();
+    if (!id || id === userId) return { ok: false as const, error: "نامعتبر.", status: 400 };
+    if (mode === "not-interested") {
+      me.notInterestedUserIds = [id, ...(me.notInterestedUserIds ?? []).filter((x) => x !== id)].slice(0, 200);
+    } else {
+      me.hideSuggestionIds = [id, ...(me.hideSuggestionIds ?? []).filter((x) => x !== id)].slice(0, 200);
+    }
+    bumpRel(data, userId);
+    return { ok: true as const, hideSuggestionIds: me.hideSuggestionIds, notInterestedUserIds: me.notInterestedUserIds };
+  });
 }
 
 export async function exportMine(userId: string) {
@@ -841,7 +1143,7 @@ export async function exportMine(userId: string) {
     ok: true as const,
     exportedAt: Date.now(),
     contacts: listed.contacts.map((c) => ({
-      name: c.name,
+      name: c.nickname || c.name,
       phone: c.phone,
       email: c.email,
       username: c.username,
@@ -849,6 +1151,7 @@ export async function exportMine(userId: string) {
       labels: c.labels,
       group: c.group,
       custom: c.custom,
+      nickname: c.nickname,
     })),
   };
 }
@@ -925,20 +1228,27 @@ export async function startChatFromContact(userId: string, contactId?: string, p
 }
 
 export async function blockPerson(userId: string, peerKey: string, blocked: boolean) {
-  const result = await setBlockedPeer(userId, peerKey, blocked);
-  if (!result.ok) return result;
-  if (blocked) {
-    await mutateStore((data) => {
-      for (const r of data.contactRequests ?? []) {
-        if (r.status === "pending" && ((r.fromUserId === userId && r.toUserId === peerKey) || (r.toUserId === userId && r.fromUserId === peerKey))) {
-          r.status = "declined";
-          r.updatedAt = Date.now();
-        }
-      }
-      return true;
-    });
-  }
-  return result;
+  return setBlockedPeer(userId, peerKey, blocked);
+}
+
+export async function relationshipSync(userId: string) {
+  const listed = await listContacts(userId);
+  if (!listed.ok) return listed;
+  const graphFriends = await listSocialGraph(userId, userId, "friends", { limit: 40 });
+  const followers = await listSocialGraph(userId, userId, "followers", { limit: 40 });
+  const following = await listSocialGraph(userId, userId, "following", { limit: 40 });
+  const data = await readStoreSnapshot();
+  const me = data.users.find((u) => u.id === userId);
+  return {
+    ok: true as const,
+    relationshipRev: listed.relationshipRev,
+    friendCount: listed.friendCount,
+    friends: graphFriends.ok ? graphFriends.people : [],
+    followers: followers.ok ? followers.people : [],
+    following: following.ok ? following.people : [],
+    blockedPeerKeys: me?.blockedPeerKeys ?? [],
+    mutedPeerKeys: me?.mutedPeerKeys ?? [],
+  };
 }
 
 export { reportCategorySchema };

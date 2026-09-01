@@ -126,6 +126,11 @@ export function defaultUserFields(): {
   privacyFollow: Visibility;
   hideFollowers: boolean;
   hideFollowing: boolean;
+  privacyFriends: Visibility;
+  privacyFriendCount: Visibility;
+  hideSuggestionIds: string[];
+  notInterestedUserIds: string[];
+  relationshipRev: number;
   statusExpiresAt: number | null;
   statusHistory: { at: number; preset: string; text: string }[];
 } {
@@ -220,6 +225,11 @@ export function defaultUserFields(): {
     privacyFollow: "everyone",
     hideFollowers: false,
     hideFollowing: false,
+    privacyFriends: "friends",
+    privacyFriendCount: "friends",
+    hideSuggestionIds: [],
+    notInterestedUserIds: [],
+    relationshipRev: 0,
     statusExpiresAt: null,
     statusHistory: [],
   };

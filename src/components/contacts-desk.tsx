@@ -27,6 +27,10 @@ type Contact = {
   createdAt: number;
   updatedAt: number;
   lastContactedAt: number;
+  nickname: string | null;
+  mutedUntil: number | null;
+  notifyPreview: boolean;
+  notifySound: boolean;
 };
 
 type RequestRow = {
@@ -63,6 +67,7 @@ const emptyForm = {
   group: "",
   labels: "",
   custom: "",
+  nickname: "",
 };
 
 export function ContactsDesk() {
@@ -78,6 +83,8 @@ export function ContactsDesk() {
   const [requestsIn, setRequestsIn] = useState<RequestRow[]>([]);
   const [requestsOut, setRequestsOut] = useState<RequestRow[]>([]);
   const [friends, setFriends] = useState<{ id: string; displayName: string; username: string | null }[]>([]);
+  const [friendCount, setFriendCount] = useState(0);
+  const [invites, setInvites] = useState<{ token: string; expiresAt: number | null; revokedAt: number | null; path: string }[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [cursor, setCursor] = useState<string | null>(null);
   const [permission, setPermission] = useState("unknown");
@@ -107,6 +114,8 @@ export function ContactsDesk() {
     setRequestsIn(data.requestsIn ?? []);
     setRequestsOut(data.requestsOut ?? []);
     setFriends(data.friends ?? []);
+    setFriendCount(data.friendCount ?? 0);
+    setInvites(data.invites ?? []);
     setHasMore(Boolean(data.hasMore));
     setCursor(data.nextCursor ?? null);
     setPermission(data.permission ?? "unknown");
@@ -145,6 +154,7 @@ export function ContactsDesk() {
       group: form.group,
       labels: form.labels.split(",").map((s) => s.trim()).filter(Boolean),
       custom,
+      nickname: form.nickname || null,
       localPhoto: photo,
       updatedAt: editing?.updatedAt,
       force: false,
@@ -243,6 +253,7 @@ export function ContactsDesk() {
       custom: Object.entries(c.custom ?? {})
         .map(([k, v]) => `${k}: ${v}`)
         .join("\n"),
+      nickname: c.nickname ?? "",
     });
     setPhoto(c.localPhoto);
   }
@@ -277,7 +288,7 @@ export function ContactsDesk() {
       )}
       {friends.length > 0 && (
         <section className="mb-4 rounded-2xl bg-white/5 p-3 text-sm">
-          <h2 className="font-medium">دوستان</h2>
+          <h2 className="font-medium">دوستان ({friendCount})</h2>
           <ul className="mt-1 text-xs">
             {friends.map((f) => (
               <li key={f.id} className="mt-1 flex items-center justify-between">
@@ -348,6 +359,7 @@ export function ContactsDesk() {
           <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="شماره" dir="ltr" className="h-9 bg-black/20" />
           <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="ایمیل" dir="ltr" className="h-9 bg-black/20" />
           <Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} placeholder="@username" dir="ltr" className="h-9 bg-black/20" />
+          <Input value={form.nickname} onChange={(e) => setForm({ ...form, nickname: e.target.value })} placeholder="نام مستعار خصوصی" className="h-9 bg-black/20" />
         </div>
         <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="یادداشت خصوصی" className="mt-2 min-h-16 bg-black/20" />
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
@@ -468,12 +480,47 @@ export function ContactsDesk() {
       <section className="mb-4 rounded-2xl bg-white/5 p-4 text-sm">
         <h2 className="font-medium">دعوت دوستان</h2>
         <Button type="button" size="sm" className="mt-2 bg-amber-300 text-[#102824]" onClick={() => void makeInvite()}>
-          ساخت Invite Link (۷ روز، ۲۰ استفاده)
+          ساخت Invite / QR (۷ روز)
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          className="mt-2 mr-2"
+          onClick={async () => {
+            const { res, data } = await api("invite", { maxUses: 1, ttlMs: 15 * 60_000 });
+            if (!res.ok) {
+              toast.error(data.error);
+              return;
+            }
+            const url = `${window.location.origin}${data.invite.path}`;
+            setInviteUrl(url);
+            toast.success("QR موقت ۱۵ دقیقه‌ای آماده است.");
+          }}
+        >
+          QR موقت ۱۵ دقیقه
         </Button>
         {inviteUrl && (
           <p className="mt-2 break-all text-[11px]" dir="ltr">
             {inviteUrl}
           </p>
+        )}
+        {invites.filter((i) => !i.revokedAt).length > 0 && (
+          <ul className="mt-2 space-y-1 text-[11px]">
+            {invites
+              .filter((i) => !i.revokedAt)
+              .slice(0, 5)
+              .map((i) => (
+                <li key={i.token} className="flex items-center justify-between gap-2">
+                  <span className="truncate" dir="ltr">
+                    {i.path}
+                  </span>
+                  <Button size="sm" variant="secondary" className="h-7" onClick={() => void api("revoke-invite", { token: i.token }).then(load)}>
+                    باطل کردن
+                  </Button>
+                </li>
+              ))}
+          </ul>
         )}
       </section>
 
@@ -482,10 +529,26 @@ export function ContactsDesk() {
           <h2 className="font-medium">پیشنهاد (فقط با اجازهٔ پیدا شدن)</h2>
           <ul className="mt-2 space-y-1 text-xs">
             {suggestions.map((s) => (
-              <li key={s.id}>
+              <li key={s.id} className="flex items-center justify-between gap-2">
                 <Link className="text-amber-200" href={s.username ? `/app/u/${s.username}` : "/app/contacts"}>
                   {s.displayName} {s.username ? `@${s.username}` : ""}
                 </Link>
+                <span className="flex gap-1">
+                  <button
+                    type="button"
+                    className="text-[10px] text-emerald-100/70"
+                    onClick={() => void api("hide-suggestion", { userId: s.id, mode: "hide" }).then(() => setSuggestions((cur) => cur.filter((x) => x.id !== s.id)))}
+                  >
+                    پنهان
+                  </button>
+                  <button
+                    type="button"
+                    className="text-[10px] text-emerald-100/70"
+                    onClick={() => void api("hide-suggestion", { userId: s.id, mode: "not-interested" }).then(() => setSuggestions((cur) => cur.filter((x) => x.id !== s.id)))}
+                  >
+                    مناسب نیست
+                  </button>
+                </span>
               </li>
             ))}
           </ul>
@@ -526,7 +589,8 @@ export function ContactsDesk() {
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <p className="truncate font-medium">{c.name}</p>
+                <p className="truncate font-medium">{c.nickname || c.name}</p>
+                {c.nickname && c.nickname !== c.name && <span className="truncate text-[10px] opacity-50">{c.name}</span>}
                 {c.favorite && <span className="text-[10px] text-amber-200">★</span>}
               </div>
               {c.username && (
@@ -560,6 +624,16 @@ export function ContactsDesk() {
                 >
                   Favorite
                 </Button>
+                {c.nixoUserId && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-7"
+                    onClick={() => void api(c.mutedUntil ? "unmute" : "mute", { userId: c.nixoUserId }).then(load)}
+                  >
+                    {c.mutedUntil ? "Unmute" : "Mute"}
+                  </Button>
+                )}
                 <Button size="sm" variant="secondary" className="h-7" onClick={() => edit(c)}>
                   ویرایش
                 </Button>

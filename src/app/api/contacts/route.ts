@@ -27,6 +27,9 @@ import {
   unfollowUser,
   viewPerson,
   resolveRequest,
+  revokeInvite,
+  hideSuggestion,
+  relationshipSync,
 } from "@/lib/contacts";
 import { fileReport, listBlocked } from "@/lib/safety";
 
@@ -55,6 +58,11 @@ export async function GET(request: Request) {
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
   }
+  if (action === "sync") {
+    const result = await relationshipSync(user.id);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
   if (action === "export") {
     const result = await exportMine(user.id);
     if (!result.ok) return jsonError(result.error, result.status);
@@ -67,7 +75,11 @@ export async function GET(request: Request) {
   if (action === "graph") {
     const which = url.searchParams.get("which") === "followers" || url.searchParams.get("which") === "following" ? url.searchParams.get("which") : "friends";
     const target = url.searchParams.get("userId") || user.id;
-    const result = await listSocialGraph(user.id, target, which as "followers" | "following" | "friends");
+    const result = await listSocialGraph(user.id, target, which as "followers" | "following" | "friends", {
+      offset: url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : undefined,
+      limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
+      cursor: url.searchParams.get("cursor") ?? undefined,
+    });
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
   }
@@ -128,6 +140,11 @@ export async function POST(request: Request) {
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
   }
+  if (action === "revoke-invite") {
+    const result = await revokeInvite(user.id, String(body.token ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
   if (action === "accept-invite") {
     const result = await acceptInvite(user.id, String(body.token ?? ""));
     if (!result.ok) return jsonError(result.error, result.status);
@@ -150,7 +167,7 @@ export async function POST(request: Request) {
     return json(result);
   }
   if (action === "unfriend") {
-    const result = await removeFriend(user.id, String(body.userId ?? ""));
+    const result = await removeFriend(user.id, String(body.userId ?? ""), typeof body.friendshipId === "string" ? body.friendshipId : undefined);
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
   }
@@ -160,7 +177,12 @@ export async function POST(request: Request) {
     return json(result);
   }
   if (action === "unfollow") {
-    const result = await unfollowUser(user.id, String(body.userId ?? ""));
+    const result = await unfollowUser(user.id, String(body.userId ?? ""), typeof body.followId === "string" ? body.followId : undefined);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (action === "hide-suggestion") {
+    const result = await hideSuggestion(user.id, String(body.userId ?? ""), body.mode === "not-interested" ? "not-interested" : "hide");
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
   }

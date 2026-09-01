@@ -184,6 +184,11 @@ function hydrateUser(user: UserRecord): UserRecord {
     privacyFollow: user.privacyFollow ?? "everyone",
     hideFollowers: Boolean(user.hideFollowers),
     hideFollowing: Boolean(user.hideFollowing),
+    privacyFriends: user.privacyFriends ?? "friends",
+    privacyFriendCount: user.privacyFriendCount ?? "friends",
+    hideSuggestionIds: Array.isArray(user.hideSuggestionIds) ? user.hideSuggestionIds : [],
+    notInterestedUserIds: Array.isArray(user.notInterestedUserIds) ? user.notInterestedUserIds : [],
+    relationshipRev: typeof user.relationshipRev === "number" ? user.relationshipRev : 0,
     statusExpiresAt: typeof user.statusExpiresAt === "number" ? user.statusExpiresAt : null,
     statusHistory: Array.isArray(user.statusHistory) ? user.statusHistory.slice(-20) : [],
     accountStatus: user.accountStatus === "pending_deletion" || user.accountStatus === "closed" ? user.accountStatus : "active",
@@ -604,6 +609,11 @@ export type UserRecord = {
   privacyFollow: Visibility;
   hideFollowers: boolean;
   hideFollowing: boolean;
+  privacyFriends: Visibility;
+  privacyFriendCount: Visibility;
+  hideSuggestionIds: string[];
+  notInterestedUserIds: string[];
+  relationshipRev: number;
   statusExpiresAt: number | null;
   statusHistory: { at: number; preset: string; text: string }[];
   accountStatus?: "active" | "pending_deletion" | "closed";
@@ -828,6 +838,9 @@ export type ContactRecord = {
   deviceStamp: string;
   mutedUntil: number | null;
   matchHash: string;
+  nickname: string | null;
+  notifyPreview: boolean;
+  notifySound: boolean;
 };
 
 export type ContactInvite = {
@@ -838,21 +851,32 @@ export type ContactInvite = {
   uses: number;
   expiresAt: number | null;
   createdAt: number;
+  revokedAt: number | null;
 };
 
 export type ContactRequest = {
   id: string;
   fromUserId: string;
   toUserId: string;
-  status: "pending" | "accepted" | "rejected" | "declined" | "cancelled" | "blocked";
+  status: "pending" | "accepted" | "rejected" | "declined" | "cancelled" | "blocked" | "expired";
   createdAt: number;
   updatedAt: number;
+  expiresAt: number;
 };
 
 export type FollowRecord = {
   id: string;
   followerId: string;
   followeeId: string;
+  createdAt: number;
+  status: "active" | "blocked";
+};
+
+export type FriendshipRecord = {
+  id: string;
+  pairKey: string;
+  userA: string;
+  userB: string;
   createdAt: number;
 };
 
@@ -1927,6 +1951,7 @@ export type StoreData = {
   contactRequests: ContactRequest[];
   contactLists: ContactList[];
   follows: FollowRecord[];
+  friendships: FriendshipRecord[];
   usernameHolds: UsernameHold[];
   reservedUsernames: string[];
   inboxMetas: InboxMeta[];
@@ -2059,6 +2084,7 @@ const EMPTY: StoreData = {
   contactRequests: [],
   contactLists: [],
   follows: [],
+  friendships: [],
   usernameHolds: [],
   reservedUsernames: [],
   inboxMetas: [],
@@ -2258,12 +2284,25 @@ async function readStore(): Promise<StoreData> {
             ...c,
             mutedUntil: typeof c.mutedUntil === "number" ? c.mutedUntil : null,
             matchHash: typeof c.matchHash === "string" ? c.matchHash : "",
+            nickname: typeof c.nickname === "string" ? c.nickname : null,
+            notifyPreview: c.notifyPreview !== false,
+            notifySound: c.notifySound !== false,
           }))
         : [],
-      contactInvites: Array.isArray(parsed.contactInvites) ? parsed.contactInvites : [],
-      contactRequests: Array.isArray(parsed.contactRequests) ? parsed.contactRequests : [],
+      contactInvites: Array.isArray(parsed.contactInvites)
+        ? parsed.contactInvites.map((i) => ({ ...i, revokedAt: typeof i.revokedAt === "number" ? i.revokedAt : null }))
+        : [],
+      contactRequests: Array.isArray(parsed.contactRequests)
+        ? parsed.contactRequests.map((r) => ({
+            ...r,
+            expiresAt: typeof r.expiresAt === "number" ? r.expiresAt : r.createdAt + 14 * 24 * 60 * 60_000,
+          }))
+        : [],
       contactLists: Array.isArray(parsed.contactLists) ? parsed.contactLists : [],
-      follows: Array.isArray(parsed.follows) ? parsed.follows : [],
+      follows: Array.isArray(parsed.follows)
+        ? parsed.follows.map((f) => ({ ...f, status: f.status === "blocked" ? "blocked" : "active" }))
+        : [],
+      friendships: Array.isArray(parsed.friendships) ? parsed.friendships : [],
       usernameHolds: Array.isArray(parsed.usernameHolds) ? parsed.usernameHolds : [],
       reservedUsernames: Array.isArray(parsed.reservedUsernames) ? parsed.reservedUsernames : [],
       inboxMetas: Array.isArray(parsed.inboxMetas) ? parsed.inboxMetas.map(hydrateInboxMeta) : [],
@@ -2524,10 +2563,17 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.contactRequests = (data.contactRequests ?? []).filter((r) => r.fromUserId !== uid && r.toUserId !== uid);
   data.contactLists = (data.contactLists ?? []).filter((l) => l.ownerUserId !== uid);
   data.follows = (data.follows ?? []).filter((f) => f.followerId !== uid && f.followeeId !== uid);
+  data.friendships = (data.friendships ?? []).filter((f) => f.userA !== uid && f.userB !== uid);
+  for (const c of data.contacts ?? []) {
+    if (c.nixoUserId === uid) c.nixoUserId = null;
+  }
   for (const u of data.users) {
     u.friendIds = (u.friendIds ?? []).filter((id) => id !== uid);
     u.mutedPeerKeys = (u.mutedPeerKeys ?? []).filter((id) => id !== uid);
     u.contactIds = (u.contactIds ?? []).filter((id) => id !== uid);
+    u.hideSuggestionIds = (u.hideSuggestionIds ?? []).filter((id) => id !== uid);
+    u.notInterestedUserIds = (u.notInterestedUserIds ?? []).filter((id) => id !== uid);
+    u.relationshipRev = (u.relationshipRev ?? 0) + 1;
   }
   data.inboxMetas = (data.inboxMetas ?? []).filter((m) => m.ownerUserId !== uid);
   data.chatFolders = (data.chatFolders ?? []).filter((f) => f.ownerUserId !== uid);
