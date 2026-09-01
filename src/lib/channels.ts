@@ -9,7 +9,7 @@ import { decodeDataUrl, validateAvatarBuffer } from "@/lib/photo-files";
 import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf, replayReactionNonce, rememberReactionNonce, putReactionCache, type ReactionIntent } from "@/lib/stickers";
 import { canChannelInvite } from "@/lib/privacy";
 import { emitNotification } from "@/lib/notify";
-import { enqueueSearchIndexSync } from "@/lib/search";
+import { enqueueSearchIndexSync, enqueueSearchTombstone } from "@/lib/search";
 import { claimSpaceHandle } from "@/lib/space-handles";
 import { insertLive } from "@/lib/live";
 import { inspectTextLinks } from "@/lib/link-safety";
@@ -1069,6 +1069,7 @@ export async function deleteChannel(userId: string, channelId: string, extra?: {
     channel.status = "deleted";
     channel.inviteToken = "";
     data.channelPosts = data.channelPosts.filter((p) => p.channelId !== channelId);
+    enqueueSearchTombstone(data, `channel:${channel.id}`, "channel-delete");
     enqueueSearchIndexSync(data, "channel-delete");
     return { ok: true as const };
   });

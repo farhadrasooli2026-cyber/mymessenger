@@ -82,6 +82,8 @@ export const fa = {
   "search.kind.stories": "استوری",
   "search.kind.images": "تصویر",
   "search.kind.audio": "صوت",
+  "search.voice": "جستجوی صوتی روی دستگاه",
+  "search.hybrid": "ترکیب کلیدواژه و معنا روی نتایج مجاز",
   "admin.i18n.tab": "زبان",
   "admin.i18n.title": "میز زبان و بومی‌سازی",
   "admin.i18n.enabled": "زبان‌های فعال",

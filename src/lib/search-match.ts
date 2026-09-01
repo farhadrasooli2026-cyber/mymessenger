@@ -70,12 +70,68 @@ export function translitExpand(q: string) {
   if (/channel/.test(folded)) out.push("کانال");
   if (/(photo|fotograf)/.test(folded)) out.push("عکس");
   if (/video/.test(folded)) out.push("ویدیو");
+  if (/^nixo$/.test(folded)) out.push("nikso");
   return [...new Set(out.filter(Boolean))];
+}
+
+/** Versioned public synonyms only. Never mined from private queries. */
+export const SYNONYM_VERSION = 2;
+const SYNONYMS: Record<string, string[]> = {
+  عکس: ["عکس", "تصویر", "photo", "image"],
+  photo: ["photo", "عکس", "تصویر"],
+  گروه: ["گروه", "group"],
+  group: ["group", "گروه"],
+  کانال: ["کانال", "channel"],
+  channel: ["channel", "کانال"],
+  پیام: ["پیام", "message"],
+  فایل: ["فایل", "file", "document"],
+  file: ["file", "فایل", "document"],
+};
+
+export function synonymExpand(q: string) {
+  const n = foldText(q);
+  const extra = SYNONYMS[n] ?? [];
+  return [...new Set([q, ...extra])];
+}
+
+export function stemToken(token: string) {
+  let t = foldText(token);
+  if (t.length < 5) return t;
+  t = t.replace(/(ing|ed|es|s)$/i, "");
+  t = t.replace(/(ها|های|ان|ات)$/u, "");
+  return t.length >= 2 ? t : foldText(token);
+}
+
+export function stemTokens(text: string) {
+  return foldText(text)
+    .split(/[\s@/_#-]+/)
+    .filter((w) => w.length >= 2)
+    .map(stemToken);
 }
 
 export function blobMatches(blob: string, needle: string) {
   if (matchScore(blob, needle) >= 48) return true;
-  return translitExpand(needle).some((v) => v !== needle && matchScore(blob, v) >= 48);
+  if (translitExpand(needle).some((v) => v !== needle && matchScore(blob, v) >= 48)) return true;
+  return synonymExpand(needle).some((v) => v !== needle && matchScore(blob, v) >= 48);
+}
+
+export function booleanMatches(
+  blob: string,
+  bool: { must: string[]; should: string[][]; not: string[] },
+) {
+  if (bool.not.some((t) => t.length >= 2 && blobMatches(blob, t))) return false;
+  const groups = bool.should.length ? bool.should : bool.must.length ? [bool.must] : [];
+  if (!groups.length) return true;
+  return groups.some((g) => g.filter((t) => t.length >= 1).every((t) => blobMatches(blob, t)));
+}
+
+export function hybridOverlap(haystack: string, needle: string) {
+  const a = new Set(stemTokens(haystack));
+  const b = stemTokens(needle);
+  if (!b.length) return 0;
+  let n = 0;
+  for (const t of b) if (a.has(t)) n += 1;
+  return n / b.length;
 }
 
 export function exactPhraseMatches(blob: string, phrase: string) {

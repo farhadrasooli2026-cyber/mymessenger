@@ -39,6 +39,11 @@ export function SearchPanel({
   const [groupId, setGroupId] = useState("");
   const [channelId, setChannelId] = useState("");
   const [exact, setExact] = useState(false);
+  const [has, setHas] = useState("");
+  const [semantic, setSemantic] = useState(false);
+  const [ranking, setRanking] = useState("");
+  const [personalize, setPersonalize] = useState(true);
+  const [voiceNote] = useState("Voice Search فقط روی دستگاه به متن تبدیل می‌شود؛ صوت ذخیره یا آپلود نمی‌شود.");
   const [scopeChat, setScopeChat] = useState(false);
   const [feed, setFeed] = useState<"" | "discovery" | "trending">("");
   const [hints, setHints] = useState<string[]>([]);
@@ -85,7 +90,7 @@ export function SearchPanel({
     return () => window.clearTimeout(t);
     // live debounce; submit still records history
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, kind, sort, feed]);
+  }, [q, kind, sort, feed, has, semantic, ranking]);
 
   async function run(nextOffset = 0, seed = q, live = false, nextCursor?: string | null) {
     abortRef.current?.abort();
@@ -112,6 +117,9 @@ export function SearchPanel({
       if (groupId.trim()) params.set("groupId", groupId.trim());
       if (channelId.trim()) params.set("channelId", channelId.trim());
       if (exact) params.set("exact", "1");
+      if (semantic) params.set("semantic", "1");
+      if (ranking) params.set("ranking", ranking);
+      if (has) params.set("has", has);
       if (scopeChat && chatId) params.set("chatId", chatId);
       if (feed) {
         params.set("feed", feed);
@@ -214,7 +222,7 @@ export function SearchPanel({
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder='from:@user  has:link  in:username  "عبارت دقیق"  #هشتگ'
+            placeholder='from:@user  has:mention  AND/OR/NOT  "عبارت دقیق"  #هشتگ'
             id="nixo-search"
             className="h-10 bg-black/20"
             enterKeyHint="search"
@@ -226,6 +234,34 @@ export function SearchPanel({
           <Button type="submit" className="bg-amber-300 text-[#102824]" disabled={busy}>
             {busy ? "…" : "بجو"}
           </Button>
+          <button
+            type="button"
+            className="min-h-11 rounded-md bg-white/10 px-2 text-[11px]"
+            aria-label="جستجوی صوتی روی دستگاه"
+            onClick={() => {
+              const w = window as unknown as {
+                webkitSpeechRecognition?: new () => { lang: string; start: () => void; onresult: ((ev: { results: ArrayLike<ArrayLike<{ transcript?: string }>> }) => void) | null };
+                SpeechRecognition?: new () => { lang: string; start: () => void; onresult: ((ev: { results: ArrayLike<ArrayLike<{ transcript?: string }>> }) => void) | null };
+              };
+              const Ctor = w.webkitSpeechRecognition ?? w.SpeechRecognition;
+              if (!Ctor) {
+                toast.error("مرورگر Voice Search ندارد.");
+                return;
+              }
+              const rec = new Ctor();
+              rec.lang = document.documentElement.lang === "en" ? "en-US" : "fa-IR";
+              rec.onresult = (ev) => {
+                const text = ev.results[0]?.[0]?.transcript ?? "";
+                if (text) {
+                  setQ(text);
+                  void run(0, text);
+                }
+              };
+              rec.start();
+            }}
+          >
+            صدا
+          </button>
           {busy && (
             <Button
               type="button"
@@ -330,6 +366,53 @@ export function SearchPanel({
             <input type="checkbox" checked={exact} onChange={(e) => setExact(e.target.checked)} />
             Exact Search
           </label>
+          <label className="col-span-2 flex items-center gap-2 text-[11px] text-emerald-100/70">
+            <input type="checkbox" checked={semantic} onChange={(e) => setSemantic(e.target.checked)} />
+            Hybrid / Semantic (فقط روی نتایج مجاز)
+          </label>
+          <label className="col-span-2 flex items-center gap-2 text-[11px] text-emerald-100/70">
+            <input
+              type="checkbox"
+              checked={personalize}
+              onChange={async (e) => {
+                const on = e.target.checked;
+                setPersonalize(on);
+                await fetch("/api/search", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ action: "personalize", personalize: on }),
+                });
+              }}
+            />
+            شخصی‌سازی نتایج (تاریخچهٔ خودت)
+          </label>
+          <select
+            className="h-8 rounded-md bg-black/30 px-2 text-[11px]"
+            value={has}
+            onChange={(e) => setHas(e.target.value)}
+            aria-label="فیلتر محتوا"
+          >
+            <option value="">بدون has:</option>
+            <option value="link">has:link</option>
+            <option value="mention">has:mention</option>
+            <option value="hashtag">has:hashtag</option>
+            <option value="file">has:file</option>
+            <option value="document">has:document</option>
+            <option value="image">has:image</option>
+            <option value="video">has:video</option>
+            <option value="audio">has:audio</option>
+            <option value="media">has:media</option>
+          </select>
+          <select
+            className="h-8 rounded-md bg-black/30 px-2 text-[11px]"
+            value={ranking}
+            onChange={(e) => setRanking(e.target.value)}
+            aria-label="وزن رتبه‌بندی"
+          >
+            <option value="">Ranking: relevance</option>
+            <option value="freshness">Ranking: freshness</option>
+            <option value="popularity">Ranking: popularity</option>
+          </select>
           {chatId ? (
             <label className="col-span-2 flex items-center gap-2 text-[11px] text-emerald-100/70">
               <input type="checkbox" checked={scopeChat} onChange={(e) => setScopeChat(e.target.checked)} />
@@ -338,7 +421,7 @@ export function SearchPanel({
           ) : null}
         </div>
         <p className="mt-1 text-[10px] leading-4 text-emerald-100/45">
-          عملگرها: from:@user · in:username · after:2026-01-01 · has:link|file|media · minsize:10kb. Query خالی تاریخچه و Discovery را نشان می‌دهد نه فهرست همهٔ کاربران.
+          عملگرها: from:@user · in:username · after:2026-01-01 · has:link|mention|file · minsize:10kb · AND / OR / NOT. Voice روی دستگاه است. {voiceNote}
         </p>
         {history.length > 0 && (
           <div className="mt-2">

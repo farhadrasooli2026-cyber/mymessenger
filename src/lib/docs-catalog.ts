@@ -275,6 +275,9 @@ POST /api/chats/:id  body: { ciphertext, nonce, enc, clientNonce }
 ## لبه و CDN
 \`GET/POST /api/edge\` با \`edge.view\` / \`edge.manage\`. RUM نمونه‌ای بدون URL خصوصی. Purge فقط Asset عمومی.
 
+## جستجو
+\`GET /api/search\` با نشست. Query، فیلتر، Cursor. \`health=1\` متریک تجمعی. \`eval=1\` فقط ایمنی نیکسو. Cache و تاریخچه per-user. شکست جستجو هسته را قطع نمی‌کند.
+
 ## Deprecation
 فعلاً Breaking Change عمومی اعلام‌شده نیست. حذف فیلد فقط با bump API_VERSION و یادداشت در CHANGELOG.md.
 
@@ -740,6 +743,27 @@ PoP بر اساس سلامت و Latency. Host نامعتبر رد می‌شود.
 
 ## حریم
 RUM بدون query و توکن. Authorization در Core می‌ماند.`,
+  }),
+  page({
+    slug: "search",
+    title: "جستجو و کشف",
+    group: "معماری",
+    owner: DOCS_OWNERS.platform,
+    summary: "جستجوی Permission-aware، ایندکس عمومی قابل Rebuild، Boolean، Hybrid و Discovery بدون نشت خصوصی.",
+    tags: ["search", "discovery", "index", "ranking", "privacy"],
+    body: `مرکز UI: پنل جستجوی پیام‌رسان. فایل: \`docs/SEARCH.md\`. API \`/api/search\`.
+
+## ایندکس
+اسناد عمومی جدا از Database اصلی برای Queryهای پرتکرار. صف Incremental، Tombstone، نسخهٔ اسکیما و Reindex اتمی. پیام E2EE ایندکس نمی‌شود.
+
+## مجوز
+نتیجه و Snippet فقط پس از Authentication، Membership، Block و Ban. Cache per-user. AI همان موتور مجاز را می‌خواند.
+
+## Query
+Full-Text، Exact، Prefix، Fuzzy، AND/OR/NOT، فیلتر تاریخ/فرستنده/گروه/کانال/فایل/رسانه/لینک/منشن/هشتگ. سقف پیچیدگی و Rate Limit.
+
+## کشف
+Discovery و Trending فقط Public. محبوبیت هشتگ با ضد سیلاب. شخصی‌سازی اختیاری و قابل خاموش شدن.`,
   }),
   page({
     slug: "changelog",

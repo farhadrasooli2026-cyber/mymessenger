@@ -2,16 +2,20 @@ import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
 import {
   clearSearchHistory,
+  evaluateSearchQuality,
   exportSearchHistory,
   getSearchHistory,
   globalSearch,
   hideSearchRecommendation,
   rebuildSearchIndex,
+  reindexSearchScope,
   removeSearchHistoryItem,
   searchHealth,
+  setSearchPersonalize,
+  tombstoneSearchDoc,
 } from "@/lib/search";
 import { SEARCH_KINDS, type SearchKind } from "@/lib/search-types";
-import { SEARCH_FEEDS, SEARCH_SORTS, type SearchFeed, type SearchHasFilter, type SearchSort } from "@/lib/search-query";
+import { SEARCH_FEEDS, SEARCH_RANKINGS, SEARCH_SORTS, type SearchFeed, type SearchHasFilter, type SearchRanking, type SearchSort } from "@/lib/search-query";
 
 export async function GET(request: Request) {
   const user = await requireActiveUser();
@@ -19,6 +23,11 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   if (url.searchParams.get("health") === "1") {
     return json(await searchHealth());
+  }
+  if (url.searchParams.get("eval") === "1") {
+    const result = await evaluateSearchQuality(user.id);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
   }
   if (url.searchParams.get("history") === "1") {
     const history = await getSearchHistory(user.id);
@@ -41,6 +50,12 @@ export async function GET(request: Request) {
   const sort = (SEARCH_SORTS as readonly string[]).includes(sortRaw) ? (sortRaw as SearchSort) : "relevance";
   const feedRaw = url.searchParams.get("feed") ?? "";
   const feed = (SEARCH_FEEDS as readonly string[]).includes(feedRaw) ? (feedRaw as SearchFeed) : undefined;
+  const rankingRaw = url.searchParams.get("ranking") ?? "";
+  const ranking = (SEARCH_RANKINGS as readonly string[]).includes(rankingRaw) ? (rankingRaw as SearchRanking) : undefined;
+  const hasRaw = url.searchParams.get("has") ?? "";
+  const hasOk = (
+    ["link", "file", "media", "image", "video", "audio", "mention", "hashtag", "document"] as const
+  ).includes(hasRaw as SearchHasFilter);
   const result = await globalSearch(user.id, {
     q: url.searchParams.get("q") ?? "",
     kind,
@@ -49,11 +64,7 @@ export async function GET(request: Request) {
     toDate: url.searchParams.get("toDate") ? Number(url.searchParams.get("toDate")) : undefined,
     minSize: url.searchParams.get("minSize") ? Number(url.searchParams.get("minSize")) : undefined,
     maxSize: url.searchParams.get("maxSize") ? Number(url.searchParams.get("maxSize")) : undefined,
-    has: (["link", "file", "media", "image", "video", "audio"] as const).includes(
-      (url.searchParams.get("has") ?? "") as SearchHasFilter,
-    )
-      ? (url.searchParams.get("has") as SearchHasFilter)
-      : undefined,
+    has: hasOk ? (hasRaw as SearchHasFilter) : undefined,
     offset: url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0,
     limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
     minPrice: url.searchParams.get("minPrice") ? Number(url.searchParams.get("minPrice")) : undefined,
@@ -64,6 +75,8 @@ export async function GET(request: Request) {
     channelId: url.searchParams.get("channelId") ?? undefined,
     fileType: url.searchParams.get("fileType") ?? undefined,
     exact: url.searchParams.get("exact") === "1",
+    semantic: url.searchParams.get("semantic") === "1",
+    ranking,
     sort,
     feed,
     cursor: url.searchParams.get("cursor") ?? undefined,
@@ -76,9 +89,30 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await requireActiveUser();
   if (!user) return jsonError("نشست فعال نیست.", 401);
-  const body = (await request.json().catch(() => null)) as { action?: string; id?: string } | null;
+  const body = (await request.json().catch(() => null)) as {
+    action?: string;
+    id?: string;
+    scope?: string;
+    personalize?: boolean;
+    reason?: string;
+  } | null;
   if (body?.action === "rebuild") {
     const result = await rebuildSearchIndex(user.id);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (body?.action === "reindex_scope") {
+    const result = await reindexSearchScope(user.id, String(body.scope ?? body.id ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (body?.action === "tombstone") {
+    const result = await tombstoneSearchDoc(user.id, String(body.id ?? ""), String(body.reason ?? "ops"));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (body?.action === "personalize") {
+    const result = await setSearchPersonalize(user.id, body.personalize !== false);
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
   }

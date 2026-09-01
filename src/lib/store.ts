@@ -60,7 +60,7 @@ import type {
   WalletRecord,
 } from "@/lib/shop-types";
 import type { NotifyAudit, NotifyDeadLetter, NotifyPrefs, NotifyRecord, PushJob, PushToken } from "@/lib/notify-types";
-import type { SearchDoc, SearchIndexJob, SearchMetrics, SearchQueryCache } from "@/lib/search-types";
+import type { SearchDoc, SearchIndexJob, SearchMetrics, SearchQueryCache, SearchTombstone } from "@/lib/search-types";
 import type { SecurityMetrics } from "@/lib/security-core";
 import { emptySecurityMetrics } from "@/lib/security-core";
 import { emptyAdminMetrics } from "@/lib/admin-types";
@@ -2134,11 +2134,12 @@ export type StoreData = {
   lives: LiveStream[];
   liveRecordings: LiveRecordingMeta[];
   livePrefs: LivePrefs[];
-  searchIndex: { gen: number; rebuiltAt: number | null };
+  searchIndex: { gen: number; rebuiltAt: number | null; version?: number };
   searchDocs: SearchDoc[];
   searchIndexJobs: SearchIndexJob[];
   searchQueryCache: SearchQueryCache[];
   searchMetrics: SearchMetrics;
+  searchTombstones: SearchTombstone[];
   /** Public hashtag counts only. Never stores private queries, phones, or emails. */
   searchPopular: Record<string, number>;
   securityMetrics: SecurityMetrics;
@@ -2303,11 +2304,12 @@ const EMPTY: StoreData = {
   lives: [],
   liveRecordings: [],
   livePrefs: [],
-  searchIndex: { gen: 0, rebuiltAt: null },
+  searchIndex: { gen: 0, rebuiltAt: null, version: 3 },
   searchDocs: [],
   searchIndexJobs: [],
   searchQueryCache: [],
-  searchMetrics: { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0 },
+  searchMetrics: { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0, latencySamples: [] },
+  searchTombstones: [],
   searchPopular: {},
   securityMetrics: emptySecurityMetrics(),
   staffMembers: [],
@@ -2575,11 +2577,13 @@ async function readStore(): Promise<StoreData> {
       searchIndex: {
         gen: typeof parsed.searchIndex?.gen === "number" ? parsed.searchIndex.gen : 0,
         rebuiltAt: typeof parsed.searchIndex?.rebuiltAt === "number" ? parsed.searchIndex.rebuiltAt : null,
+        version: typeof parsed.searchIndex?.version === "number" ? parsed.searchIndex.version : 0,
       },
       searchDocs: Array.isArray(parsed.searchDocs) ? parsed.searchDocs : [],
       searchIndexJobs: Array.isArray(parsed.searchIndexJobs) ? parsed.searchIndexJobs : [],
       searchQueryCache: Array.isArray(parsed.searchQueryCache) ? parsed.searchQueryCache : [],
-      searchMetrics: parsed.searchMetrics ?? { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0 },
+      searchMetrics: parsed.searchMetrics ?? { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0, latencySamples: [] },
+      searchTombstones: Array.isArray(parsed.searchTombstones) ? parsed.searchTombstones : [],
       searchPopular: parsed.searchPopular && typeof parsed.searchPopular === "object" ? parsed.searchPopular : {},
       securityMetrics: parsed.securityMetrics ?? emptySecurityMetrics(),
       staffMembers: Array.isArray(parsed.staffMembers) ? parsed.staffMembers : [],
@@ -2641,7 +2645,11 @@ export function resetStoreForTests(): Promise<void> {
 }
 
 export function bumpDiscoveryCaches(data: StoreData) {
-  data.searchIndex = { gen: (data.searchIndex?.gen ?? 0) + 1, rebuiltAt: Date.now() };
+  data.searchIndex = {
+    gen: (data.searchIndex?.gen ?? 0) + 1,
+    rebuiltAt: Date.now(),
+    version: data.searchIndex?.version ?? 3,
+  };
   data.searchQueryCache = [];
 }
 
@@ -2727,6 +2735,20 @@ function prune(data: StoreData, now: number): void {
   data.prod = hydrateProdPersist(data.prod);
   data.cloud = hydrateCloudPersist(data.cloud);
   data.edge = hydrateEdgePersist(data.edge);
+  data.searchTombstones = (data.searchTombstones ?? [])
+    .filter((t) => now - t.at < 180 * 24 * 60 * 60 * 1000)
+    .slice(0, 2000);
+  data.searchMetrics = {
+    queries: data.searchMetrics?.queries ?? 0,
+    errors: data.searchMetrics?.errors ?? 0,
+    cacheHits: data.searchMetrics?.cacheHits ?? 0,
+    lastLatencyMs: data.searchMetrics?.lastLatencyMs ?? 0,
+    lastError: data.searchMetrics?.lastError,
+    emptyResults: data.searchMetrics?.emptyResults ?? 0,
+    opens: data.searchMetrics?.opens ?? 0,
+    resultHits: data.searchMetrics?.resultHits ?? 0,
+    latencySamples: (data.searchMetrics?.latencySamples ?? []).slice(-200),
+  };
   data.aiSys = pruneAiPersist(hydrateAiPersist(data.aiSys), now);
   data.aiLogs = (data.aiLogs ?? []).filter((l) => now - l.at < (data.aiSys.policy.retentionDays || 90) * 24 * 60 * 60 * 1000).slice(0, 800);
   syncBillingLifecycle(data, now);
@@ -2920,7 +2942,15 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   }));
   data.searchDocs = (data.searchDocs ?? []).filter((d) => d.entityId !== uid && d.parentId !== uid);
   data.searchQueryCache = [];
-  data.searchIndex = { gen: (data.searchIndex?.gen ?? 0) + 1, rebuiltAt: now };
+  data.searchTombstones = [
+    { id: randomId(), docId: `user:${uid}`, reason: "account-delete", at: now },
+    ...(data.searchTombstones ?? []).filter((t) => t.docId !== `user:${uid}`),
+  ].slice(0, 2000);
+  data.searchIndex = {
+    gen: (data.searchIndex?.gen ?? 0) + 1,
+    rebuiltAt: now,
+    version: data.searchIndex?.version ?? 3,
+  };
   data.consentEvents = (data.consentEvents ?? []).filter((e) => e.userId !== uid);
   data.privacyExports = (data.privacyExports ?? []).filter((e) => e.ownerUserId !== uid);
   data.ledger = (data.ledger ?? []).filter((t) => t.userId !== uid);

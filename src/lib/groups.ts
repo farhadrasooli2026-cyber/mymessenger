@@ -10,7 +10,7 @@ import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf, can
 import { validateVoiceDuration, VOICE_SEND_PER_MIN } from "@/lib/voice";
 import { declaredExtAllowed, scanNamedFile, stripJpegExif } from "@/lib/files";
 import { emitNotification } from "@/lib/notify";
-import { enqueueSearchIndexSync } from "@/lib/search";
+import { enqueueSearchIndexSync, enqueueSearchTombstone } from "@/lib/search";
 import { claimSpaceHandle } from "@/lib/space-handles";
 import { decodeDataUrl, validateAvatarBuffer } from "@/lib/photo-files";
 import { collate } from "@/lib/i18n/collate";
@@ -1142,6 +1142,7 @@ export async function deleteGroup(userId: string, groupId: string, extra?: { con
     }
     group.deletedAt = Date.now();
     data.groupMessages = data.groupMessages.filter((m) => m.groupId !== groupId);
+    enqueueSearchTombstone(data, `group:${group.id}`, "group-delete");
     enqueueSearchIndexSync(data, "group-delete");
     pushAudit(group, me, "delete", "Group deleted");
     return { ok: true as const };

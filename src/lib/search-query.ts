@@ -5,6 +5,7 @@ export const SEARCH_QUERY_MAX = 200;
 export const SEARCH_HIT_CAP = 400;
 export const SEARCH_BUDGET_MS = 120;
 export const SEARCH_OP_MAX = 8;
+export const SEARCH_BOOL_MAX = 4;
 
 const ABUSE =
   /(\.\*){2,}|(\+\+)|(\*\*)|(\{\s*\d{3,}\s*,)|(\(\?[!<=:])|(\(\?P<)|(\\\d\{)|(\[\\w-\\W\]\+)|(\([^)]*[+*]\)[+*])|((a+){2,}\+)/i;
@@ -65,14 +66,32 @@ export function validateSearchQuery(raw: string): { ok: true; q: string } | { ok
   if (typeof raw !== "string") return { ok: false, error: "جستجو نامعتبر است." };
   if (raw.length > SEARCH_QUERY_MAX) return { ok: false, error: "جستجو خیلی طولانی است." };
   const ops = raw.match(/\b(?:from|in|after|before|has|minsize|maxsize|type):/gi) ?? [];
-  if (ops.length > SEARCH_OP_MAX) return { ok: false, error: "جستجو خیلی پیچیده است." };
+  const boolOps = raw.match(/\b(?:AND|OR|NOT)\b/g) ?? [];
+  if (ops.length > SEARCH_OP_MAX || boolOps.length > SEARCH_BOOL_MAX) {
+    return { ok: false, error: "جستجو خیلی پیچیده است." };
+  }
   if (ABUSE.test(raw) || INJECTION.test(raw) || /\/.+\/[gimsuy]*/.test(raw.trim())) {
     return { ok: false, error: "الگوی جستجو مجاز نیست." };
   }
   return { ok: true, q: normalizeSearchQuery(raw) };
 }
 
-export type SearchHasFilter = "link" | "file" | "media" | "image" | "video" | "audio";
+export type SearchHasFilter =
+  | "link"
+  | "file"
+  | "media"
+  | "image"
+  | "video"
+  | "audio"
+  | "mention"
+  | "hashtag"
+  | "document";
+
+export type SearchBool = {
+  must: string[];
+  should: string[][];
+  not: string[];
+};
 
 export type ParsedSearchQuery = {
   needle: string;
@@ -89,6 +108,7 @@ export type ParsedSearchQuery = {
   maxSize?: number;
   typeHint?: string;
   tokens: string[];
+  bool?: SearchBool;
 };
 
 export function needleOf(q: string) {
@@ -181,7 +201,19 @@ export function parseSearchQuery(raw: string): ParsedSearchQuery {
     else if (k === "before") ops.before = parseSearchDate(v);
     else if (k === "has") {
       const h = v.toLowerCase();
-      if (h === "link" || h === "file" || h === "media" || h === "image" || h === "video" || h === "audio") ops.has = h;
+      if (
+        h === "link" ||
+        h === "file" ||
+        h === "media" ||
+        h === "image" ||
+        h === "video" ||
+        h === "audio" ||
+        h === "mention" ||
+        h === "hashtag" ||
+        h === "document"
+      ) {
+        ops.has = h;
+      }
     } else if (k === "minsize") ops.minSize = parseSize(v);
     else if (k === "maxsize") ops.maxSize = parseSize(v);
     else if (k === "type") ops.typeHint = v.replace(/^\./, "").toLowerCase();
@@ -189,6 +221,7 @@ export function parseSearchQuery(raw: string): ParsedSearchQuery {
   });
   const needle = needleOf(exact || rest || cleaned);
   const tokens = withoutStopWords(tokenizeSearch(needle));
+  const bool = parseBooleanClauses(rest);
   return {
     needle,
     exact,
@@ -204,7 +237,35 @@ export function parseSearchQuery(raw: string): ParsedSearchQuery {
     maxSize: ops.maxSize,
     typeHint: ops.typeHint,
     tokens,
+    bool,
   };
+}
+
+export function parseBooleanClauses(raw: string): SearchBool | undefined {
+  if (!/\b(?:AND|OR|NOT)\b/i.test(raw)) return undefined;
+  const orParts = raw.split(/\bOR\b/i);
+  const should: string[][] = [];
+  const not: string[] = [];
+  for (const part of orParts) {
+    const bits = part.trim().split(/\s+/).filter(Boolean);
+    const must: string[] = [];
+    for (let i = 0; i < bits.length; i += 1) {
+      const bit = bits[i]!;
+      if (/^AND$/i.test(bit)) continue;
+      if (/^NOT$/i.test(bit)) {
+        const n = bits[i + 1];
+        if (n && !/^(AND|OR|NOT)$/i.test(n)) {
+          not.push(n.replace(/^[#@]+/, ""));
+          i += 1;
+        }
+        continue;
+      }
+      must.push(bit.replace(/^[#@]+/, "").replace(/[.,!?;:]+$/g, ""));
+    }
+    if (must.length) should.push(must);
+  }
+  if (!should.length && !not.length) return undefined;
+  return { must: [], should, not };
 }
 
 function parseSearchDate(raw: string) {
@@ -229,5 +290,23 @@ function parseSize(raw: string) {
 export const SEARCH_SORTS = ["relevance", "newest", "oldest", "popular"] as const;
 export type SearchSort = (typeof SEARCH_SORTS)[number];
 
+export const SEARCH_RANKINGS = ["relevance", "freshness", "popularity"] as const;
+export type SearchRanking = (typeof SEARCH_RANKINGS)[number];
+
 export const SEARCH_FEEDS = ["discovery", "trending"] as const;
 export type SearchFeed = (typeof SEARCH_FEEDS)[number];
+
+export const SEARCH_OPERATORS = [
+  "from:@user",
+  "in:id-or-username",
+  "after:YYYY-MM-DD",
+  "before:YYYY-MM-DD",
+  "has:link|file|media|image|video|audio|mention|hashtag|document",
+  "minsize:10kb",
+  "maxsize:5mb",
+  "type:pdf",
+  "AND / OR / NOT",
+  '"exact phrase"',
+  "#hashtag",
+  "@mention",
+] as const;

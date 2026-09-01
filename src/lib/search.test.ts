@@ -468,4 +468,63 @@ describe("NIXO search and saved messages", () => {
       await editStory(friend, priv.story.id, { visibility: "everyone", caption: "اکنون عمومی شد نکسو" });
     }
   });
+
+  it("applies boolean AND/OR/NOT, mention filter, tombstones, and hybrid without leaking private posts", async () => {
+    const owner = await activeUser("sr_boolown");
+    const fan = await activeUser("sr_boolfan");
+    const stranger = await activeUser("sr_boolstr");
+    const pub = await createChannel(owner, { name: "کانال بولی نکسو", username: "nixo_bool_pub", visibility: "public" });
+    const priv = await createChannel(owner, { name: "کانال بولی خصوصی", visibility: "private" });
+    expect(pub.ok && priv.ok).toBe(true);
+    if (!pub.ok || !priv.ok) return;
+    await createPost(owner, pub.channel.id, { body: "سلام کانال نیکسو @sr_boolfan گزارش", kind: "text" });
+    await createPost(owner, pub.channel.id, { body: "فقط هواشناسی بدون گزارش", kind: "text" });
+    await createPost(owner, priv.channel.id, { body: "سلام کانال نیکسو محرمانه", kind: "text" });
+    const andQ = await globalSearch(fan, { q: "سلام AND گزارش", kind: "messages" });
+    expect(andQ.ok && andQ.hits.some((h) => h.preview.includes("گزارش"))).toBe(true);
+    expect(andQ.ok && andQ.hits.every((h) => !h.preview.includes("هواشناسی"))).toBe(true);
+    const orQ = await globalSearch(fan, { q: "هواشناسی OR گزارش", kind: "messages" });
+    expect(orQ.ok && orQ.hits.length >= 2).toBe(true);
+    const notQ = await globalSearch(fan, { q: "نیکسو NOT هواشناسی", kind: "messages" });
+    expect(notQ.ok && notQ.hits.every((h) => !h.preview.includes("هواشناسی"))).toBe(true);
+    expect(andQ.ok && andQ.hits.every((h) => h.target.id !== priv.channel.id)).toBe(true);
+    const mention = await globalSearch(fan, { q: "has:mention نیکسو", kind: "messages" });
+    expect(mention.ok && mention.hits.some((h) => h.preview.includes("@sr_boolfan"))).toBe(true);
+    const hybrid = await globalSearch(stranger, { q: "سلام کانال", kind: "messages", semantic: true });
+    expect(hybrid.ok && hybrid.hits.every((h) => h.target.id !== priv.channel.id)).toBe(true);
+    const tooComplex = await globalSearch(fan, { q: "a AND b AND c AND d AND e AND f" });
+    expect(tooComplex.ok).toBe(false);
+    const ops = await activeUser("nixo_ops");
+    await rebuildSearchIndex(ops);
+    const { tombstoneSearchDoc, searchHealth, evaluateSearchQuality } = await import("./search");
+    const stone = await tombstoneSearchDoc(ops, `channel:${pub.channel.id}`, "test");
+    expect(stone.ok).toBe(true);
+    await mutateStore((data) => {
+      expect(data.searchDocs.every((d) => d.entityId !== pub.channel.id || d.kind !== "channel")).toBe(true);
+    });
+    const afterStone = await globalSearch(stranger, { q: "بولی نکسو", kind: "channels" });
+    expect(afterStone.ok && afterStone.hits.every((h) => h.target.id !== pub.channel.id)).toBe(true);
+    const rebuilt = await rebuildSearchIndex(ops);
+    expect(rebuilt.ok).toBe(true);
+    const stillGone = await globalSearch(stranger, { q: "بولی نکسو", kind: "channels" });
+    expect(stillGone.ok && stillGone.hits.every((h) => h.target.id !== pub.channel.id)).toBe(true);
+    const ev = await evaluateSearchQuality(ops);
+    expect(ev.ok && ev.leaked === 0).toBe(true);
+    const deniedEval = await evaluateSearchQuality(stranger);
+    expect(deniedEval.ok).toBe(false);
+    const health = await searchHealth();
+    expect(health.p95).toBeGreaterThanOrEqual(0);
+    expect(health.p99).toBeGreaterThanOrEqual(0);
+    expect(health.tombstones).toBeGreaterThan(0);
+    expect(health.indexVersion).toBeGreaterThan(0);
+    const { booleanMatches } = await import("./search-match");
+    expect(booleanMatches("سلام گزارش نیکسو", { must: [], should: [["سلام", "گزارش"]], not: [] })).toBe(true);
+    expect(booleanMatches("سلام گزارش نیکسو", { must: [], should: [["سلام"]], not: ["گزارش"] })).toBe(false);
+    await mutateStore((data) => {
+      const aCache = (data.searchQueryCache ?? []).filter((c) => c.userId === fan);
+      const bCache = (data.searchQueryCache ?? []).filter((c) => c.userId === stranger);
+      expect(aCache.every((c) => c.userId === fan)).toBe(true);
+      expect(bCache.every((c) => c.userId === stranger)).toBe(true);
+    });
+  });
 });

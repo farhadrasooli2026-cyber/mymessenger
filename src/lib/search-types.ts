@@ -4,6 +4,8 @@ export const SEARCH_FLOOD_MAX = 40;
 export const SEARCH_HISTORY_MAX = 20;
 export const SEARCH_INDEX_RETRY_MAX = 5;
 export const SEARCH_CACHE_TTL_MS = 15_000;
+/** Bump on schema change; jobs migrate by rebuilding from source. */
+export const SEARCH_INDEX_VERSION = 3;
 
 export const SEARCH_KINDS = [
   "all",
@@ -128,12 +130,20 @@ export type SearchDoc = {
 export type SearchIndexJob = {
   id: string;
   idempotencyKey: string;
-  kind: "sync" | "delete";
+  kind: "sync" | "delete" | "tombstone" | "reindex_scope";
   status: "queued" | "running" | "done" | "failed";
   attempts: number;
   nextAt?: number;
   lastError?: string;
   createdAt: number;
+  scope?: string;
+};
+
+export type SearchTombstone = {
+  id: string;
+  docId: string;
+  reason: string;
+  at: number;
 };
 
 export type SearchQueryCache = {
@@ -153,4 +163,5 @@ export type SearchMetrics = {
   emptyResults?: number;
   opens?: number;
   resultHits?: number;
+  latencySamples?: number[];
 };

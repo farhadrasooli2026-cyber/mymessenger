@@ -13,6 +13,7 @@
 - لایهٔ هوش مصنوعی (`/api/ai`, `/api/ai/ops`): Provider محلی، حریم، Kill بدون قطع پیام
 - ابر و Auto Scaling (`/api/cloud`, زبانهٔ ابر): min/max، Drain، Failover منطقه
 - CDN و Edge (`/api/edge`, زبانهٔ لبه): کش عمومی نسخه‌دار، Purge مجاز، RUM بدون نشت خصوصی
+- جستجوی پیشرفته (`/api/search`): Boolean، Tombstone، Hybrid مجاز، P95/P99، Discovery عمومی
 - Dependency اصلی: Next 16.3، React 19، Zod 4، Vitest 4، Tailwind 4
 
 ### API
