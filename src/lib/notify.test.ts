@@ -169,4 +169,114 @@ describe("NIXO notifications", () => {
     const live = list.items.filter((i) => !i.suppressed);
     expect(live.length).toBeLessThan(20);
   });
+
+  it("isolates channel and group destinations and authorizes deep links", async () => {
+    const owner = await activeUser("nt_iso_o");
+    const stranger = await activeUser("nt_iso_s");
+    const ch = await createChannel(owner, { name: "خصوصی اعلان", visibility: "private" });
+    expect(ch.ok).toBe(true);
+    if (!ch.ok) return;
+    await mutateStore((data) => {
+      const leaked = emitNotification(data, {
+        userId: stranger,
+        category: "channels",
+        kind: "channel_post",
+        title: "نباید ببینی",
+        body: "secret-post",
+        sourceId: `channel:${ch.channel.id}`,
+        target: { type: "channel", id: ch.channel.id },
+      });
+      expect(leaked).toBeNull();
+    });
+    const stolen = await listNotifications(stranger, "channels");
+    expect(stolen.items.some((i) => i.target.id === ch.channel.id)).toBe(false);
+    let ownerId = "";
+    await mutateStore((data) => {
+      const rec = emitNotification(data, {
+        userId: owner,
+        category: "messages",
+        kind: "message",
+        title: "مالک",
+        body: "hi",
+        sourceId: "chat:self",
+        target: { type: "chat", id: "synthetic" },
+      });
+      ownerId = rec?.id ?? "";
+    });
+    const { openNotification } = await import("./notify");
+    const blocked = await openNotification(stranger, ownerId);
+    expect(blocked.ok).toBe(false);
+    const mine = await openNotification(owner, ownerId);
+    expect(mine.ok).toBe(true);
+  });
+
+  it("delivers incoming calls during quiet hours, hides XSS, and queues push without leaking tokens", async () => {
+    const user = await activeUser("nt_push");
+    await updateNotifyPrefs(user, { dnd: true, dndStart: "00:00", dndEnd: "23:59", reactions: false });
+    await mutateStore((data) => {
+      emitNotification(data, {
+        userId: user,
+        category: "calls",
+        kind: "incoming_voice",
+        title: "Incoming Voice Call",
+        sourceId: "call:in",
+        target: { type: "call", id: "c-in" },
+      });
+      emitNotification(data, {
+        userId: user,
+        category: "groups",
+        kind: "reaction",
+        title: "گروه",
+        sourceId: "g:r",
+        target: { type: "group", id: "g1" },
+      });
+      emitNotification(data, {
+        userId: user,
+        category: "messages",
+        kind: "message",
+        title: "<script>alert(1)</script>Ali",
+        body: "<img onerror=alert(1)>hi",
+        sourceId: "chat:x",
+        target: { type: "chat", id: "tx" },
+      });
+    });
+    const calls = await listNotifications(user, "calls");
+    expect(calls.items.find((i) => i.kind === "incoming_voice")?.suppressed).toBe(false);
+    expect(calls.items.find((i) => i.kind === "incoming_voice")?.priority).toBe("high");
+    const groups = await listNotifications(user, "groups");
+    expect(groups.items.some((i) => i.kind === "reaction")).toBe(false);
+    const msgs = await listNotifications(user, "messages");
+    expect(msgs.items[0]?.title.toLowerCase()).not.toContain("<script");
+    const { createDeviceSessionForUser } = await import("./security");
+    const { registerPushToken, getNotifySnapshot } = await import("./notify");
+    const { device } = await createDeviceSessionForUser({
+      userId: user,
+      ip: "127.0.0.1",
+      userAgent: "NixoTest/1.0",
+      approx: "test",
+    });
+    const token = await registerPushToken(user, device.id, {
+      endpoint: "https://push.example/secret-endpoint-value-xyz",
+      permission: "granted",
+    });
+    expect(token.ok).toBe(true);
+    const snap = await getNotifySnapshot(user);
+    expect(JSON.stringify(snap)).not.toContain("secret-endpoint-value");
+    await updateNotifyPrefs(user, { dnd: false });
+    await mutateStore((data) => {
+      emitNotification(data, {
+        userId: user,
+        category: "system",
+        kind: "system",
+        title: "سیستم",
+        body: "ok",
+        sourceId: "sys:1",
+        target: { type: "system", id: "s1" },
+      });
+    });
+    const after = await listNotifications(user, "system");
+    expect(after.items[0]?.pushState === "delivered" || after.items[0]?.state === "delivered").toBe(true);
+    const page = await listNotifications(user, "all", 0, 2);
+    expect(page.nextCursor === null || typeof page.nextCursor === "string").toBe(true);
+  });
 });

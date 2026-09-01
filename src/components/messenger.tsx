@@ -1198,7 +1198,41 @@ export function Messenger({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <NotifyBell onOpen={(href) => router.push(href)} />
+            <NotifyBell
+              onOpen={(href, target) => {
+                if (target?.type === "chat") {
+                  setActiveId(target.id);
+                  setActiveGroupId(null);
+                  setActiveCommunityId(null);
+                  setActiveChannelId(null);
+                  setMobileChat(true);
+                  setTab("chats");
+                  return;
+                }
+                if (target?.type === "group") {
+                  setActiveId(null);
+                  setActiveGroupId(target.id);
+                  setActiveCommunityId(null);
+                  setActiveChannelId(null);
+                  setMobileChat(true);
+                  setTab("chats");
+                  return;
+                }
+                if (target?.type === "channel") {
+                  setActiveId(null);
+                  setActiveGroupId(null);
+                  setActiveChannelId(target.id);
+                  setMobileChat(true);
+                  setTab("chats");
+                  return;
+                }
+                if (target?.type === "call") {
+                  setTab("calls");
+                  return;
+                }
+                router.push(href);
+              }}
+            />
             <button
             type="button"
             onClick={openStory}

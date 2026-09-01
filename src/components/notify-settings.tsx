@@ -59,6 +59,21 @@ export function NotifySettings() {
         </p>
 
         <section className="space-y-2 rounded-2xl bg-white/5 p-4 text-sm">
+          <h2 className="font-medium">عمومی</h2>
+          <label className="flex items-center justify-between text-xs">
+            همهٔ اعلان‌ها (به‌جز امنیت)
+            <input type="checkbox" checked={prefs.globalEnabled !== false} onChange={(e) => void patch({ globalEnabled: e.target.checked })} />
+          </label>
+          <label className="flex items-center justify-between text-xs">
+            زبان اعلان
+            <select className="rounded bg-black/30 px-2 py-1" value={prefs.locale ?? "fa"} onChange={(e) => void patch({ locale: e.target.value as "fa" | "en" })}>
+              <option value="fa">فارسی</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+        </section>
+
+        <section className="space-y-2 rounded-2xl bg-white/5 p-4 text-sm">
           <h2 className="font-medium">Show Message Preview</h2>
           <div className="flex gap-2">
             <Button type="button" size="sm" variant={prefs.showMessagePreview ? "default" : "secondary"} onClick={() => void patch({ showMessagePreview: true })}>
@@ -119,6 +134,10 @@ export function NotifySettings() {
             <input type="checkbox" checked={prefs.replies} onChange={(e) => void patch({ replies: e.target.checked })} />
           </label>
           <label className="flex items-center justify-between text-xs">
+            Reaction
+            <input type="checkbox" checked={prefs.reactions !== false} onChange={(e) => void patch({ reactions: e.target.checked })} />
+          </label>
+          <label className="flex items-center justify-between text-xs">
             Group Admin Action
             <input type="checkbox" checked={prefs.groupAdmin} onChange={(e) => void patch({ groupAdmin: e.target.checked })} />
           </label>
@@ -158,6 +177,10 @@ export function NotifySettings() {
           <label className="flex items-center justify-between text-xs">
             DND
             <input type="checkbox" checked={prefs.dnd} onChange={(e) => void patch({ dnd: e.target.checked })} />
+          </label>
+          <label className="flex items-center justify-between text-xs">
+            تماس ورودی در Quiet Hours
+            <input type="checkbox" checked={prefs.dndAllowCalls !== false} onChange={(e) => void patch({ dndAllowCalls: e.target.checked })} />
           </label>
           <div className="flex gap-2 text-xs">
             <label className="flex-1">
@@ -199,6 +222,8 @@ export function NotifySettings() {
           </div>
         </section>
 
+        <PushDevices />
+
         <p className="text-xs">
           <Link href="/app" className="text-amber-200">
             Notification Center در نوار گفتگو
@@ -210,5 +235,48 @@ export function NotifySettings() {
         </p>
       </div>
     </main>
+  );
+}
+
+function PushDevices() {
+  const [tokens, setTokens] = useState<{ id: string; platform: string; permission: string; endpointTail: string; invalid: boolean }[]>([]);
+
+  function load() {
+    fetch("/api/notify/push", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setTokens(d.tokens ?? []))
+      .catch(() => undefined);
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  return (
+    <section className="space-y-2 rounded-2xl bg-white/5 p-4 text-sm">
+      <h2 className="font-medium">دستگاه‌های Push</h2>
+      <p className="text-[11px] text-emerald-100/55">توکن کامل نمایش داده نمی‌شود. لغو دستگاه، Push را قطع می‌کند نه نشست ورود را.</p>
+      {tokens.length === 0 ? <p className="text-xs opacity-60">دستگاهی ثبت نشده. از زنگوله «اجازهٔ مرورگر» را بزن.</p> : null}
+      {tokens.map((t) => (
+        <div key={t.id} className="flex items-center justify-between text-xs">
+          <span>
+            {t.platform} · …{t.endpointTail} · {t.permission}
+            {t.invalid ? " · نامعتبر" : ""}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="text-rose-200"
+            onClick={async () => {
+              await fetch(`/api/notify/push?id=${t.id}`, { method: "DELETE" });
+              load();
+            }}
+          >
+            لغو
+          </Button>
+        </div>
+      ))}
+    </section>
   );
 }

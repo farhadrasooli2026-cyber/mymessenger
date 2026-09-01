@@ -2,6 +2,7 @@ import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
 import {
   deleteNotify,
+  dismissNotify,
   getNotifySnapshot,
   listNotifications,
   markNotify,
@@ -25,6 +26,13 @@ export async function GET(request: Request) {
     category,
     url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0,
     url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : 40,
+    {
+      cursor: url.searchParams.get("cursor") ?? undefined,
+      q: url.searchParams.get("q") ?? undefined,
+      kind: url.searchParams.get("kind") ?? undefined,
+      from: url.searchParams.get("from") ? Number(url.searchParams.get("from")) : undefined,
+      to: url.searchParams.get("to") ? Number(url.searchParams.get("to")) : undefined,
+    },
   );
   return json(result);
 }
@@ -48,6 +56,10 @@ export async function POST(request: Request) {
   }
   if (action === "unread") {
     return json(await markNotify(user.id, [String(body.id)], false));
+  }
+  if (action === "dismiss") {
+    const ids = body.all ? "all" : Array.isArray(body.ids) ? body.ids.map(String) : [String(body.id ?? "")];
+    return json(await dismissNotify(user.id, ids === "all" ? "all" : ids.filter(Boolean)));
   }
   if (action === "mute") {
     const forever = body.forever === true || body.ms === null;

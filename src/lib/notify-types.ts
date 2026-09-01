@@ -31,6 +31,10 @@ export const NOTIFY_FLOOD_WINDOW_MS = 60_000;
 export const NOTIFY_FLOOD_PER_SOURCE = 12;
 export const NOTIFY_FLOOD_PER_USER = 80;
 export const NOTIFY_KEEP = 300;
+export const NOTIFY_PAGE = 40;
+export const PUSH_RETRY_MAX = 5;
+export const PUSH_KEEP_MS = 7 * 24 * 60 * 60_000;
+export const NOTIFY_TTL_MS = 90 * 24 * 60 * 60_000;
 
 export type NotifyLockScreen = "full" | "sender" | "hidden";
 
@@ -71,7 +75,11 @@ export type NotifyPrefs = {
   };
   mentions: boolean;
   replies: boolean;
+  reactions: boolean;
   groupAdmin: boolean;
+  globalEnabled: boolean;
+  dndAllowCalls: boolean;
+  locale: "fa" | "en";
   dnd: boolean;
   dndStart: string;
   dndEnd: string;
@@ -105,7 +113,11 @@ export function defaultNotifyPrefs(userId: string): NotifyPrefs {
     },
     mentions: true,
     replies: true,
+    reactions: true,
     groupAdmin: true,
+    globalEnabled: true,
+    dndAllowCalls: true,
+    locale: "fa",
     dnd: false,
     dndStart: "23:00",
     dndEnd: "08:00",
@@ -122,6 +134,11 @@ export type NotifyTarget = {
   href?: string;
 };
 
+export type NotifyPriority = "low" | "normal" | "high";
+export type NotifyLifecycle = "pending" | "processing" | "sent" | "delivered" | "failed" | "read" | "dismissed";
+export type PushJobStatus = "queued" | "running" | "sent" | "delivered" | "failed";
+export type PushPlatform = "web" | "mobile" | "desktop";
+
 export type NotifyRecord = {
   id: string;
   userId: string;
@@ -131,16 +148,86 @@ export type NotifyRecord = {
   body: string;
   senderName: string;
   photoUrl: string | null;
-  priority: "normal" | "high";
+  priority: NotifyPriority;
   e2ee: boolean;
   suppressed: boolean;
   reason?: string;
   readAt: number | null;
+  dismissedAt?: number | null;
   deletedAt: number | null;
   createdAt: number;
   sourceId: string;
   target: NotifyTarget;
-  pushState: "inapp" | "push_unsupported" | "suppressed" | "failed";
+  pushState: "inapp" | "push_unsupported" | "suppressed" | "failed" | "sent" | "delivered" | "pending";
+  state?: NotifyLifecycle;
+  groupKey?: string;
+  collapsedCount?: number;
+  locale?: string;
+};
+
+export type PushToken = {
+  id: string;
+  userId: string;
+  deviceSessionId: string;
+  platform: PushPlatform;
+  endpointHash: string;
+  endpointTail: string;
+  endpoint: string;
+  permission: "granted" | "denied" | "default";
+  createdAt: number;
+  rotatedAt: number;
+  revokedAt: number | null;
+  invalidAt: number | null;
+};
+
+export type PushJob = {
+  id: string;
+  userId: string;
+  notificationId: string;
+  tokenId: string;
+  idempotencyKey: string;
+  platform: PushPlatform;
+  priority: NotifyPriority;
+  status: PushJobStatus;
+  attempts: number;
+  nextAt?: number;
+  lastError?: string;
+  provider: string;
+  latencyMs?: number;
+  createdAt: number;
+};
+
+export type NotifyAudit = {
+  id: string;
+  userId: string;
+  action: string;
+  detail: string;
+  at: number;
+};
+
+export const NOTIFY_TEMPLATES: Record<"fa" | "en", Record<string, string>> = {
+  fa: {
+    message: "پیام جدید",
+    mention: "منشن شدید",
+    reply: "پاسخ جدید",
+    reaction: "واکنش جدید",
+    incoming_voice: "تماس صوتی ورودی",
+    incoming_video: "تماس تصویری ورودی",
+    missed: "تماس از دست‌رفته",
+    channel_post: "پست جدید کانال",
+    default: "اعلان نیکسو",
+  },
+  en: {
+    message: "New message",
+    mention: "You were mentioned",
+    reply: "New reply",
+    reaction: "New reaction",
+    incoming_voice: "Incoming voice call",
+    incoming_video: "Incoming video call",
+    missed: "Missed call",
+    channel_post: "New channel post",
+    default: "NIXO notification",
+  },
 };
 
 export const CATEGORY_FA: Record<NotifyCategory, string> = {

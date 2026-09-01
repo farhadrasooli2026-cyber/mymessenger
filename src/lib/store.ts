@@ -58,7 +58,7 @@ import type {
   UserAddress,
   WalletRecord,
 } from "@/lib/shop-types";
-import type { NotifyPrefs, NotifyRecord } from "@/lib/notify-types";
+import type { NotifyAudit, NotifyPrefs, NotifyRecord, PushJob, PushToken } from "@/lib/notify-types";
 import { applyMigrations, hydrateSchemaMeta } from "@/lib/db/migrate";
 import { repairOrphans } from "@/lib/db/integrity";
 
@@ -1797,6 +1797,9 @@ export type StoreData = {
   shopAudit: ShopAudit[];
   notifications: NotifyRecord[];
   notifyPrefs: NotifyPrefs[];
+  pushTokens: PushToken[];
+  pushJobs: PushJob[];
+  notifyAudit: NotifyAudit[];
   groupCalls: GroupCallRoom[];
   callSignals: CallSignal[];
   callQuality: CallQualitySample[];
@@ -1907,6 +1910,9 @@ const EMPTY: StoreData = {
   shopAudit: [],
   notifications: [],
   notifyPrefs: [],
+  pushTokens: [],
+  pushJobs: [],
+  notifyAudit: [],
   groupCalls: [],
   callSignals: [],
   callQuality: [],
@@ -2074,6 +2080,9 @@ async function readStore(): Promise<StoreData> {
       shopAudit: Array.isArray(parsed.shopAudit) ? parsed.shopAudit : [],
       notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
       notifyPrefs: Array.isArray(parsed.notifyPrefs) ? parsed.notifyPrefs : [],
+      pushTokens: Array.isArray(parsed.pushTokens) ? parsed.pushTokens : [],
+      pushJobs: Array.isArray(parsed.pushJobs) ? parsed.pushJobs : [],
+      notifyAudit: Array.isArray(parsed.notifyAudit) ? parsed.notifyAudit : [],
       groupCalls: Array.isArray(parsed.groupCalls) ? parsed.groupCalls : [],
       callSignals: Array.isArray(parsed.callSignals) ? parsed.callSignals : [],
       callQuality: Array.isArray(parsed.callQuality) ? parsed.callQuality : [],
@@ -2283,6 +2292,9 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.wallets = (data.wallets ?? []).filter((w) => w.userId !== uid);
   data.notifications = (data.notifications ?? []).filter((n) => n.userId !== uid);
   data.notifyPrefs = (data.notifyPrefs ?? []).filter((p) => p.userId !== uid);
+  data.pushTokens = (data.pushTokens ?? []).filter((t) => t.userId !== uid);
+  data.pushJobs = (data.pushJobs ?? []).filter((j) => j.userId !== uid);
+  data.notifyAudit = (data.notifyAudit ?? []).filter((a) => a.userId !== uid);
   data.contacts = (data.contacts ?? []).filter((c) => c.ownerUserId !== uid);
   data.contactInvites = (data.contactInvites ?? []).filter((i) => i.ownerUserId !== uid);
   data.contactRequests = (data.contactRequests ?? []).filter((r) => r.fromUserId !== uid && r.toUserId !== uid);

@@ -20,20 +20,29 @@ type Item = {
   createdAt: number;
   target: { type: string; id: string; href?: string };
   pushState: string;
+  state?: string;
+  collapsedCount?: number;
 };
 
-export function NotifyBell({ onOpen }: { onOpen?: (href: string) => void }) {
+export function NotifyBell({ onOpen }: { onOpen?: (href: string, target?: { type: string; id: string }) => void }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
   const [counts, setCounts] = useState({ total: 0, messages: 0, mentions: 0, calls: 0, security: 0 });
   const [category, setCategory] = useState<NotifyCategory>("all");
   const [note, setNote] = useState("");
+  const [q, setQ] = useState("");
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [perm, setPerm] = useState("");
 
-  const load = useCallback(async () => {
-    const res = await fetch(`/api/notify?category=${category}`, { cache: "no-store" });
+  const load = useCallback(async (nextCursor?: string | null) => {
+    const params = new URLSearchParams({ category });
+    if (q.trim()) params.set("q", q.trim());
+    if (nextCursor) params.set("cursor", nextCursor);
+    const res = await fetch(`/api/notify?${params.toString()}`, { cache: "no-store" });
     const data = await res.json();
     if (!res.ok) return;
-    setItems(data.items ?? []);
+    setItems((prev) => (nextCursor ? [...prev, ...(data.items ?? [])] : (data.items ?? [])));
+    setCursor(data.nextCursor ?? null);
     setCounts(data.counts ?? { total: 0, messages: 0, mentions: 0, calls: 0, security: 0 });
     setNote(data.note ?? "");
     const n = data.counts?.total ?? 0;
@@ -49,7 +58,7 @@ export function NotifyBell({ onOpen }: { onOpen?: (href: string) => void }) {
     } catch {
       /* badge API optional */
     }
-  }, [category]);
+  }, [category, q]);
 
   useEffect(() => {
     const t0 = window.setTimeout(() => void load(), 0);
@@ -129,14 +138,38 @@ export function NotifyBell({ onOpen }: { onOpen?: (href: string) => void }) {
                 size="xs"
                 variant="secondary"
                 onClick={async () => {
-                  if (typeof Notification !== "undefined" && Notification.permission === "default") {
-                    await Notification.requestPermission();
+                  if (typeof Notification === "undefined") {
+                    setPerm("این مرورگر Push وب ندارد؛ اعلان داخل برنامه فعال است.");
+                    return;
                   }
+                  if (Notification.permission === "denied") {
+                    setPerm("اجازهٔ مرورگر رد شده. اعلان فقط داخل برنامه نمایش داده می‌شود.");
+                    return;
+                  }
+                  const next = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+                  setPerm(next === "granted" ? "اجازه داده شد." : next === "denied" ? "رد شد؛ فقط داخل برنامه." : "منتظر اجازه.");
+                  await fetch("/api/notify/push", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      endpoint: `web:${typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : String(Date.now())}`,
+                      platform: "web",
+                      permission: next,
+                    }),
+                  });
                 }}
               >
                 اجازهٔ مرورگر
               </Button>
             </div>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onBlur={() => void load()}
+              placeholder="جستجوی اعلان"
+              className="mt-2 h-8 w-full rounded-lg bg-black/30 px-2 text-xs"
+            />
+            {perm ? <p className="mt-1 text-[11px] text-amber-200/80">{perm}</p> : null}
             <div className="mt-2 min-h-0 flex-1 space-y-1 overflow-auto">
               {items.length === 0 ? <p className="py-8 text-center text-xs text-emerald-100/50">اعلانی نیست.</p> : null}
               {items.map((n) => (
@@ -145,25 +178,34 @@ export function NotifyBell({ onOpen }: { onOpen?: (href: string) => void }) {
                     type="button"
                     className="block w-full text-right"
                     onClick={() => {
-                      void act("read", { id: n.id });
-                      if (n.target.href) onOpen?.(n.target.href);
-                      setOpen(false);
+                      void (async () => {
+                        const res = await fetch(`/api/notify/open?id=${n.id}`, { cache: "no-store" });
+                        const data = await res.json().catch(() => null);
+                        if (!res.ok) return;
+                        onOpen?.(data.href, data.target);
+                        setOpen(false);
+                        await load();
+                      })();
                     }}
                   >
                     <p className="text-sm font-medium">
                       {n.priority === "high" ? "⚠ " : ""}
                       {n.title}
                       {n.e2ee ? " · E2EE" : ""}
+                      {(n.collapsedCount ?? 1) > 1 ? ` · ${n.collapsedCount}` : ""}
                     </p>
                     <p className="truncate text-xs text-emerald-100/70">{n.body || n.senderName}</p>
                     <p className="text-[10px] text-emerald-100/45">
                       {n.kind} · {new Date(n.createdAt).toLocaleString("fa-IR")}
-                      {n.suppressed ? " · بی‌صدا" : ""} · {n.pushState === "push_unsupported" ? "در برنامه" : n.pushState}
+                      {n.suppressed ? " · بی‌صدا" : ""} · {n.state ?? n.pushState}
                     </p>
                   </button>
                   <div className="mt-1 flex gap-2 text-[10px]">
                     <button type="button" className="text-amber-200" onClick={() => void act("read", { id: n.id })}>
                       Mark as Read
+                    </button>
+                    <button type="button" className="text-emerald-100/70" onClick={() => void act("dismiss", { id: n.id })}>
+                      پنهان
                     </button>
                     <button
                       type="button"
@@ -178,6 +220,11 @@ export function NotifyBell({ onOpen }: { onOpen?: (href: string) => void }) {
                   </div>
                 </div>
               ))}
+              {cursor ? (
+                <button type="button" className="w-full py-2 text-xs text-amber-200" onClick={() => void load(cursor)}>
+                  بیشتر
+                </button>
+              ) : null}
             </div>
             <p className="mt-2 text-[10px] leading-5 text-emerald-100/40">{note}</p>
           </div>
