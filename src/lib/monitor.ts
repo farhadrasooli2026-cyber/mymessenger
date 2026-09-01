@@ -22,7 +22,6 @@ import {
   type LogLevel,
   type MonitorAlert,
   type MonitorLog,
-  type MonitorPersist,
   type MonitorService,
   type ServiceHealth,
 } from "@/lib/monitor-types";
@@ -291,8 +290,8 @@ function domainMetrics(data: StoreData) {
   const bitrate = quality.length ? Math.round(quality.reduce((s, q) => s + (q.bitrateKbps ?? 0), 0) / quality.length) : 0;
   const frozen = quality.filter((q) => q.frozen).length;
   const calls = data.calls ?? [];
-  const ended = calls.filter((c) => c.status === "ended" || c.status === "failed" || c.status === "missed");
-  const failCalls = calls.filter((c) => c.status === "failed").length;
+  const ended = calls.filter((c) => c.status === "ended" || c.status === "missed" || c.status === "declined");
+  const failCalls = calls.filter((c) => c.status === "missed" || c.status === "declined").length;
   const push = data.pushJobs ?? [];
   const vault = data.vaultObjects ?? [];
   const reports = data.reports ?? [];
