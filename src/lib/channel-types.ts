@@ -9,6 +9,7 @@ export const CHANNEL_CREATE_MAX = 8;
 export const CHANNEL_POST_PAGE = 40;
 export const CHANNEL_SUB_PAGE = 40;
 export const CHANNEL_BROADCAST_RETRY_MAX = 5;
+export const CHANNEL_SCHEDULE_MAX_MS = 30 * 24 * 60 * 60 * 1000;
 export const CHANNEL_MAX_SUBSCRIBERS = 50_000;
 export const CHANNEL_REQUEST_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const CHANNEL_NAME_MAX = 48;
