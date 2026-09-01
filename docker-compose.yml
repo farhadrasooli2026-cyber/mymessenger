@@ -1,0 +1,33 @@
+services:
+  nixo:
+    build: .
+    image: nixo:${NIXO_VERSION:-0.1.0}
+    mem_limit: 1024m
+    cpus: 1.0
+    ports:
+      - "43151:43151"
+    environment:
+      NIXO_ENV: staging
+      NIXO_DEMO_INBOX: "false"
+      NIXO_PEPPER: ${NIXO_PEPPER}
+      NIXO_DATA_KEY: ${NIXO_DATA_KEY}
+      NIXO_SESSION_SECRET: ${NIXO_SESSION_SECRET}
+      NIXO_BACKUP_KEY: ${NIXO_BACKUP_KEY:-}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:43151/api/health?probe=ready"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+    stop_grace_period: 12s
+    restart: unless-stopped
+    volumes:
+      - nixo-data:/app/.data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  nixo-data:

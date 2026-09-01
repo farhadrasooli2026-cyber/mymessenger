@@ -1,0 +1,18 @@
+# Example upstream health-aware proxy. Secrets stay in the app env, not here.
+upstream nixo {
+  server 127.0.0.1:43151 max_fails=3 fail_timeout=15s;
+}
+server {
+  listen 443 ssl http2;
+  # listen 443 quic reuseport;  # HTTP/3 when the edge supports it
+  location / {
+    proxy_pass http://nixo;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_read_timeout 60s;
+  }
+  location /api/health {
+    proxy_pass http://nixo;
+    proxy_next_upstream error timeout http_503;
+  }
+}

@@ -68,6 +68,8 @@ import { emptyDrPersist, hydrateDrPersist, type DrPersist } from "@/lib/dr-types
 import { rememberPlatformMode } from "@/lib/dr-mode";
 import { emptyPerfPersist, hydratePerfPersist, type PerfPersist } from "@/lib/perf-types";
 import { setShedLevel } from "@/lib/perf-mode";
+import { emptyDeployPersist, hydrateDeployPersist, type DeployPersist } from "@/lib/deploy-types";
+import { currentDeployEnv } from "@/lib/env-config";
 import type {
   AdminAlert,
   AdminAuditRow,
@@ -2144,6 +2146,7 @@ export type StoreData = {
   monitor: MonitorPersist;
   dr: DrPersist;
   perf: PerfPersist;
+  deploy: DeployPersist;
   schemaMeta: import("@/lib/db/migrate").SchemaMeta;
   dbJobs: DbJob[];
   dbAudit: DbAudit[];
@@ -2304,6 +2307,7 @@ const EMPTY: StoreData = {
   monitor: emptyMonitorPersist(),
   dr: emptyDrPersist(),
   perf: emptyPerfPersist(),
+  deploy: emptyDeployPersist(process.env.VITEST ? "testing" : "development"),
   schemaMeta: { version: 0, migratedAt: 0, env: process.env.VITEST ? "test" : "development" },
   dbJobs: [],
   dbAudit: [],
@@ -2568,6 +2572,7 @@ async function readStore(): Promise<StoreData> {
       monitor: hydrateMonitorPersist(parsed.monitor),
       dr: hydrateDrPersist(parsed.dr),
       perf: hydratePerfPersist(parsed.perf),
+      deploy: hydrateDeployPersist(parsed.deploy, currentDeployEnv()),
       schemaMeta: hydrateSchemaMeta(parsed.schemaMeta),
       dbJobs: Array.isArray(parsed.dbJobs) ? parsed.dbJobs : [],
       dbAudit: Array.isArray(parsed.dbAudit) ? parsed.dbAudit : [],
@@ -2681,6 +2686,10 @@ function prune(data: StoreData, now: number): void {
   data.perf.jobs = data.perf.jobs.filter((j) => now - j.createdAt < 7 * 24 * 60 * 60 * 1000).slice(0, 400);
   data.perf.dlq = data.perf.dlq.filter((j) => now - j.at < 14 * 24 * 60 * 60 * 1000).slice(0, 200);
   setShedLevel(data.perf.shed);
+  data.deploy = hydrateDeployPersist(data.deploy, currentDeployEnv());
+  data.deploy.deployments = data.deploy.deployments.filter((d) => now - d.startedAt < 180 * 24 * 60 * 60 * 1000).slice(0, 200);
+  data.deploy.artifacts = data.deploy.artifacts.slice(0, 80);
+  if (data.deploy.lock && data.deploy.lock.until < now) data.deploy.lock = null;
   for (const user of data.users) expireStaleRestriction(user, now);
   data.callEvents = (data.callEvents ?? []).filter((e) => now - e.at < 7 * 24 * 60 * 60 * 1000).slice(-4000);
   data.callSignals = (data.callSignals ?? []).filter((s) => now - s.createdAt < 10 * 60 * 1000).slice(-800);

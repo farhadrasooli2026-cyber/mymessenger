@@ -124,6 +124,7 @@ export function hydratePerfPersist(raw?: Partial<PerfPersist> | null): PerfPersi
 export const CRITICAL_API_PREFIXES = [
   "/api/health",
   "/api/status",
+  "/api/version",
   "/api/register",
   "/api/recover",
   "/api/security",
@@ -144,6 +145,7 @@ export const CORE_API_PREFIXES = [
   "/api/dr",
   "/api/monitor",
   "/api/admin",
+  "/api/deploy",
 ] as const;
 
 export const SOFT_SHED_PREFIXES = [

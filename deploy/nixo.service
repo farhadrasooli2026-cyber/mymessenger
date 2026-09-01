@@ -1,0 +1,20 @@
+[Unit]
+Description=NIXO web
+After=network.target
+
+[Service]
+Type=simple
+User=nixo
+WorkingDirectory=/opt/nixo
+EnvironmentFile=/etc/nixo/nixo.env
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
+RestartSec=4
+StartLimitBurst=5
+StartLimitIntervalSec=60
+TimeoutStopSec=12
+KillMode=mixed
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

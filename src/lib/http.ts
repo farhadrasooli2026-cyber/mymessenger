@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { API_VERSION, statusToCode } from "@/lib/api-types";
+import { APP_VERSION } from "@/lib/release";
 import { stripSensitive } from "@/lib/safe-web";
 
 export const SECURITY_HEADERS: Record<string, string> = {
@@ -7,6 +8,7 @@ export const SECURITY_HEADERS: Record<string, string> = {
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "X-API-Version": API_VERSION,
+  "X-NIXO-App-Version": APP_VERSION,
   "Cache-Control": "private, no-store",
   "Permissions-Policy": "camera=(self), microphone=(self), geolocation=(), payment=()",
   "Cross-Origin-Resource-Policy": "same-origin",

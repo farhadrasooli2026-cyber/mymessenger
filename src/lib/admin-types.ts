@@ -37,6 +37,9 @@ export const ADMIN_PERMS = [
   "backup.view",
   "backup.manage",
   "backup.restore",
+  "deploy.view",
+  "deploy.manage",
+  "deploy.approve",
 ] as const;
 export type AdminPerm = (typeof ADMIN_PERMS)[number];
 
@@ -62,6 +65,7 @@ const ROLE_PERMS: Record<StaffRole, AdminPerm[]> = {
     "audit.view",
     "alerts",
     "monitor",
+    "deploy.view",
   ],
   support: [
     "dashboard",
@@ -75,7 +79,7 @@ const ROLE_PERMS: Record<StaffRole, AdminPerm[]> = {
     "audit.view",
     "monitor",
   ],
-  analyst: ["dashboard", "users.view", "users.search", "reports.view", "audit.view", "export", "monitor", "backup.view"],
+  analyst: ["dashboard", "users.view", "users.search", "reports.view", "audit.view", "export", "monitor", "backup.view", "deploy.view"],
 };
 
 export function permsForRole(role: StaffRole): AdminPerm[] {
@@ -116,6 +120,9 @@ export const ADMIN_CONFIRM = {
   bulk: "BULK",
   restoreProduction: "RESTORE_PRODUCTION",
   failover: "FAILOVER",
+  deployProduction: "DEPLOY_PRODUCTION",
+  emergencyDeploy: "EMERGENCY_DEPLOY",
+  rollback: "ROLLBACK",
 } as const;
 
 export const ADMIN_PAGE = 30;

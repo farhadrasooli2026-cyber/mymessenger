@@ -27,6 +27,8 @@ import {
 } from "@/lib/monitor-types";
 import { fingerprintError, formatStructuredLog, redactMonitorText, shouldEmitLevel } from "@/lib/logger";
 import { requireStaff } from "@/lib/admin-moderation";
+import { isShuttingDown } from "@/lib/lifecycle";
+import { startupGate } from "@/lib/env-config";
 
 type Live = {
   api: ApiTotals;
@@ -422,6 +424,9 @@ export async function flushMonitor() {
   await maybeAutoDrBackup().catch(() => nixoLog("warn", "backup", "auto backup skipped"));
   const { maybeDrainPerf } = await import("@/lib/perf");
   await maybeDrainPerf().catch(() => nixoLog("warn", "queue", "worker drain skipped"));
+  const { maybeAutoRollback } = await import("@/lib/deploy");
+  const errRate = live.api.requests ? (live.api.errors / live.api.requests) * 100 : 0;
+  await maybeAutoRollback(errRate, true).catch(() => nixoLog("warn", "deploy", "auto rollback skipped"));
 }
 
 export async function maybeFlush() {
@@ -437,10 +442,11 @@ export async function publicHealth(probe?: string | null) {
     heartbeatLagMs: hb.at ? Date.now() - hb.at : null,
     independentHeartbeat: hb.independent,
   };
-  if (probe === "live") return { ok: liveProbe.ok, live: liveProbe };
+  if (probe === "live") return { ok: liveProbe.ok && !isShuttingDown(), live: { ...liveProbe, draining: isShuttingDown() } };
   const db = await dbHealth();
-  const ready = { ok: db.ok && db.ready, schema: db.schemaVersion };
-  if (probe === "ready") return { ok: ready.ok, ready };
+  const start = startupGate();
+  const ready = { ok: db.ok && db.ready && !isShuttingDown() && start.ok, schema: db.schemaVersion };
+  if (probe === "ready") return { ok: ready.ok, ready, startup: start.ok };
   return {
     ok: db.ok && liveProbe.ok,
     live: liveProbe,

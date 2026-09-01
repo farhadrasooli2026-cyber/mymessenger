@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { SCHEMA_VERSION } from "@/lib/db/catalog";
+import { APP_VERSION } from "@/lib/release";
 import {
   backupSignatureOk,
   decryptBackupBytes,
@@ -706,6 +707,7 @@ export async function publicStatus() {
     mode: lock.mode,
     site: lock.site,
     degraded: lock.mode !== "normal" || lock.site !== "primary" || !ok,
+    version: APP_VERSION,
   };
 }
 

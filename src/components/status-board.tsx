@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 export function StatusBoard() {
-  const [data, setData] = useState<{ ok?: boolean; mode?: string; site?: string; degraded?: boolean; error?: string } | null>(null);
+  const [data, setData] = useState<{ ok?: boolean; mode?: string; site?: string; degraded?: boolean; error?: string; version?: string } | null>(null);
 
   useEffect(() => {
     fetch("/api/status", { cache: "no-store" })
@@ -18,6 +18,7 @@ export function StatusBoard() {
   return (
     <div className="mt-6 space-y-2 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm">
       <p>سامانه: {data.ok ? "در دسترس" : "اختلال"}</p>
+      {data.version && <p>نسخه: {data.version}</p>}
       <p>حالت: {data.mode === "maintenance" ? "نگهداری" : data.mode === "read_only" ? "فقط خواندنی" : "عادی"}</p>
       <p>سایت: {data.site === "replica" ? "Replica" : "اصلی"}</p>
       <p>{data.degraded ? "وضعیت کاهش‌یافته اعلام شده است." : "اختلال گسترده‌ای گزارش نشده."}</p>
