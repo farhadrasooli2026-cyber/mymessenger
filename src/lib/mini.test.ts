@@ -93,7 +93,7 @@ describe("NIXO mini apps isolation", () => {
     expect(steal.ok).toBe(false);
     const own = await miniBridge(bob, mini.mini.id, "profile");
     expect(own.ok).toBe(true);
-    if (own.ok && "profile" in own) {
+    if (own.ok && own.profile) {
       expect(own.profile.username).toBe("mini_bob");
       expect(own.profile.username).not.toBe("mini_alice");
     }

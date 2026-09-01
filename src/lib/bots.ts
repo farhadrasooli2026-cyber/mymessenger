@@ -24,6 +24,7 @@ import {
   type BotMessage,
   type BotRecord,
   type BotReportCategory,
+  type MiniAppStatus,
   type MiniCategory,
   type MiniScope,
 } from "@/lib/bot-types";
@@ -485,7 +486,7 @@ export async function registerMiniApp(
       paymentHint: Boolean(input.paymentHint),
       createdAt: Date.now(),
       version: (input.version ?? "1.0.0").slice(0, 16),
-      status: (sensitive && !bot.verified ? "pending" : "active") as const,
+      status: (sensitive && !bot.verified ? "pending" : "active") as MiniAppStatus,
       requestedScopes: requested,
       privacyUrl: (input.privacyUrl ?? "").slice(0, 200),
       termsUrl: (input.termsUrl ?? "").slice(0, 200),

@@ -540,7 +540,7 @@ export async function developerUpdateMini(
 export async function adminMiniStatus(actorId: string, miniId: string, status: MiniAppStatus) {
   return mutateStore((data) => {
     const actor = data.users.find((u) => u.id === actorId);
-    const handle = actor?.username.toLowerCase() ?? "";
+    const handle = actor?.username?.toLowerCase() ?? "";
     if (handle !== "nixo" && handle !== "nixo_ops") {
       return { ok: false as const, error: "فقط ایمنی نیکسو.", status: 403 };
     }

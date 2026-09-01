@@ -15,12 +15,10 @@ export function BotsHub() {
   const [q, setQ] = useState("");
   const [bots, setBots] = useState<Bot[]>([]);
   const [mini, setMini] = useState<Mini[]>([]);
-  const [category, setCategory] = useState("");
   const [mine, setMine] = useState<Bot[]>([]);
 
   function load() {
-    const cat = category ? `&category=${encodeURIComponent(category)}` : "";
-    fetch(`/api/bots?q=${encodeURIComponent(q)}${cat}`, { cache: "no-store" })
+    fetch(`/api/bots?q=${encodeURIComponent(q)}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         if (d.ok) {
@@ -44,8 +42,7 @@ export function BotsHub() {
         if (d.ok) setMine(d.bots ?? []);
       })
       .catch(() => undefined);
-    const cat = category ? `&category=${encodeURIComponent(category)}` : "";
-    fetch(`/api/bots?q=${encodeURIComponent(q)}${cat}`, { cache: "no-store" })
+    fetch(`/api/bots?q=${encodeURIComponent(q)}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         if (d.ok) {
@@ -54,7 +51,7 @@ export function BotsHub() {
         }
       })
       .catch(() => undefined);
-  }, [category, q]);
+  }, [q]);
 
   return (
     <main className="min-h-dvh bg-[#071614] p-5 text-emerald-50">

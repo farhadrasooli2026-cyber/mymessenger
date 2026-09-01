@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
@@ -58,7 +58,7 @@ export function MiniAppFrame({ miniId }: { miniId: string }) {
   const [review, setReview] = useState("");
   const [checks, setChecks] = useState<Partial<Record<MiniScope, boolean>>>({});
 
-  async function loadProfile() {
+  const loadProfile = useCallback(async () => {
     setLoading(true);
     setKind("");
     try {
@@ -81,7 +81,7 @@ export function MiniAppFrame({ miniId }: { miniId: string }) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [miniId]);
 
   async function openSession() {
     setLoading(true);
@@ -106,8 +106,9 @@ export function MiniAppFrame({ miniId }: { miniId: string }) {
   }
 
   useEffect(() => {
-    void loadProfile();
-  }, [miniId]);
+    const t = window.setTimeout(() => void loadProfile(), 0);
+    return () => window.clearTimeout(t);
+  }, [loadProfile]);
 
   useEffect(() => {
     function onMsg(ev: MessageEvent) {

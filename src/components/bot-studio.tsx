@@ -42,6 +42,7 @@ export function BotStudio({ botId }: { botId?: string }) {
   const [groupId, setGroupId] = useState("");
   const [channelId, setChannelId] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [miniTitle, setMiniTitle] = useState("فرم نیکسو");
   const [miniDesc, setMiniDesc] = useState("فرم داخل سندباکس");
   const [miniCat, setMiniCat] = useState<(typeof MINI_CATEGORIES)[number]["id"]>("productivity");
