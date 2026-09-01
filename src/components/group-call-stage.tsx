@@ -40,7 +40,7 @@ export type PublicGroupCallUi = {
   maxParticipants: number;
   createdAt: number;
   inviteToken: string | boolean | null;
-  participants: { userId: string; name: string; role: string; mutedByHost: boolean; me: boolean }[];
+  participants: { userId: string; name: string; role: string; mutedByHost: boolean; camOff?: boolean; micMuted?: boolean; me: boolean }[];
   iAmHost: boolean;
   canModerate: boolean;
 };
@@ -216,6 +216,8 @@ export function GroupCallStage({
               <span>
                 {p.name} · {p.role}
                 {p.mutedByHost ? " · بی‌صدا از طرف Host" : ""}
+                {p.micMuted ? " · میکروفون خاموش" : ""}
+                {p.camOff ? " · دوربین خاموش" : ""}
                 {p.me ? " · شما" : ""}
               </span>
               {room.canModerate && !p.me && (
@@ -241,6 +243,7 @@ export function GroupCallStage({
               loopRef.current?.local.getAudioTracks().forEach((t) => {
                 t.enabled = !next;
               });
+              void act("media", { micMuted: next });
             }}
             aria-label="میکروفون"
           >
@@ -260,6 +263,7 @@ export function GroupCallStage({
                   loopRef.current?.local.getVideoTracks().forEach((t) => {
                     t.enabled = !next;
                   });
+                  void act("media", { camOff: next });
                 }}
               >
                 {camOff ? <CameraOff className="size-5" /> : <Camera className="size-5" />}
@@ -303,17 +307,23 @@ export function GroupCallStage({
               type="button"
               className="grid size-12 place-items-center rounded-full bg-white/10"
               onClick={async () => {
-                await act("link");
-                const token = typeof room.inviteToken === "string" ? room.inviteToken : null;
-                const res = await fetch(`/api/calls/group/${room.id}`, { cache: "no-store" });
+                const res = await fetch(`/api/calls/group/${room.id}`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ action: "link" }),
+                });
                 const data = await res.json();
+                if (!res.ok) {
+                  toast.error(data.error ?? "لینک ساخته نشد.");
+                  return;
+                }
+                setRoom(data.call as PublicGroupCallUi);
                 const tok = data.call?.inviteToken;
                 if (typeof tok === "string") {
                   const url = `${window.location.origin}/join/call/${tok}`;
                   await navigator.clipboard.writeText(url).catch(() => undefined);
-                  toast.success("لینک Join Call کپی شد. فقط اعضای واردشدهٔ گروه می‌توانند وارد شوند.");
+                  toast.success("لینک Join Call کپی شد. انقضا دارد و فقط اعضای واردشدهٔ گروه می‌توانند وارد شوند.");
                 }
-                void token;
               }}
             >
               <Link2 className="size-5" />

@@ -19,6 +19,8 @@ export function CallsTab({
   onFilter,
   onCall,
   onDemoIncoming,
+  onClearHistory,
+  onReport,
   blockedHint,
 }: {
   calls: HistoryCall[];
@@ -26,6 +28,8 @@ export function CallsTab({
   onFilter: (f: string) => void;
   onCall: (threadId: string, kind: "voice" | "video") => void;
   onDemoIncoming: (kind: "voice" | "video") => void;
+  onClearHistory?: () => void;
+  onReport?: (call: HistoryCall) => void;
   blockedHint?: string;
 }) {
   const chips = [
@@ -65,6 +69,11 @@ export function CallsTab({
         <Button type="button" size="sm" variant="secondary" onClick={() => onDemoIncoming("video")}>
           تماس ورودی آزمایشی (تصویری)
         </Button>
+        {onClearHistory && (
+          <Button type="button" size="sm" variant="secondary" onClick={() => onClearHistory()}>
+            پاک‌کردن سابقه
+          </Button>
+        )}
       </div>
       <ul className="mt-4 space-y-2">
         {calls.length === 0 && <li className="text-sm text-emerald-100/55">هنوز تماسی ثبت نشده.</li>}
@@ -95,13 +104,18 @@ export function CallsTab({
             <button type="button" className="grid size-9 place-items-center rounded-full bg-white/10" onClick={() => onCall(c.threadId, "video")} aria-label="تماس تصویری">
               <Video className="size-4" />
             </button>
+            {onReport && (
+              <button type="button" className="rounded-full bg-white/10 px-2 py-1 text-[10px]" onClick={() => onReport(c)}>
+                گزارش
+              </button>
+            )}
               </>
             )}
           </li>
         ))}
       </ul>
       <p className="mt-6 text-[11px] leading-6 text-emerald-100/45">
-        تماس گروهی از داخل گروه با Voice Call / Video Call شروع می‌شود. لینک Join Call فقط برای اعضای واردشده. NIXO جایگزین تماس اضطراری سیستم‌عامل نیست. ضبط تماس فعال نیست.
+        تماس گروهی از داخل گروه با Voice Call / Video Call شروع می‌شود. لینک Join Call توکن و انقضا دارد و فقط با ورود و عضویت گروه کار می‌کند. NIXO جایگزین تماس اضطراری سیستم‌عامل نیست. ضبط تماس فعال نیست.
       </p>
     </div>
   );

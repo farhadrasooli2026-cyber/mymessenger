@@ -29,12 +29,33 @@ export type PublicCall = {
   endReason?: CallRecord["endReason"];
 };
 
+function noteMissedInChat(data: StoreData, call: CallRecord, now: number) {
+  if (call.chatNotedAt || call.direction !== "in") return;
+  call.chatNotedAt = now;
+  data.messages.push({
+    id: randomId(),
+    threadId: call.threadId,
+    ownerUserId: call.ownerUserId,
+    sender: "peer",
+    enc: "purged",
+    ciphertext: "",
+    nonce: "",
+    createdAt: now,
+    kind: "system",
+    hiddenFor: [],
+    systemEvent: { type: "missed_call", callKind: call.kind },
+  });
+  const thread = data.threads.find((t) => t.id === call.threadId && t.ownerUserId === call.ownerUserId);
+  if (thread) thread.updatedAt = now;
+}
+
 function expireRinging(call: CallRecord, now: number, data?: StoreData): CallRecord {
   if (call.status === "ringing" && now - call.createdAt >= CALL_RING_MS) {
     call.status = "missed";
     call.endedAt = call.createdAt + CALL_RING_MS;
     call.endReason = "timeout";
     if (data && call.direction === "in") {
+      noteMissedInChat(data, call, now);
       emitNotification(data, {
         userId: call.ownerUserId,
         category: "calls",
@@ -102,7 +123,9 @@ function busyCall(data: StoreData, userId: string) {
 export async function listCalls(userId: string, filter?: string) {
   return mutateStore((data) => {
     const now = Date.now();
-    let rows = data.calls.filter((c) => c.ownerUserId === userId).map((c) => publicCall(expireRinging(c, now, data), now));
+    let rows = data.calls
+      .filter((c) => c.ownerUserId === userId && !c.hiddenAt)
+      .map((c) => publicCall(expireRinging(c, now, data), now));
     if (filter === "missed") rows = rows.filter((c) => c.status === "missed");
     else if (filter === "incoming") rows = rows.filter((c) => c.direction === "in");
     else if (filter === "outgoing") rows = rows.filter((c) => c.direction === "out");
@@ -140,16 +163,20 @@ export async function startOutgoing(userId: string, threadId: string, kind: Call
   return mutateStore((data) => {
     const thread = data.threads.find((t) => t.id === threadId && t.ownerUserId === userId);
     if (!thread) return { ok: false as const, error: "گفتگو یافت نشد.", status: 404 };
+    const now = Date.now();
     const safety = blockState(data, userId, thread.peerKey);
     if (!safety.callsAllowed) {
       return { ok: false as const, error: "تماس با این شخص محدود شده است.", status: 403 };
     }
+    const existing = data.calls.find(
+      (c) => c.ownerUserId === userId && c.threadId === thread.id && c.status === "ringing" && now - c.createdAt < 8_000,
+    );
+    if (existing) return { ok: true as const, call: publicCall(existing, now) };
     if (busyCall(data, userId)) {
       return { ok: false as const, error: "یک تماس دیگر در جریان است.", status: 409, busy: true as const };
     }
     const flood = hitRateLimit(data, `callout:${userId}`, CALL_FLOOD_WINDOW_MS, CALL_FLOOD_MAX);
     if (!flood.allowed) return { ok: false as const, error: "تماس پیاپی محدود شد.", status: 429 };
-    const now = Date.now();
     const call: CallRecord = {
       id: randomId(),
       ownerUserId: userId,
@@ -270,6 +297,7 @@ export async function actOnCall(
       if (call.status === "ringing" && call.direction === "in") {
         call.status = "missed";
         call.endReason = "timeout";
+        noteMissedInChat(data, call, now);
       } else if (call.status === "ringing") {
         call.status = "ended";
         call.endReason = "cancel";
@@ -304,3 +332,36 @@ export async function updateCallSettings(
     };
   });
 }
+
+export async function deleteCallHistory(userId: string, ids: string[] | "all") {
+  return mutateStore((data) => {
+    const now = Date.now();
+    let n = 0;
+    for (const c of data.calls ?? []) {
+      if (c.ownerUserId !== userId) continue;
+      if (ids !== "all" && !ids.includes(c.id)) continue;
+      if (c.status === "ringing" || c.status === "active" || c.status === "queued") continue;
+      c.hiddenAt = now;
+      n += 1;
+    }
+    for (const g of data.groupCalls ?? []) {
+      if (ids !== "all" && !ids.includes(g.id)) continue;
+      if (!g.participants.some((p) => p.userId === userId)) continue;
+      if (g.status !== "ended") continue;
+      g.hiddenBy ??= [];
+      if (!g.hiddenBy.includes(userId)) {
+        g.hiddenBy.push(userId);
+        n += 1;
+      }
+    }
+    return { ok: true as const, cleared: n };
+  });
+}
+
+export const CALL_RECORDING_POLICY =
+  "ضبط تماس در نیکسو فعال نیست. اگر بعداً اضافه شود، قبل از ضبط Indicator واضح و رضایت همهٔ طرف‌ها لازم است و فایل مخفی ذخیره نمی‌شود.";
+
+export function refuseCallRecording() {
+  return { ok: false as const, error: CALL_RECORDING_POLICY, status: 403 as const };
+}
+

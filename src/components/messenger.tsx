@@ -46,6 +46,7 @@ import { defaultAuto, saveAutoSettings, setAutoSaveGallery, type AutoMode } from
 import { DisappearPicker, msFromChoice, type TimerChoice } from "@/components/disappear-picker";
 import { ExpiryBadge } from "@/components/expiry-badge";
 import { ViewOnceShield } from "@/components/view-once-shield";
+import { missedCallChatText } from "@/lib/call-copy";
 import { labelDisappear, systemCaptureText, systemDisappearText } from "@/lib/disappear";
 import { CallStage, type LiveCall } from "@/components/call-stage";
 import { CallsTab, type HistoryCall } from "@/components/calls-tab";
@@ -119,7 +120,11 @@ type Message = {
   blobId?: string | null;
   chunkCount?: number | null;
   byteLength?: number | null;
-  systemEvent?: { type: "disappear"; ms: number | null } | { type: "capture"; messageId: string } | null;
+  systemEvent?:
+    | { type: "disappear"; ms: number | null }
+    | { type: "capture"; messageId: string }
+    | { type: "missed_call"; callKind: "voice" | "video" }
+    | null;
   stickerId?: string | null;
   stickerUrl?: string;
   reactions?: PublicReaction[];
@@ -146,7 +151,11 @@ type WireMsg = {
   blobId?: string | null;
   chunkCount?: number | null;
   byteLength?: number | null;
-  systemEvent?: { type: "disappear"; ms: number | null } | { type: "capture"; messageId: string } | null;
+  systemEvent?:
+    | { type: "disappear"; ms: number | null }
+    | { type: "capture"; messageId: string }
+    | { type: "missed_call"; callKind: "voice" | "video" }
+    | null;
   stickerId?: string | null;
   stickerUrl?: string | null;
   reactions?: PublicReaction[];
@@ -166,7 +175,9 @@ async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> 
             ? systemDisappearText(raw.systemEvent.ms)
             : raw.systemEvent?.type === "capture"
               ? systemCaptureText()
-              : "رویداد سیستم",
+              : raw.systemEvent?.type === "missed_call"
+                ? missedCallChatText(raw.systemEvent.callKind)
+                : "رویداد سیستم",
         kind: "system",
         systemEvent: raw.systemEvent,
       });
@@ -1922,6 +1933,31 @@ export function Messenger({
               }
               setCallMin(false);
               setLiveCall(data.call as LiveCall);
+            }}
+            onClearHistory={async () => {
+              const res = await fetch("/api/calls", { method: "DELETE" });
+              if (!res.ok) {
+                toast.error("پاک‌کردن سابقه انجام نشد.");
+                return;
+              }
+              setCallHistory([]);
+              toast.success("سابقه تماس این حساب پاک شد.");
+            }}
+            onReport={async (c) => {
+              const res = await fetch("/api/reports", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  targetKind: "user",
+                  targetKey: c.peerKey,
+                  threadId: c.threadId,
+                  category: "harassment",
+                  details: "گزارش تماس مزاحم",
+                }),
+              });
+              const data = await res.json();
+              if (!res.ok) toast.error(data.error ?? "گزارش ثبت نشد.");
+              else toast.success("گزارش تماس ثبت شد.");
             }}
             blockedHint={active && !active.callsAllowed ? "تماس با مخاطب فعلی مسدود است." : undefined}
           />

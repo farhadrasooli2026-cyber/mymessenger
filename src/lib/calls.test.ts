@@ -3,10 +3,10 @@ import { hashIp } from "./crypto-utils";
 import { completeProfile } from "./profile";
 import { ackHumanChallenge, issueHumanChallenge, startRegistration, verifyOtp } from "./registration";
 import { getOutbox } from "./outbox";
-import { listThreads } from "./chat";
+import { listMessages, listThreads } from "./chat";
 import { setBlocked } from "./safety";
 import { resetStoreForTests } from "./store";
-import { actOnCall, listCalls, startIncomingDemo, startOutgoing, updateCallSettings } from "./calls";
+import { actOnCall, deleteCallHistory, listCalls, refuseCallRecording, startIncomingDemo, startOutgoing, updateCallSettings } from "./calls";
 
 async function activeUser(username: string) {
   const ip = hashIp(`test-ip:${username}`);
@@ -88,5 +88,38 @@ describe("voice and video calls", () => {
     await updateCallSettings(userId, { callPrivacy: "nobody" });
     const blocked = await startIncomingDemo(userId, "voice");
     expect(blocked.ok).toBe(false);
+  });
+
+  it("reuses a recent ringing outbound call and hides only own history", async () => {
+    const a = await activeUser("call_dup");
+    const b = await activeUser("call_idor");
+    const threads = await listThreads(a);
+    const thread = threads.find((t) => t.peerKey === "arya")!;
+    const first = await startOutgoing(a, thread.id, "voice");
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const second = await startOutgoing(a, thread.id, "voice");
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.call.id).toBe(first.call.id);
+
+    await actOnCall(a, first.call.id, "cancel");
+    const hidden = await deleteCallHistory(b, [first.call.id]);
+    expect(hidden.cleared).toBe(0);
+    expect((await listCalls(a)).some((c) => c.id === first.call.id)).toBe(true);
+    const mine = await deleteCallHistory(a, [first.call.id]);
+    expect(mine.cleared).toBe(1);
+    expect((await listCalls(a)).some((c) => c.id === first.call.id)).toBe(false);
+    expect(refuseCallRecording().status).toBe(403);
+  });
+
+  it("writes a missed-call system line into the chat", async () => {
+    const userId = await activeUser("call_chat");
+    const incoming = await startIncomingDemo(userId, "voice");
+    expect(incoming.ok).toBe(true);
+    if (!incoming.ok) return;
+    await actOnCall(userId, incoming.call.id, "end");
+    const listed = await listMessages(userId, incoming.call.threadId);
+    expect(listed?.messages.some((m) => m.kind === "system" && m.systemEvent?.type === "missed_call")).toBe(true);
   });
 });

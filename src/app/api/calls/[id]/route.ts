@@ -1,6 +1,6 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
-import { actOnCall } from "@/lib/calls";
+import { actOnCall, refuseCallRecording } from "@/lib/calls";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -10,6 +10,10 @@ export async function POST(request: Request, ctx: Ctx) {
   const { id } = await ctx.params;
   const body = (await request.json().catch(() => null)) as { action?: string } | null;
   const action = body?.action;
+  if (action === "record" || action === "recording" || action === "start-recording") {
+    const refused = refuseCallRecording();
+    return jsonError(refused.error, refused.status);
+  }
   if (
     action !== "accept" &&
     action !== "connect" &&

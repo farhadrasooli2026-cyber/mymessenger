@@ -7,12 +7,29 @@ export type LoopSession = {
   pcRemote: RTCPeerConnection;
 };
 
-const ice = { iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }] };
+const fallbackIce: RTCConfiguration = { iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }] };
+
+async function iceConfig(override?: RTCIceServer[]): Promise<RTCConfiguration> {
+  if (override?.length) return { iceServers: override };
+  try {
+    const res = await fetch("/api/calls/ice", { cache: "no-store" });
+    if (res.ok) {
+      const data = (await res.json()) as { iceServers?: RTCIceServer[] };
+      if (Array.isArray(data.iceServers) && data.iceServers.length) {
+        return { iceServers: data.iceServers };
+      }
+    }
+  } catch {
+    /* STUN fallback */
+  }
+  return fallbackIce;
+}
 
 export async function startMediaLoop(opts: {
   video: boolean;
   lowData: boolean;
   deviceId?: string;
+  iceServers?: RTCIceServer[];
 }): Promise<LoopSession> {
   const local = await navigator.mediaDevices.getUserMedia({
     audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -21,11 +38,13 @@ export async function startMediaLoop(opts: {
           facingMode: "user",
           width: opts.lowData ? { ideal: 480 } : { ideal: 1280 },
           height: opts.lowData ? { ideal: 360 } : { ideal: 720 },
+          frameRate: opts.lowData ? { ideal: 15, max: 24 } : { ideal: 30, max: 30 },
           deviceId: opts.deviceId ? { exact: opts.deviceId } : undefined,
         }
       : false,
   });
 
+  const ice = await iceConfig(opts.iceServers);
   const pcLocal = new RTCPeerConnection(ice);
   const pcRemote = new RTCPeerConnection(ice);
   const remote = new MediaStream();
@@ -126,6 +145,37 @@ export async function listAudioOutputs(): Promise<{ deviceId: string; label: str
   return all
     .filter((d) => d.kind === "audiooutput")
     .map((d) => ({ deviceId: d.deviceId, label: d.label || "خروجی صدا" }));
+}
+
+export async function sampleCallQuality(pc: RTCPeerConnection): Promise<{ rttMs: number; loss: number; jitterMs: number } | null> {
+  try {
+    const stats = await pc.getStats();
+    let rttMs = 0;
+    let loss = 0;
+    let jitterMs = 0;
+    stats.forEach((r) => {
+      const row = r as RTCStats & {
+        currentRoundTripTime?: number;
+        jitter?: number;
+        packetsReceived?: number;
+        packetsLost?: number;
+        kind?: string;
+        state?: string;
+      };
+      if (row.type === "candidate-pair" && row.state === "succeeded" && typeof row.currentRoundTripTime === "number") {
+        rttMs = Math.round(row.currentRoundTripTime * 1000);
+      }
+      if (row.type === "inbound-rtp" && row.kind === "audio") {
+        if (typeof row.jitter === "number") jitterMs = Math.round(row.jitter * 1000);
+        const packets = Number(row.packetsReceived ?? 0);
+        const lost = Number(row.packetsLost ?? 0);
+        if (packets + lost > 0) loss = Math.min(100, Math.round((lost / (packets + lost)) * 100));
+      }
+    });
+    return { rttMs, loss, jitterMs };
+  } catch {
+    return null;
+  }
 }
 
 export function getMediaErrorMessage(err: unknown): string {

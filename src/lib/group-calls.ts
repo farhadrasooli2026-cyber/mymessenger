@@ -10,6 +10,7 @@ export const GROUP_CALL_DEFAULT_MAX = 8;
 export const GROUP_CALL_HARD_MAX = 16;
 export const CALL_FLOOD_WINDOW_MS = 60_000;
 export const CALL_FLOOD_MAX = 8;
+export const GROUP_CALL_INVITE_TTL_MS = 2 * 60 * 60 * 1000;
 
 function liveMember(data: StoreData, groupId: string, userId: string) {
   const g = data.groups.find((x) => x.id === groupId && !x.deletedAt);
@@ -22,8 +23,15 @@ function liveParts(room: GroupCallRoom) {
   return room.participants.filter((p) => !p.leftAt && !p.kicked);
 }
 
+function inviteLive(room: GroupCallRoom, now = Date.now()) {
+  if (!room.inviteToken) return false;
+  if (room.inviteExpiresAt && room.inviteExpiresAt < now) return false;
+  return true;
+}
+
 export function publicGroupCall(room: GroupCallRoom, userId: string) {
   const me = room.participants.find((p) => p.userId === userId);
+  const tokenLive = inviteLive(room);
   return {
     id: room.id,
     groupId: room.groupId,
@@ -34,12 +42,15 @@ export function publicGroupCall(room: GroupCallRoom, userId: string) {
     maxParticipants: room.maxParticipants,
     createdAt: room.createdAt,
     endedAt: room.endedAt,
-    inviteToken: me && (me.role === "host" || me.role === "admin") ? room.inviteToken : Boolean(room.inviteToken),
+    inviteToken: me && (me.role === "host" || me.role === "admin") ? (tokenLive ? room.inviteToken : null) : Boolean(tokenLive),
+    inviteExpiresAt: me && (me.role === "host" || me.role === "admin") ? (tokenLive ? room.inviteExpiresAt ?? null : null) : null,
     participants: liveParts(room).map((p) => ({
       userId: p.userId,
       name: p.name,
       role: p.role,
       mutedByHost: p.mutedByHost,
+      camOff: Boolean(p.camOff),
+      micMuted: Boolean(p.micMuted),
       me: p.userId === userId,
     })),
     iAmHost: room.hostUserId === userId,
@@ -85,6 +96,7 @@ export async function startGroupCall(userId: string, groupId: string, kind: Call
       status: "active",
       maxParticipants: cap,
       inviteToken: null,
+      inviteExpiresAt: null,
       createdAt: now,
       endedAt: null,
       participants: [host],
@@ -143,8 +155,9 @@ export async function joinGroupCall(userId: string, callId: string) {
 
 export async function joinByToken(userId: string, token: string) {
   return mutateStore((data) => {
+    const now = Date.now();
     const room = (data.groupCalls ?? []).find((c) => c.inviteToken === token && c.status !== "ended");
-    if (!room) return { ok: false as const, error: "لینک تماس نامعتبر یا منقضی است.", status: 404 };
+    if (!room || !inviteLive(room, now)) return { ok: false as const, error: "لینک تماس نامعتبر یا منقضی است.", status: 404 };
     const ctx = liveMember(data, room.groupId, userId);
     if (!ctx) return { ok: false as const, error: "برای Join Call باید عضو گروه باشی و وارد حساب شده باشی.", status: 403 };
     return joinGroupCallUnlocked(data, userId, room);
@@ -183,7 +196,7 @@ export async function peekCallLink(userId: string, token: string) {
   const { readStoreSnapshot } = await import("@/lib/store");
   const data = await readStoreSnapshot();
   const room = (data.groupCalls ?? []).find((c) => c.inviteToken === token && c.status !== "ended");
-  if (!room) return { ok: false as const, error: "لینک تماس معتبر نیست.", status: 404 };
+  if (!room || !inviteLive(room)) return { ok: false as const, error: "لینک تماس معتبر نیست.", status: 404 };
   if (!liveMember(data, room.groupId, userId)) {
     return { ok: false as const, error: "برای دیدن این تماس باید عضو گروه و وارد حساب باشی.", status: 403 };
   }
@@ -202,7 +215,10 @@ export async function listGroupCalls(userId: string) {
   const data = await readStoreSnapshot();
   const now = Date.now();
   return (data.groupCalls ?? [])
-    .filter((c) => c.participants.some((p) => p.userId === userId) || liveMember(data, c.groupId, userId))
+    .filter((c) => {
+      if ((c.hiddenBy ?? []).includes(userId)) return false;
+      return c.participants.some((p) => p.userId === userId) || liveMember(data, c.groupId, userId);
+    })
     .map((r) => {
       const me = r.participants.find((p) => p.userId === userId);
       const ended = r.endedAt ?? (r.status === "ended" ? now : null);
@@ -301,16 +317,19 @@ export async function moderateGroupCall(
       room.status = "ended";
       room.endedAt = Date.now();
       room.inviteToken = null;
+      room.inviteExpiresAt = null;
       for (const p of room.participants) if (!p.leftAt) p.leftAt = Date.now();
       return { ok: true as const, call: publicGroupCall(room, actorId) };
     }
     if (!canModerate(room, actorId)) return { ok: false as const, error: "اجازهٔ مدیریت تماس نداری.", status: 403 };
     if (action === "link") {
       room.inviteToken = randomId();
+      room.inviteExpiresAt = Date.now() + GROUP_CALL_INVITE_TTL_MS;
       return { ok: true as const, call: publicGroupCall(room, actorId) };
     }
     if (action === "revoke") {
       room.inviteToken = null;
+      room.inviteExpiresAt = null;
       return { ok: true as const, call: publicGroupCall(room, actorId) };
     }
     if (action === "cap") {
@@ -330,6 +349,18 @@ export async function moderateGroupCall(
     } else if (action === "mute") target.mutedByHost = true;
     else if (action === "unmute") target.mutedByHost = false;
     return { ok: true as const, call: publicGroupCall(room, actorId) };
+  });
+}
+
+export async function setOwnCallMedia(userId: string, callId: string, patch: { camOff?: boolean; micMuted?: boolean }) {
+  return mutateStore((data) => {
+    const room = (data.groupCalls ?? []).find((c) => c.id === callId && c.status !== "ended");
+    if (!room) return { ok: false as const, error: "تماس نیست.", status: 404 };
+    const me = room.participants.find((p) => p.userId === userId && !p.leftAt && !p.kicked);
+    if (!me) return { ok: false as const, error: "داخل تماس نیستی.", status: 403 };
+    if (typeof patch.camOff === "boolean") me.camOff = patch.camOff;
+    if (typeof patch.micMuted === "boolean") me.micMuted = patch.micMuted;
+    return { ok: true as const, call: publicGroupCall(room, userId) };
   });
 }
 

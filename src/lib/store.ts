@@ -198,6 +198,9 @@ function hydrateSystemEvent(event: ChatMessage["systemEvent"]): ChatMessage["sys
   if (event.type === "capture" && typeof event.messageId === "string") {
     return { type: "capture", messageId: event.messageId };
   }
+  if (event.type === "missed_call") {
+    return { type: "missed_call", callKind: event.callKind === "video" ? "video" : "voice" };
+  }
   return undefined;
 }
 
@@ -813,7 +816,10 @@ export type ChatMessage = {
   byteLength?: number;
   mimeClass?: "image" | "video" | "file" | "audio";
   expireFrom?: "send" | "view";
-  systemEvent?: { type: "disappear"; ms: number | null } | { type: "capture"; messageId: string };
+  systemEvent?:
+    | { type: "disappear"; ms: number | null }
+    | { type: "capture"; messageId: string }
+    | { type: "missed_call"; callKind: "voice" | "video" };
   captureCount?: number;
   stickerId?: string;
   reactions?: { emoji: string; keys: string[] }[];
@@ -919,6 +925,8 @@ export type CallRecord = {
   durationMs?: number;
   declineWithMessage?: boolean;
   endReason?: "hangup" | "cancel" | "timeout" | "failed" | "busy" | "declined";
+  hiddenAt?: number | null;
+  chatNotedAt?: number | null;
 };
 
 export type CallSignal = {
@@ -927,7 +935,16 @@ export type CallSignal = {
   fromUserId: string;
   type: "offer" | "answer" | "ice" | "hangup" | "reconnect" | "quality";
   body: string;
+  nonce?: string;
   createdAt: number;
+};
+
+export type CallQualitySample = {
+  callId: string;
+  rttMs: number;
+  loss: number;
+  jitterMs: number;
+  at: number;
 };
 
 export type GroupCallParticipant = {
@@ -938,6 +955,8 @@ export type GroupCallParticipant = {
   leftAt: number | null;
   mutedByHost: boolean;
   kicked: boolean;
+  camOff?: boolean;
+  micMuted?: boolean;
 };
 
 export type GroupCallRoom = {
@@ -949,6 +968,8 @@ export type GroupCallRoom = {
   status: "ringing" | "active" | "ended";
   maxParticipants: number;
   inviteToken: string | null;
+  inviteExpiresAt?: number | null;
+  hiddenBy?: string[];
   createdAt: number;
   endedAt: number | null;
   participants: GroupCallParticipant[];
@@ -1591,6 +1612,7 @@ export type StoreData = {
   notifyPrefs: NotifyPrefs[];
   groupCalls: GroupCallRoom[];
   callSignals: CallSignal[];
+  callQuality: CallQualitySample[];
   contacts: ContactRecord[];
   contactInvites: ContactInvite[];
   contactRequests: ContactRequest[];
@@ -1693,6 +1715,7 @@ const EMPTY: StoreData = {
   notifyPrefs: [],
   groupCalls: [],
   callSignals: [],
+  callQuality: [],
   contacts: [],
   contactInvites: [],
   contactRequests: [],
@@ -1844,6 +1867,7 @@ async function readStore(): Promise<StoreData> {
       notifyPrefs: Array.isArray(parsed.notifyPrefs) ? parsed.notifyPrefs : [],
       groupCalls: Array.isArray(parsed.groupCalls) ? parsed.groupCalls : [],
       callSignals: Array.isArray(parsed.callSignals) ? parsed.callSignals : [],
+      callQuality: Array.isArray(parsed.callQuality) ? parsed.callQuality : [],
       contacts: Array.isArray(parsed.contacts) ? parsed.contacts : [],
       contactInvites: Array.isArray(parsed.contactInvites) ? parsed.contactInvites : [],
       contactRequests: Array.isArray(parsed.contactRequests) ? parsed.contactRequests : [],
@@ -1961,6 +1985,8 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.backups = (data.backups ?? []).filter((b) => b.userId !== uid);
   data.calls = (data.calls ?? []).filter((c) => c.ownerUserId !== uid && c.peerKey !== uid);
   data.callSignals = (data.callSignals ?? []).filter((s) => s.fromUserId !== uid);
+  const liveCallIds = new Set((data.calls ?? []).map((c) => c.id).concat((data.groupCalls ?? []).map((c) => c.id)));
+  data.callQuality = (data.callQuality ?? []).filter((q) => liveCallIds.has(q.callId));
   data.userStories = (data.userStories ?? []).filter((s) => s.ownerUserId !== uid);
   for (const d of data.devices ?? []) {
     if (d.userId === uid && !d.revokedAt) d.revokedAt = now;

@@ -25,6 +25,7 @@ import {
   applyBitrate,
   getMediaErrorMessage,
   listAudioOutputs,
+  sampleCallQuality,
   shareScreen,
   startMediaLoop,
   stopLoop,
@@ -85,6 +86,7 @@ export function CallStage({
   const [sharing, setSharing] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [metrics, setMetrics] = useState<{ rttMs: number; loss: number; jitterMs: number } | null>(null);
   const incoming = call.direction === "in" && phase === "ringing";
 
   const attach = useCallback((session: LoopSession) => {
@@ -182,6 +184,29 @@ export function CallStage({
     const t = window.setInterval(() => setElapsed(Date.now() - started), 500);
     return () => window.clearInterval(t);
   }, [phase]);
+
+  useEffect(() => {
+    if (phase !== "active" && phase !== "poor" && phase !== "reconnect") return;
+    const t = window.setInterval(async () => {
+      const session = loopRef.current;
+      if (!session) return;
+      const sample = await sampleCallQuality(session.pcLocal);
+      if (!sample) return;
+      setMetrics(sample);
+      if (sample.loss >= 8 || sample.rttMs >= 400) setPhase((p) => (p === "reconnect" ? p : "poor"));
+      const nonce = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      void fetch(`/api/calls/${call.id}/signal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "quality",
+          nonce,
+          body: `rtt=${sample.rttMs},loss=${sample.loss},jitter=${sample.jitterMs}`,
+        }),
+      });
+    }, 5000);
+    return () => window.clearInterval(t);
+  }, [phase, call.id]);
 
   useEffect(() => {
     if (!hideLockInfo && incoming && "Notification" in window && Notification.permission === "granted") {
@@ -309,14 +334,14 @@ export function CallStage({
 
   const statusText =
     phase === "reconnect"
-      ? "در حال اتصال مجدد…"
+      ? "در حال اتصال مجدد · Reconnecting"
       : phase === "poor"
-        ? "اتصال ضعیف · تماس حفظ می‌شود"
+        ? "اتصال ضعیف · Poor Connection"
         : phase === "active"
-          ? "متصل · رسانه روی دستگاه رمز می‌شود"
+          ? "متصل · Connected"
           : incoming
-            ? "تماس ورودی"
-            : "در حال زنگ…";
+            ? "تماس ورودی · Incoming"
+            : "در حال زنگ · Calling";
 
   if (minimized && (phase === "active" || phase === "poor" || phase === "reconnect")) {
     return (
@@ -402,8 +427,11 @@ export function CallStage({
           سیگنال تماس با نشست احرازشده روی سرور است؛ صدا و تصویر در این برش با WebRTC روی همین دستگاه حلقه می‌شود و نیکسو رسانه را نمی‌بیند.
           Echo Cancellation، Noise Suppression و Automatic Gain Control در صورت پشتیبانی مرورگر فعال است. نیکسو جایگزین تماس اضطراری سیستم‌عامل نیست.
         </p>
-        <p className="text-center text-[10px] text-emerald-100/40">
-          ضبط تماس فعال نیست. اگر بعداً اضافه شود، قبل از ضبط اطلاع‌رسانی واضح و رضایت لازم است.
+        <p className="text-center text-[10px] text-emerald-100/40" role="status">
+          ضبط تماس خاموش است · Recording off
+          {metrics
+            ? ` · RTT ${metrics.rttMs}ms · Loss ${metrics.loss}% · Jitter ${metrics.jitterMs}ms`
+            : ""}
         </p>
         {incoming ? (
           <div className="flex justify-center gap-3">

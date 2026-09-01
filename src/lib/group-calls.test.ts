@@ -4,7 +4,7 @@ import { completeProfile } from "./profile";
 import { ackHumanChallenge, issueHumanChallenge, startRegistration, verifyOtp } from "./registration";
 import { getOutbox } from "./outbox";
 import { listThreads } from "./chat";
-import { resetStoreForTests } from "./store";
+import { mutateStore, resetStoreForTests } from "./store";
 import { createGroup, joinByToken } from "./groups";
 import { actOnCall, startIncomingDemo, startOutgoing } from "./calls";
 import {
@@ -14,6 +14,7 @@ import {
   joinGroupCall,
   moderateGroupCall,
   peekCallLink,
+  setOwnCallMedia,
   startGroupCall,
 } from "./group-calls";
 
@@ -97,6 +98,24 @@ describe("group calls and second-line", () => {
     expect(capUp.ok).toBe(true);
     const added = await addToGroupCall(host, started.call.id, b);
     expect(added.ok).toBe(true);
+
+    const media = await setOwnCallMedia(b, started.call.id, { camOff: true, micMuted: true });
+    expect(media.ok).toBe(true);
+    if (media.ok) {
+      const self = media.call.participants.find((p) => p.userId === b);
+      expect(self?.camOff).toBe(true);
+      expect(self?.micMuted).toBe(true);
+    }
+
+    await mutateStore((data) => {
+      const room = data.groupCalls.find((c) => c.id === started.call.id);
+      if (room) room.inviteExpiresAt = Date.now() - 1;
+      return true;
+    });
+    const expiredPeek = await peekCallLink(a, token);
+    expect(expiredPeek.ok).toBe(false);
+    const expiredJoin = await joinCallByToken(a, token);
+    expect(expiredJoin.ok).toBe(false);
   });
 
   it("queues a second incoming call and supports end-current-accept", async () => {

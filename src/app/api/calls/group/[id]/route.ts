@@ -1,6 +1,6 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
-import { addToGroupCall, getGroupCall, joinGroupCall, moderateGroupCall } from "@/lib/group-calls";
+import { addToGroupCall, getGroupCall, joinGroupCall, moderateGroupCall, setOwnCallMedia } from "@/lib/group-calls";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -21,11 +21,18 @@ export async function POST(request: Request, ctx: Ctx) {
     action?: string;
     targetUserId?: string;
     maxParticipants?: number;
+    camOff?: boolean;
+    micMuted?: boolean;
   } | null;
   const action = body?.action;
   if (!action) return jsonError("عملیات نامعتبر است.");
   if (action === "join") {
     const r = await joinGroupCall(user.id, id);
+    if (!r.ok) return jsonError(r.error, r.status);
+    return json({ ok: true, call: r.call });
+  }
+  if (action === "media") {
+    const r = await setOwnCallMedia(user.id, id, { camOff: body?.camOff, micMuted: body?.micMuted });
     if (!r.ok) return jsonError(r.error, r.status);
     return json({ ok: true, call: r.call });
   }

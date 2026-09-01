@@ -82,4 +82,28 @@ describe("call signaling and voice helpers", () => {
     expect(blobLooksEmpty(500)).toBe(false);
     expect(voiceBitrate("high")).toBeGreaterThan(voiceBitrate("standard", true));
   });
+
+  it("rejects replayed signaling nonce and quality SDP", async () => {
+    const a = await activeUser("sig_nonce");
+    const threads = await listThreads(a);
+    const thread = threads.find((t) => t.peerKey === "arya")!;
+    const started = await startOutgoing(a, thread.id, "voice");
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    const first = await postCallSignal(a, started.call.id, {
+      type: "quality",
+      body: "rtt=40,loss=1,jitter=8",
+      nonce: "n1-unique",
+    });
+    expect(first.ok).toBe(true);
+    const replay = await postCallSignal(a, started.call.id, {
+      type: "quality",
+      body: "rtt=41,loss=1,jitter=8",
+      nonce: "n1-unique",
+    });
+    expect(replay.ok).toBe(false);
+    if (!replay.ok) expect(replay.status).toBe(409);
+    const sdp = await postCallSignal(a, started.call.id, { type: "quality", body: "v=0 sdp leak" });
+    expect(sdp.ok).toBe(false);
+  });
 });

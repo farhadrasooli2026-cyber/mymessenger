@@ -20,6 +20,10 @@ export const config = {
     "nixo-dev-session-secret-not-for-production",
   ),
   demoInbox: process.env.NIXO_DEMO_INBOX !== "false",
+  stunUrl: process.env.NIXO_STUN_URL || "stun:stun.cloudflare.com:3478",
+  turnUrl: process.env.NIXO_TURN_URL || "",
+  turnUser: process.env.NIXO_TURN_USERNAME || "",
+  turnCredential: process.env.NIXO_TURN_CREDENTIAL || "",
   otp: {
     length: 6,
     ttlMs: 3 * 60 * 1000,
