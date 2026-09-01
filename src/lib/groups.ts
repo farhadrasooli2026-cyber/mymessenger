@@ -10,6 +10,7 @@ import { validateVoiceDuration, VOICE_SEND_PER_MIN } from "@/lib/voice";
 import { declaredExtAllowed, scanNamedFile } from "@/lib/files";
 import { emitNotification } from "@/lib/notify";
 import { enqueueSearchIndexSync } from "@/lib/search";
+import { claimSpaceHandle } from "@/lib/space-handles";
 import {
   DEFAULT_GROUP_ADMIN_PERMS,
   DEFAULT_GROUP_PERMS,
@@ -104,6 +105,7 @@ export function canModContent(actor: GroupMember, group: GroupRecord) {
 export function adminCan(group: GroupRecord, actor: GroupMember, perm: keyof GroupAdminPerms) {
   if (actor.role === "owner") return true;
   if (actor.role === "admin") return Boolean(group.adminPerms[perm]);
+  if (perm === "manageAdmins" && customFlag(group, actor, "manageAdmins")) return true;
   if (actor.role === "moderator" && (perm === "deleteMessages" || perm === "pinMessages")) return true;
   return false;
 }
@@ -186,6 +188,7 @@ function publicGroup(group: GroupRecord, viewerKey: string) {
     pinIds: group.pinIds,
     reactionsEnabled: group.reactionsEnabled !== false,
     allowedReactions: group.allowedReactions ?? null,
+    allowForward: group.allowForward !== false,
     myRole: me?.role ?? null,
     myMembershipId: me?.id ?? null,
     notifyMutedUntil: me?.notifyMutedUntil ?? null,
@@ -276,15 +279,9 @@ export async function createGroup(
     if (owned >= GROUP_OWNED_MAX) {
       return { ok: false as const, error: "تعداد گروه‌های قابل ساخت به سقف سیاست نیکسو رسیده است.", status: 429 };
     }
-    const username = input.username?.trim().replace(/^@/, "").toLowerCase() || null;
-    if (username) {
-      if (!/^[a-z][a-z0-9_]{2,23}$/.test(username)) {
-        return { ok: false as const, error: "نام کاربری گروه نامعتبر است.", status: 400 };
-      }
-      if (data.groups.some((g) => g.username === username && !g.deletedAt)) {
-        return { ok: false as const, error: "این نام کاربری گروه گرفته شده است.", status: 409 };
-      }
-    }
+    const claimed = claimSpaceHandle(data, input.username);
+    if (!claimed.ok) return claimed;
+    const handle = claimed.username;
     const owner = makeMember({
       key: userId,
       kind: "user",
@@ -342,7 +339,7 @@ export async function createGroup(
       description: (input.description ?? "").trim().slice(0, 500),
       rules: "",
       welcome: "",
-      username,
+      username: handle,
       color: input.color && COLORS.includes(input.color) ? input.color : COLORS[members.length % COLORS.length]!,
       photoDataUrl: typeof input.photoDataUrl === "string" && input.photoDataUrl.startsWith("data:image/") ? input.photoDataUrl.slice(0, 400_000) : null,
       ownerUserId: userId,
@@ -371,6 +368,8 @@ export async function createGroup(
       tags: (input.tags ?? []).map((t) => t.trim().toLowerCase().slice(0, 24)).filter(Boolean).slice(0, 8),
       searchVisible: (input.joinMode ?? "invite") === "open",
       customRoles: [],
+      allowForward: true,
+      previousUsernames: [],
     };
     data.groups.push(group);
     enqueueSearchIndexSync(data, "group-create");
@@ -409,6 +408,7 @@ export async function updateGroup(
     inviteExpiresAt?: number | null;
     inviteMaxUses?: number | null;
     customRoles?: CustomGroupRole[];
+    allowForward?: boolean;
   }>,
 ) {
   return mutateStore((data) => {
@@ -432,15 +432,14 @@ export async function updateGroup(
     if (typeof patch.rules === "string") group.rules = patch.rules.trim().slice(0, 2000);
     if (typeof patch.welcome === "string") group.welcome = patch.welcome.trim().slice(0, 400);
     if (patch.username !== undefined) {
-      const u = patch.username?.trim().replace(/^@/, "").toLowerCase() || null;
-      if (u && !/^[a-z][a-z0-9_]{2,23}$/.test(u)) {
-        return { ok: false as const, error: "نام کاربری نامعتبر است.", status: 400 };
+      const claimed = claimSpaceHandle(data, patch.username, { groupId: group.id });
+      if (!claimed.ok) return claimed;
+      if (group.username && group.username !== claimed.username) {
+        group.previousUsernames = [...(group.previousUsernames ?? []), group.username].slice(-8);
       }
-      if (u && data.groups.some((g) => g.id !== group.id && g.username === u && !g.deletedAt)) {
-        return { ok: false as const, error: "این نام کاربری گرفته شده است.", status: 409 };
-      }
-      group.username = u;
+      group.username = claimed.username;
     }
+    if (typeof patch.allowForward === "boolean") group.allowForward = patch.allowForward;
     if (patch.color && COLORS.includes(patch.color)) {
       group.color = patch.color;
       pushSystem(data, group, "عکس/رنگ گروه تغییر کرد.", now);
@@ -886,8 +885,12 @@ export async function moderateMember(
       pushSystem(data, group, `ارسال پیام ${target.name} محدود شد.`, now);
       pushAudit(group, me, "mute", target.name);
     } else if (action === "restrict") {
+      if (!adminCan(group, me, "removeMembers")) {
+        return { ok: false as const, error: "اجازهٔ محدود کردن نداری.", status: 403 };
+      }
       target.restrictedUntil = now + Math.min(30 * 24 * 3600_000, Math.max(60_000, extra?.ms ?? 3600_000));
       pushSystem(data, group, `${target.name} محدود شد.`, now);
+      pushAudit(group, me, "restrict", target.name);
     } else if (action === "role") {
       if (extra?.customRoleId !== undefined) {
         if (me.role !== "owner" && me.role !== "admin") {
@@ -903,7 +906,9 @@ export async function moderateMember(
       if (role) {
         if (role === "owner") return { ok: false as const, error: "انتقال مالکیت جداست.", status: 400 };
         if (role === "admin") {
-          if (me.role !== "owner") return { ok: false as const, error: "فقط مالک نقش ادمین را عوض می‌کند.", status: 403 };
+          if (me.role !== "owner" && !adminCan(group, me, "manageAdmins")) {
+            return { ok: false as const, error: "اجازهٔ تغییر نقش ادمین نداری.", status: 403 };
+          }
         } else if (role === "moderator" || role === "member") {
           if (me.role !== "owner" && me.role !== "admin") {
             return { ok: false as const, error: "اجازهٔ تغییر نقش نداری.", status: 403 };
@@ -969,12 +974,22 @@ export async function deleteGroup(userId: string, groupId: string, extra?: { con
   });
 }
 
-export async function listGroupMembers(userId: string, groupId: string, q = "", cursor = "", limit = GROUP_MEMBER_PAGE) {
+export async function listGroupMembers(
+  userId: string,
+  groupId: string,
+  q = "",
+  cursor = "",
+  limit = GROUP_MEMBER_PAGE,
+  sort: "joined" | "name" | "role" = "joined",
+) {
   const data = await readStoreSnapshot();
   const group = data.groups.find((g) => g.id === groupId && !g.deletedAt);
   if (!group || !findMember(group, userId)) return null;
   const needle = q.trim().toLowerCase();
-  const live = group.members.filter(liveMember).sort((a, b) => a.joinedAt - b.joinedAt);
+  const live = group.members.filter(liveMember).slice();
+  if (sort === "name") live.sort((a, b) => a.name.localeCompare(b.name, "fa"));
+  else if (sort === "role") live.sort((a, b) => rankRole(b.role) - rankRole(a.role) || a.name.localeCompare(b.name, "fa"));
+  else live.sort((a, b) => a.joinedAt - b.joinedAt);
   const filtered = needle
     ? live.filter((m) => m.name.toLowerCase().includes(needle) || m.role.includes(needle))
     : live;
@@ -1025,6 +1040,7 @@ export async function sendGroupMessage(
     poll?: { question: string; options: string[]; anonymous?: boolean; multiple?: boolean; closesAt?: number | null };
     stickerId?: string;
     durationMs?: number;
+    clientNonce?: string;
   },
 ) {
   return mutateStore((data) => {
@@ -1063,6 +1079,13 @@ export async function sendGroupMessage(
     if (!flood.allowed) {
       me.mutedUntil = now + 5 * 60_000;
       return { ok: false as const, error: "ارسال پیاپی شناسایی شد و موقتاً محدود شدی.", status: 429 };
+    }
+    const clientNonce = typeof payload.clientNonce === "string" ? payload.clientNonce.trim().slice(0, 80) : "";
+    if (clientNonce) {
+      const dup = data.groupMessages.find(
+        (m) => m.groupId === groupId && m.senderKey === userId && m.clientNonce === clientNonce && !m.deleted,
+      );
+      if (dup) return { ok: true as const, message: publicGroupMessage(dup, userId, data) };
     }
     if (payload.replyToId) {
       const orig = data.groupMessages.find((m) => m.id === payload.replyToId && m.groupId === groupId && !m.deleted);
@@ -1207,6 +1230,7 @@ export async function sendGroupMessage(
       chunkCount: payload.chunkCount,
       byteLength: payload.byteLength,
       durationMs: kind === "voice" ? payload.durationMs : undefined,
+      clientNonce: clientNonce || undefined,
     };
     data.groupMessages.push(msg);
     group.updatedAt = now;
@@ -1312,6 +1336,38 @@ export async function pinMessage(userId: string, groupId: string, messageId: str
       }
     } else group.pinIds = group.pinIds.filter((id) => id !== messageId);
     return { ok: true as const, pinIds: group.pinIds };
+  });
+}
+
+export async function editGroupMessage(
+  userId: string,
+  groupId: string,
+  messageId: string,
+  patch: { ciphertext?: string; nonce?: string },
+) {
+  return mutateStore((data) => {
+    const group = data.groups.find((g) => g.id === groupId && !g.deletedAt);
+    if (!group) return { ok: false as const, error: "گروه یافت نشد.", status: 404 };
+    const me = findMember(group, userId);
+    if (!me) return { ok: false as const, error: "عضو نیستی.", status: 403 };
+    const msg = data.groupMessages.find((m) => m.id === messageId && m.groupId === groupId && !m.deleted);
+    if (!msg) return { ok: false as const, error: "پیام یافت نشد.", status: 404 };
+    if (msg.senderKey !== userId) return { ok: false as const, error: "فقط فرستنده می‌تواند ویرایش کند.", status: 403 };
+    if (msg.kind === "system" || msg.enc !== "e2ee-v1") {
+      return { ok: false as const, error: "این پیام قابل ویرایش نیست.", status: 400 };
+    }
+    if (Date.now() - msg.createdAt > 15 * 60_000) {
+      return { ok: false as const, error: "مهلت ویرایش تمام شده است.", status: 403 };
+    }
+    const ciphertext = typeof patch.ciphertext === "string" ? patch.ciphertext.trim() : "";
+    const nonce = typeof patch.nonce === "string" ? patch.nonce.trim() : "";
+    if (ciphertext.length < 8 || nonce.length < 8) {
+      return { ok: false as const, error: "پاکت ویرایش نامعتبر است.", status: 400 };
+    }
+    msg.ciphertext = ciphertext;
+    msg.nonce = nonce;
+    msg.editedAt = Date.now();
+    return { ok: true as const, message: publicGroupMessage(msg, userId, data) };
   });
 }
 

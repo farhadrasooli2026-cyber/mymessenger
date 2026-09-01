@@ -2404,6 +2404,12 @@ export function Messenger({
             <Link href="/app/settings/live" className="block text-sm text-amber-200">
               تنظیمات → Live
             </Link>
+            <Link href="/app/spaces" className="block text-sm text-amber-200">
+              گروه و کانال
+            </Link>
+            <Link href="/app/settings/spaces" className="block text-sm text-amber-200">
+              تنظیمات → گروه و کانال
+            </Link>
             <Link href="/app/calls" className="block text-sm text-amber-200">
               مرکز تماس
             </Link>

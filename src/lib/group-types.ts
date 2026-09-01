@@ -20,6 +20,8 @@ export type CustomGroupRole = {
   pinMessages: boolean;
   deleteMessages: boolean;
   muteMembers: boolean;
+  manageAdmins?: boolean;
+  addMembers?: boolean;
 };
 export const GROUP_STORAGE_MAX_ITEMS = 2000;
 export const GROUP_SLOW_PRESETS = [
@@ -69,6 +71,7 @@ export type GroupAdminPerms = {
   manageCalls: boolean;
   manageInvites: boolean;
   managePermissions: boolean;
+  manageAdmins: boolean;
 };
 
 export const DEFAULT_GROUP_ADMIN_PERMS: GroupAdminPerms = {
@@ -80,6 +83,7 @@ export const DEFAULT_GROUP_ADMIN_PERMS: GroupAdminPerms = {
   manageCalls: true,
   manageInvites: true,
   managePermissions: false,
+  manageAdmins: false,
 };
 
 export const ROLE_FA: Record<GroupRole, string> = {
@@ -125,6 +129,7 @@ export const ADMIN_PERM_FA: Record<keyof GroupAdminPerms, string> = {
   manageCalls: "مدیریت تماس",
   manageInvites: "مدیریت دعوت",
   managePermissions: "تغییر مجوز اعضا",
+  manageAdmins: "مدیریت ادمین‌ها",
 };
 
 export const GROUP_FOLDER_PRESETS = ["Friends", "Work", "Gaming"] as const;

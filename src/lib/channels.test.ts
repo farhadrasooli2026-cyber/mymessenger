@@ -17,6 +17,7 @@ import {
   subscribe,
   transferChannelOwner,
   moderateJoinRequest,
+  cancelChannelJoinRequest,
   cancelScheduledPost,
   listChannelDiscovery,
   exportChannelData,
@@ -258,5 +259,27 @@ describe("NIXO channels", () => {
     if (!priv.ok) return;
     const hidden = await listChannelPosts(stranger, priv.channel.id);
     expect(hidden).toBeNull();
+  });
+
+  it("cancels a join request, supports silent posts, and rejects reserved channel handles", async () => {
+    const owner = await activeUser("ch_sil_o");
+    const fan = await activeUser("ch_sil_f");
+    const reserved = await createChannel(owner, { name: "رزرو", username: "support", visibility: "public" });
+    expect(reserved.ok).toBe(false);
+    const created = await createChannel(owner, { name: "درخواست ساکت", visibility: "private", joinMode: "request" });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const asked = await subscribe(fan, created.channel.id);
+    expect(asked.ok).toBe(true);
+    const cancelled = await cancelChannelJoinRequest(fan, created.channel.id);
+    expect(cancelled.ok).toBe(true);
+    const again = await cancelChannelJoinRequest(fan, created.channel.id);
+    expect(again.ok).toBe(false);
+    const pub = await createChannel(owner, { name: "اعلان", username: "nixo_silent1", visibility: "public" });
+    expect(pub.ok).toBe(true);
+    if (!pub.ok) return;
+    const quiet = await createPost(owner, pub.channel.id, { body: "بی‌صدا", silent: true });
+    expect(quiet.ok).toBe(true);
+    if (quiet.ok) expect(quiet.post.silent).toBe(true);
   });
 });

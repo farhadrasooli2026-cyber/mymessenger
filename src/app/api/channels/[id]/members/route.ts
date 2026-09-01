@@ -1,6 +1,6 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
-import { inviteDirect, liveChat, listChannelSubscribers, moderateSubscriber, publishChannelStory, setLive, setNotify, setStaff, subscribe, transferChannelOwner, unsubscribe, moderateJoinRequest, exportChannelData, adminChannelLifecycle } from "@/lib/channels";
+import { inviteDirect, liveChat, listChannelSubscribers, moderateSubscriber, publishChannelStory, setLive, setNotify, setStaff, subscribe, transferChannelOwner, unsubscribe, moderateJoinRequest, cancelChannelJoinRequest, exportChannelData, adminChannelLifecycle } from "@/lib/channels";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -9,7 +9,13 @@ export async function GET(request: Request, ctx: Ctx) {
   if (!user) return jsonError("نشست فعال نیست.", 401);
   const { id } = await ctx.params;
   const url = new URL(request.url);
-  const result = await listChannelSubscribers(user.id, id, url.searchParams.get("q") ?? "", url.searchParams.get("cursor") ?? "");
+  const result = await listChannelSubscribers(
+    user.id,
+    id,
+    url.searchParams.get("q") ?? "",
+    url.searchParams.get("cursor") ?? "",
+    url.searchParams.get("sort") === "name" ? "name" : "joined",
+  );
   if (!result) return jsonError("کانال یافت نشد.", 404);
   if (result.ok === false) return jsonError(result.error, result.status);
   return json(result);
@@ -35,6 +41,11 @@ export async function POST(request: Request, ctx: Ctx) {
     const result = await moderateJoinRequest(user.id, id, String(body.targetId ?? ""), body.action === "join-approve");
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true, channel: result.channel });
+  }
+  if (body.action === "join-cancel") {
+    const result = await cancelChannelJoinRequest(user.id, id);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true });
   }
   if (body.action === "export") {
     const result = await exportChannelData(user.id, id);
@@ -98,7 +109,9 @@ export async function POST(request: Request, ctx: Ctx) {
     return json({ ok: true, channel: result.channel });
   }
   const action = body.action as "remove" | "ban" | "unban";
-  const result = await moderateSubscriber(user.id, id, String(body.targetId ?? ""), action);
+  const result = await moderateSubscriber(user.id, id, String(body.targetId ?? ""), action, {
+    until: body.until === null ? null : typeof body.until === "number" ? body.until : undefined,
+  });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, channel: result.channel });
 }

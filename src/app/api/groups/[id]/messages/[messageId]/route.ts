@@ -1,6 +1,6 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
-import { deleteGroupMessage, pinMessage, reactToMessage, votePoll } from "@/lib/groups";
+import { deleteGroupMessage, editGroupMessage, pinMessage, reactToMessage, votePoll } from "@/lib/groups";
 
 type Ctx = { params: Promise<{ id: string; messageId: string }> };
 
@@ -30,6 +30,14 @@ export async function POST(request: Request, ctx: Ctx) {
     const result = await deleteGroupMessage(user.id, id, messageId);
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true });
+  }
+  if (action === "edit") {
+    const result = await editGroupMessage(user.id, id, messageId, {
+      ciphertext: typeof body?.ciphertext === "string" ? body.ciphertext : undefined,
+      nonce: typeof body?.nonce === "string" ? body.nonce : undefined,
+    });
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true, message: result.message });
   }
   return jsonError("عملیات نامعتبر است.");
 }

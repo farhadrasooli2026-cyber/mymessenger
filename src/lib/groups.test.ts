@@ -15,7 +15,10 @@ import {
   rotateInvite,
   sendGroupMessage,
   updateGroup,
+  editGroupMessage,
+  listGroupMembers,
 } from "./groups";
+import { spacesDashboard, searchSpaces } from "./spaces-center";
 
 const envelope = {
   enc: "e2ee-v1",
@@ -207,5 +210,35 @@ describe("NIXO groups", () => {
     expect(banned.ok).toBe(true);
     const rejoinExpiredBan = await joinByToken(member, open.group.inviteToken!, { acceptRules: true });
     expect(rejoinExpiredBan.ok).toBe(true);
+  });
+
+  it("rejects reserved handles, edits own E2EE message, and hides private groups from the spaces desk", async () => {
+    const owner = await activeUser("grp_handle");
+    const reserved = await createGroup(owner, { name: "رزرو", username: "admin", joinMode: "open" });
+    expect(reserved.ok).toBe(false);
+    const created = await createGroup(owner, { name: "اتاق ویرایش", joinMode: "invite" });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const sent = await sendGroupMessage(owner, created.group.id, { ...envelope, kind: "text", clientNonce: "g1" });
+    expect(sent.ok).toBe(true);
+    if (!sent.ok) return;
+    const dup = await sendGroupMessage(owner, created.group.id, { ...envelope, kind: "text", clientNonce: "g1" });
+    expect(dup.ok).toBe(true);
+    if (dup.ok) expect(dup.message.id).toBe(sent.message.id);
+    const edited = await editGroupMessage(owner, created.group.id, sent.message.id, {
+      ciphertext: "Q0NDQ0NDQ0NDQ0ND",
+      nonce: "RERERERERERERERE",
+    });
+    expect(edited.ok).toBe(true);
+    const members = await listGroupMembers(owner, created.group.id, "", "", 40, "name");
+    expect(members?.members.some((m) => m.key === owner)).toBe(true);
+    const dash = await spacesDashboard(owner);
+    expect(dash.groups.mine).toBeGreaterThanOrEqual(1);
+    const secret = await createGroup(owner, { name: "مخفی فضا", joinMode: "invite" });
+    expect(secret.ok).toBe(true);
+    if (!secret.ok) return;
+    const other = await activeUser("grp_space_x");
+    const listed = await searchSpaces(other, { q: "مخفی فضا", kind: "group" });
+    expect(listed.items.some((i) => i.id === secret.group.id)).toBe(false);
   });
 });

@@ -9,7 +9,14 @@ export async function GET(request: Request, ctx: Ctx) {
   if (!user) return jsonError("نشست فعال نیست.", 401);
   const { id } = await ctx.params;
   const url = new URL(request.url);
-  const result = await listGroupMembers(user.id, id, url.searchParams.get("q") ?? "", url.searchParams.get("cursor") ?? "");
+  const result = await listGroupMembers(
+    user.id,
+    id,
+    url.searchParams.get("q") ?? "",
+    url.searchParams.get("cursor") ?? "",
+    40,
+    url.searchParams.get("sort") === "name" || url.searchParams.get("sort") === "role" ? url.searchParams.get("sort") as "name" | "role" : "joined",
+  );
   if (!result) return jsonError("گروه یافت نشد.", 404);
   return json({ ok: true, ...result });
 }

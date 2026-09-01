@@ -97,6 +97,8 @@ export async function POST(request: Request, ctx: Ctx) {
     fileDataUrl: typeof body.fileDataUrl === "string" ? body.fileDataUrl : undefined,
     fileName: typeof body.fileName === "string" ? body.fileName : undefined,
     clientNonce: typeof body.clientNonce === "string" ? body.clientNonce : undefined,
+    silent: body.silent === true,
+    announcement: body.announcement === true,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, post: result.post, channel: result.channel });

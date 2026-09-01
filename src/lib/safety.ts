@@ -66,7 +66,7 @@ export async function listBlocked(userId: string) {
 
 export const reportInputSchema = z.object({
   targetKind: z.enum(["user", "chat", "group", "community", "channel", "story", "bot", "miniapp", "business", "sticker", "live"]),
-  targetKey: z.string().min(1).max(80),
+  targetKey: z.string().min(1).max(160),
   threadId: z.string().max(80).optional(),
   messageIds: z.array(z.string().max(80)).max(20).optional(),
   category: reportCategorySchema,
@@ -87,9 +87,13 @@ export async function fileReport(
       if (!thread) return { ok: false as const, error: "گفتگو یافت نشد.", status: 404 };
     }
     if (input.targetKind === "group") {
-      const group = data.groups.find((g) => g.id === input.targetKey && !g.deletedAt);
+      const [gid, mid] = input.targetKey.split(":");
+      const group = data.groups.find((g) => g.id === gid && !g.deletedAt);
       if (!group || !group.members.some((m) => m.key === reporterId && !m.leftAt)) {
         return { ok: false as const, error: "گروه یافت نشد.", status: 404 };
+      }
+      if (mid && !data.groupMessages.some((m) => m.id === mid && m.groupId === gid)) {
+        return { ok: false as const, error: "پیام یافت نشد.", status: 404 };
       }
     }
     if (input.targetKind === "community") {
@@ -99,15 +103,20 @@ export async function fileReport(
       }
     }
     if (input.targetKind === "channel") {
+      const [cid] = input.targetKey.split(":");
       const inCommunity = data.communities.some(
-        (c) => !c.deletedAt && c.channels.some((ch) => ch.id === input.targetKey),
+        (c) => !c.deletedAt && c.channels.some((ch) => ch.id === cid || ch.id === input.targetKey),
       );
-      const pub = data.pubChannels.find((c) => c.id === input.targetKey && !c.deletedAt);
+      const pub = data.pubChannels.find((c) => (c.id === cid || c.id === input.targetKey) && !c.deletedAt);
       if (!inCommunity && !pub) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
       if (pub && pub.visibility === "private") {
         const staff = pub.staff.some((s) => s.userId === reporterId);
         const sub = pub.subscribers.some((s) => s.userId === reporterId && !s.leftAt);
         if (!staff && !sub) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
+      }
+      const pid = input.targetKey.includes(":") ? input.targetKey.slice(cid.length + 1) : "";
+      if (pid && pub && !data.channelPosts.some((p) => p.id === pid && p.channelId === pub.id)) {
+        return { ok: false as const, error: "پست یافت نشد.", status: 404 };
       }
     }
     if (input.targetKind === "sticker") {

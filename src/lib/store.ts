@@ -354,6 +354,8 @@ function hydrateGroup(group: GroupRecord): GroupRecord {
     tags: Array.isArray(group.tags) ? group.tags.map(String).slice(0, 8) : [],
     searchVisible: group.searchVisible !== false,
     customRoles: Array.isArray(group.customRoles) ? group.customRoles : [],
+    allowForward: group.allowForward !== false,
+    previousUsernames: Array.isArray(group.previousUsernames) ? group.previousUsernames : [],
   };
 }
 
@@ -447,6 +449,7 @@ function hydratePubChannel(channel: PubChannelRecord): PubChannelRecord {
     liveStreamId: channel.liveStreamId ?? null,
     stories: Array.isArray(channel.stories) ? channel.stories : [],
     deletedAt: channel.deletedAt ?? null,
+    previousUsernames: Array.isArray(channel.previousUsernames) ? channel.previousUsernames : [],
   };
 }
 
@@ -1221,6 +1224,8 @@ export type GroupRecord = {
   tags: string[];
   searchVisible: boolean;
   customRoles: CustomGroupRole[];
+  allowForward?: boolean;
+  previousUsernames?: string[];
 };
 
 export type GroupPoll = {
@@ -1255,6 +1260,8 @@ export type GroupMessage = {
   deleted?: boolean;
   stickerId?: string;
   durationMs?: number;
+  editedAt?: number | null;
+  clientNonce?: string;
 };
 
 export type CommunityMember = {
@@ -1501,6 +1508,8 @@ export type ChannelPost = {
   fileName?: string;
   clientNonce?: string;
   linkPreview?: { url: string; host: string } | null;
+  silent?: boolean;
+  announcement?: boolean;
 };
 
 export type PubChannelRecord = {
@@ -1535,7 +1544,8 @@ export type PubChannelRecord = {
   customRoles: import("@/lib/channel-types").CustomChannelRole[];
   subscribers: ChannelSubscriber[];
   requests: ChannelJoinRequest[];
-  bans: { key: string; at: number }[];
+  bans: { key: string; at: number; until?: number | null }[];
+  previousUsernames?: string[];
   pinIds: string[];
   audit: ChannelAuditEvent[];
   liveActive: boolean;
