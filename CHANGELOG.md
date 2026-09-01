@@ -14,11 +14,12 @@
 - ابر و Auto Scaling (`/api/cloud`, زبانهٔ ابر): min/max، Drain، Failover منطقه
 - CDN و Edge (`/api/edge`, زبانهٔ لبه): کش عمومی نسخه‌دار، Purge مجاز، RUM بدون نشت خصوصی
 - جستجوی پیشرفته (`/api/search`): Boolean، Tombstone، Hybrid مجاز، P95/P99، Discovery عمومی
+- گراف اجتماعی و پیشنهاد (`/api/graph`): Friend/Follow موجود، Block، Mute، پیشنهاد با فیلتر مجوز، کش per-user، Rollback مدل
 - Dependency اصلی: Next 16.3، React 19، Zod 4، Vitest 4، Tailwind 4
 
 ### API
 
-- `GET /api/health`, `/api/status`, `/api/version`, `/api/docs`, `/api/i18n`, `/api/bi`, `/api/billing`, `/api/prod`, `/api/ai`, `/api/ai/ops`, `/api/cloud`, `/api/edge`
+- `GET /api/health`, `/api/status`, `/api/version`, `/api/docs`, `/api/i18n`, `/api/bi`, `/api/billing`, `/api/prod`, `/api/ai`, `/api/ai/ops`, `/api/cloud`, `/api/edge`, `/api/graph`
 - SSE `/api/chats/:id/live`
 
 ### Breaking

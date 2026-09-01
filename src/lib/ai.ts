@@ -3,6 +3,7 @@ import { z } from "zod";
 import { randomId } from "@/lib/crypto-utils";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot, type StoreData } from "@/lib/store";
+import { aiSafeRecLines } from "@/lib/graph";
 import { collectSearchHits } from "@/lib/search";
 import { aiDailyCaps, creditBalance, ensureBilling, hasEntitlement } from "@/lib/billing-access";
 import { extractMemoryCandidate, type AiEngineInput } from "@/lib/ai-engine";
@@ -332,13 +333,7 @@ export async function sendAiMessage(userId: string, input: z.infer<typeof aiSend
     }
 
     const recs =
-      intent === "recommend" && prefs.personalization
-        ? data.aiChats
-            .filter((c) => c.userId === userId)
-            .slice(0, 5)
-            .map((c) => c.title)
-            .join("، ")
-        : "";
+      intent === "recommend" && prefs.personalization ? aiSafeRecLines(data, userId) : "";
 
     const cacheKey = simpleHash(`${userId}:${intent ?? ""}:${clean.text}:${chat.model}:${policy.promptVersion}`);
     const cacheHit =

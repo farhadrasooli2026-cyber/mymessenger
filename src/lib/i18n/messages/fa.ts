@@ -98,6 +98,7 @@ export const fa = {
   "gender.hello_female": "سلام خانم {name}",
   "gender.hello_other": "سلام {name}",
   "test.fa_only": "فقط فارسی",
+  "graph.hint": "پیشنهاد از دادهٔ مجاز نیکسو است. شماره، ایمیل و موقعیت دقیق در Graph نیست. Block همیشه اعمال می‌شود.",
 } as const;
 
 export type MessageKey = keyof typeof fa;

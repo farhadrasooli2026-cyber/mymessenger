@@ -97,4 +97,5 @@ export const ru: MessageCatalog = {
   "gender.hello_male": "Здравствуйте, господин {name}",
   "gender.hello_female": "Здравствуйте, госпожа {name}",
   "gender.hello_other": "Здравствуйте, {name}",
+  "graph.hint": "Рекомендации только из разрешённых данных NIXO. Телефон, почта и точное местоположение в графе нет. Блок всегда действует.",
 };

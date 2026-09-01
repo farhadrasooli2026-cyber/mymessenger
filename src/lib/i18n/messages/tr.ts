@@ -95,4 +95,5 @@ export const tr: MessageCatalog = {
   "gender.hello_male": "Merhaba Bay {name}",
   "gender.hello_female": "Merhaba Bayan {name}",
   "gender.hello_other": "Merhaba {name}",
+  "graph.hint": "Öneriler yalnızca izinli NIXO verisini kullanır. Telefon, e-posta ve kesin konum grafikte yoktur. Engelleme her zaman uygulanır.",
 };

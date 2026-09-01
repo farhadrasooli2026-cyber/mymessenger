@@ -77,6 +77,7 @@ import { anonymizeBilling, syncBillingLifecycle } from "@/lib/billing-access";
 import { emptyProdPersist, hydrateProdPersist, type ProdPersist } from "@/lib/prod-persist";
 import { emptyCloudPersist, hydrateCloudPersist, type CloudPersist } from "@/lib/cloud-persist";
 import { emptyEdgePersist, hydrateEdgePersist, type EdgePersist } from "@/lib/edge-persist";
+import { emptyGraphPersist, hydrateGraphPersist, pruneGraphPersist, purgeGraphSubject, type GraphPersist } from "@/lib/graph-types";
 import { currentDeployEnv } from "@/lib/env-config";
 import type {
   AdminAlert,
@@ -224,6 +225,8 @@ function hydrateUser(user: UserRecord): UserRecord {
     privacyFriendCount: user.privacyFriendCount ?? "friends",
     hideSuggestionIds: Array.isArray(user.hideSuggestionIds) ? user.hideSuggestionIds : [],
     notInterestedUserIds: Array.isArray(user.notInterestedUserIds) ? user.notInterestedUserIds : [],
+    recPersonalize: user.recPersonalize !== false,
+    recNotify: Boolean(user.recNotify),
     relationshipRev: typeof user.relationshipRev === "number" ? user.relationshipRev : 0,
     statusExpiresAt: typeof user.statusExpiresAt === "number" ? user.statusExpiresAt : null,
     statusHistory: Array.isArray(user.statusHistory) ? user.statusHistory.slice(-20) : [],
@@ -691,6 +694,8 @@ export type UserRecord = {
   privacyFriendCount: Visibility;
   hideSuggestionIds: string[];
   notInterestedUserIds: string[];
+  recPersonalize: boolean;
+  recNotify: boolean;
   relationshipRev: number;
   statusExpiresAt: number | null;
   statusHistory: { at: number; preset: string; text: string }[];
@@ -2163,6 +2168,7 @@ export type StoreData = {
   prod: ProdPersist;
   cloud: CloudPersist;
   edge: EdgePersist;
+  graph: GraphPersist;
   schemaMeta: import("@/lib/db/migrate").SchemaMeta;
   dbJobs: DbJob[];
   dbAudit: DbAudit[];
@@ -2332,6 +2338,7 @@ const EMPTY: StoreData = {
   prod: emptyProdPersist(),
   cloud: emptyCloudPersist(),
   edge: emptyEdgePersist(),
+  graph: emptyGraphPersist(),
   schemaMeta: { version: 0, migratedAt: 0, env: process.env.VITEST ? "test" : "development" },
   dbJobs: [],
   dbAudit: [],
@@ -2606,6 +2613,7 @@ async function readStore(): Promise<StoreData> {
       prod: hydrateProdPersist(parsed.prod),
       cloud: hydrateCloudPersist(parsed.cloud),
       edge: hydrateEdgePersist(parsed.edge),
+      graph: hydrateGraphPersist(parsed.graph),
       schemaMeta: hydrateSchemaMeta(parsed.schemaMeta),
       dbJobs: Array.isArray(parsed.dbJobs) ? parsed.dbJobs : [],
       dbAudit: Array.isArray(parsed.dbAudit) ? parsed.dbAudit : [],
@@ -2735,6 +2743,7 @@ function prune(data: StoreData, now: number): void {
   data.prod = hydrateProdPersist(data.prod);
   data.cloud = hydrateCloudPersist(data.cloud);
   data.edge = hydrateEdgePersist(data.edge);
+  data.graph = pruneGraphPersist(hydrateGraphPersist(data.graph), now);
   data.searchTombstones = (data.searchTombstones ?? [])
     .filter((t) => now - t.at < 180 * 24 * 60 * 60 * 1000)
     .slice(0, 2000);
@@ -2951,6 +2960,7 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
     rebuiltAt: now,
     version: data.searchIndex?.version ?? 4,
   };
+  if (data.graph) data.graph = purgeGraphSubject(data.graph, uid);
   data.consentEvents = (data.consentEvents ?? []).filter((e) => e.userId !== uid);
   data.privacyExports = (data.privacyExports ?? []).filter((e) => e.ownerUserId !== uid);
   data.ledger = (data.ledger ?? []).filter((t) => t.userId !== uid);

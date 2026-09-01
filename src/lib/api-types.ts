@@ -77,6 +77,7 @@ export const NIXO_SERVICES = [
   { id: "notify", title: "Notification Service", module: "src/lib/notify.ts" },
   { id: "settings", title: "Settings Service", module: "src/lib/privacy.ts" },
   { id: "search", title: "Search Service", module: "src/lib/search.ts" },
+  { id: "graph", title: "Social Graph Service", module: "src/lib/graph.ts" },
   { id: "moderation", title: "Moderation Service", module: "src/lib/safety.ts" },
   { id: "security", title: "Security Service", module: "src/lib/security.ts" },
   { id: "audit", title: "Audit Service", module: "src/lib/security.ts" },

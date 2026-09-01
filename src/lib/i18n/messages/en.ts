@@ -95,4 +95,5 @@ export const en: MessageCatalog = {
   "gender.hello_male": "Hello Mr {name}",
   "gender.hello_female": "Hello Ms {name}",
   "gender.hello_other": "Hello {name}",
+  "graph.hint": "Suggestions use only permitted NIXO data. Phone, email, and precise location are never in the graph. Block always applies.",
 };

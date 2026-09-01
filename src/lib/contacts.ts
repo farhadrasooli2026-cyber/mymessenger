@@ -10,6 +10,7 @@ import { normalizeUsername } from "@/lib/username";
 import { openDm } from "@/lib/chat";
 import { fileReport, reportCategorySchema } from "@/lib/safety";
 import { emitNotification } from "@/lib/notify";
+import { enqueueGraphEvent } from "@/lib/graph";
 import { collate } from "@/lib/i18n/collate";
 
 export const CONTACT_GROUPS: { id: ContactGroupKind; label: string }[] = [
@@ -813,6 +814,7 @@ export async function resolveRequest(userId: string, requestId: string, action: 
       bumpRel(data, userId, req.fromUserId);
       relationshipAudit(data, userId, "friend-request-block");
       bumpDiscoveryCaches(data);
+      enqueueGraphEvent(data, "friend-request-block", userId, req.fromUserId);
       return { ok: true as const };
     }
     if (action === "decline" || action === "report") {
@@ -851,6 +853,7 @@ export async function resolveRequest(userId: string, requestId: string, action: 
       target: { type: "system", id: req.id, href: "/app/contacts" },
     });
     bumpDiscoveryCaches(data);
+    enqueueGraphEvent(data, "friend-accept", userId, req.fromUserId);
     return { ok: true as const, friendshipId };
   });
 }
@@ -887,6 +890,7 @@ export async function removeFriend(userId: string, peerId: string, friendshipId?
     bumpRel(data, userId, peerId);
     relationshipAudit(data, userId, "unfriend");
     bumpDiscoveryCaches(data);
+    enqueueGraphEvent(data, "unfriend", userId, peerId);
     return { ok: true as const, friendIds: me.friendIds };
   });
 }
@@ -929,6 +933,7 @@ export async function followUser(userId: string, peerId: string) {
       target: { type: "system", id: row.id, href: "/app/contacts" },
     });
     bumpDiscoveryCaches(data);
+    enqueueGraphEvent(data, "follow", userId, peerId);
     return { ok: true as const, followId: row.id };
   });
 }
@@ -957,6 +962,7 @@ export async function unfollowUser(userId: string, peerId: string, followId?: st
     if (data.follows.length === before) return { ok: false as const, error: "Follow یافت نشد.", status: 404 };
     bumpRel(data, userId, peerId);
     bumpDiscoveryCaches(data);
+    enqueueGraphEvent(data, "unfollow", userId, peerId);
     return { ok: true as const };
   });
 }
@@ -1230,7 +1236,13 @@ export async function startChatFromContact(userId: string, contactId?: string, p
 }
 
 export async function blockPerson(userId: string, peerKey: string, blocked: boolean) {
-  return setBlockedPeer(userId, peerKey, blocked);
+  const result = await setBlockedPeer(userId, peerKey, blocked);
+  if (result.ok) {
+    await mutateStore((data) => {
+      enqueueGraphEvent(data, blocked ? "block" : "unblock", userId, peerKey);
+    });
+  }
+  return result;
 }
 
 export async function relationshipSync(userId: string) {

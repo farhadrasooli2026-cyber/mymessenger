@@ -80,6 +80,7 @@ export const DOC_API_PATHS = [
   "/api/ai/ops",
   "/api/cloud",
   "/api/edge",
+  "/api/graph",
 ] as const;
 
 function page(p: Omit<DocPage, "headings">): DocPage {
@@ -101,7 +102,7 @@ export const DOC_PAGES: DocPage[] = [
 NIXO (نیکسو) پیام‌رسان و پلتفرم ارتباطی با تأکید بر حریم خصوصی، امنیت سمت سرور، و قابلیت گسترش است — نه کپی واتساپ یا تلگرام.
 
 ## این برش
-ثبت‌نام OTP، پروفایل، چت E2EE، گروه، کانال، استوری، تماس صوتی/تصویری محلی، اعلان، جستجو، Vault، ادمین، پایش، پشتیبان، عملکرد، انتشار، Localization، دسترسی‌پذیری، تحلیل محصول.
+ثبت‌نام OTP، پروفایل، چت E2EE، گروه، کانال، استوری، تماس صوتی/تصویری محلی، اعلان، جستجو، گراف اجتماعی، Vault، ادمین، پایش، پشتیبان، عملکرد، انتشار، Localization، دسترسی‌پذیری، تحلیل محصول.
 
 ## آنچه این برش نیست
 کلید خصوصی روی سرور ذخیره نمی‌شود. تماس Relayed P2P کامل بین دو دستگاه جدا در این برش ادعا نمی‌شود. پرداخت کارت واقعی فعال نیست.
@@ -187,7 +188,7 @@ Next.js App Router (React 19) + Route Handlers. منطق دامنه در \`src/l
 
 ## سرویس‌ها
 ${NIXO_SERVICES.map((s) => `- ${s.title}: \`${s.module}\``).join("\n")}
-به‌علاوه: admin-moderation، monitor، dr، perf، deploy، search، storage، calls، stories.
+به‌علاوه: admin-moderation، monitor، dr، perf، deploy، search، graph، storage، calls، stories.
 
 ## ADR
 JSON Store تک‌نویسنده (tmp+rename) به‌جای Postgres در این برش تا Backup/DR و تست‌ها ساده بمانند. جایگزین: SQL بعدی با همان قرارداد bind و Scope.
@@ -764,6 +765,24 @@ Full-Text، Exact، Prefix، Fuzzy، AND/OR/NOT، فیلتر تاریخ/فرست
 
 ## کشف
 Discovery و Trending فقط Public. محبوبیت هشتگ با ضد سیلاب. شخصی‌سازی اختیاری و قابل خاموش شدن.`,
+  }),
+  page({
+    slug: "graph",
+    title: "گراف اجتماعی و پیشنهاد",
+    group: "معماری",
+    owner: DOCS_OWNERS.platform,
+    summary: "Friend/Follow/Block روی Graph نسخه‌دار؛ پیشنهاد با فیلتر مجوز، بدون نشت شماره و ایمیل.",
+    tags: ["graph", "recommendation", "friends", "follow", "privacy"],
+    body: `مرکز UI: مخاطبین. فایل: \`docs/GRAPH.md\`. API \`/api/graph\`.
+
+## گراف
+روابط Friend، Follow، عضویت گروه مجاز و اشتراک کانال عمومی. Block بالاتر از بقیه است. حذف رابطه کش پیشنهاد را باطل می‌کند.
+
+## پیشنهاد
+Candidate سپس فیلتر Block/Hide/Spam. شخصی‌سازی قابل خاموش شدن. دلیل سطح‌بالا. AI همان feed مجاز را می‌خواند.
+
+## حریم
+خروجی Graph بدون تلفن و ایمیل. Mutual فقط با اجازه. Contact Sync همچنان Opt-In جدا در مخاطبین.`,
   }),
   page({
     slug: "changelog",

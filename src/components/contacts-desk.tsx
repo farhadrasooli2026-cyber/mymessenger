@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { REPORT_CATEGORIES } from "@/lib/chat-copy";
+import { GraphDesk } from "@/components/graph-desk";
 
 type Contact = {
   id: string;
@@ -272,6 +273,8 @@ export function ContactsDesk() {
           بازگشت به چت
         </Link>
       </header>
+
+      <GraphDesk />
 
       {requestsOut.length > 0 && (
         <section className="mb-4 rounded-2xl bg-white/5 p-3 text-sm">

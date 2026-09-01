@@ -46,3 +46,5 @@ Relevance + تازگی + محبوبیت عمومی + زمینهٔ کاربر د�
 `DELETE` تاریخچه
 
 متریک: Latency، P50/P95/P99، Zero-result، Error، Throughput.
+
+پیشنهاد اجتماعی (Friend/Follow/گروه و کانال عمومی) جدا در `/api/graph` است و از همین ACL عمومی پیروی می‌کند.

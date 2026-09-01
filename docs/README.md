@@ -20,6 +20,7 @@
 | ابر و مقیاس | `/docs/cloud` | [CLOUD.md](./CLOUD.md) |
 | CDN و لبه | `/docs/edge` | [EDGE.md](./EDGE.md) |
 | جستجو و کشف | `/docs/search` | [SEARCH.md](./SEARCH.md) |
+| گراف اجتماعی | `/docs/graph` | [GRAPH.md](./GRAPH.md) |
 | زبان | `/docs/i18n` | [I18N.md](./I18N.md) |
 
 مالک کلی: platform. امنیت: safety. خودِ docs: platform.

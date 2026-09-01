@@ -131,6 +131,8 @@ export function defaultUserFields(): {
   privacyFriendCount: Visibility;
   hideSuggestionIds: string[];
   notInterestedUserIds: string[];
+  recPersonalize: boolean;
+  recNotify: boolean;
   relationshipRev: number;
   statusExpiresAt: number | null;
   statusHistory: { at: number; preset: string; text: string }[];
@@ -231,6 +233,8 @@ export function defaultUserFields(): {
     privacyFriendCount: "friends",
     hideSuggestionIds: [],
     notInterestedUserIds: [],
+    recPersonalize: true,
+    recNotify: false,
     relationshipRev: 0,
     statusExpiresAt: null,
     statusHistory: [],

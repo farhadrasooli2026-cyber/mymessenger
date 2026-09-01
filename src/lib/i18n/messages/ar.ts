@@ -99,4 +99,5 @@ export const ar: MessageCatalog = {
   "gender.hello_male": "مرحباً السيد {name}",
   "gender.hello_female": "مرحباً السيدة {name}",
   "gender.hello_other": "مرحباً {name}",
+  "graph.hint": "الاقتراحات تستخدم بيانات نيكسو المسموحة فقط. الرقم والبريد والموقع الدقيق ليست في الرسم. الحظر يُطبَّق دائماً.",
 };

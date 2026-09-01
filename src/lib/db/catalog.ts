@@ -41,6 +41,7 @@ export const DB_COLLECTIONS: DbCollection[] = [
   { name: "searchIndex", pk: "gen", service: "search", owner: "system", lifecycle: "hot", notes: "ایندکس عمومی نسخه‌دار؛ محتوای خصوصی و E2EE وارد نمی‌شود." },
   { name: "searchDocs", pk: "id", service: "search", owner: "system", lifecycle: "hot", notes: "اسناد عمومی همگام با Store." },
   { name: "searchTombstones", pk: "id", service: "search", owner: "system", lifecycle: "ttl", notes: "سند حذف‌شده پس از Reindex برنمی‌گردد." },
+  { name: "graph", pk: "modelVersion", service: "graph", owner: "system", lifecycle: "hot", notes: "رویداد، کش per-user، بازخورد و متریک پیشنهاد؛ بدون شماره/ایمیل/موقعیت." },
   { name: "calls", pk: "id", ownerField: "ownerUserId", service: "calls", owner: "user", lifecycle: "purge-on-account", notes: "سابقهٔ ۱:۱؛ بدون SDP و توکن رسانه." },
   { name: "groupCalls", pk: "id", service: "calls", owner: "shared-public", lifecycle: "ttl", notes: "اتاق گروهی؛ ورود فقط عضو مجاز." },
   { name: "callSignals", pk: "id", service: "calls", owner: "system", lifecycle: "ttl", notes: "Offer/Answer/ICE کوتاه‌عمر؛ بدنه برای غیر فرستنده در API." },
