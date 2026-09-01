@@ -9,6 +9,7 @@ import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf, can
 import { validateVoiceDuration, VOICE_SEND_PER_MIN } from "@/lib/voice";
 import { declaredExtAllowed, scanNamedFile } from "@/lib/files";
 import { emitNotification } from "@/lib/notify";
+import { enqueueSearchIndexSync } from "@/lib/search";
 import {
   DEFAULT_GROUP_ADMIN_PERMS,
   DEFAULT_GROUP_PERMS,
@@ -372,6 +373,7 @@ export async function createGroup(
       customRoles: [],
     };
     data.groups.push(group);
+    enqueueSearchIndexSync(data, "group-create");
     pushSystem(data, group, `گروه «${name}» ساخته شد.`, now);
     members
       .filter((m) => m.key !== userId)
@@ -961,6 +963,7 @@ export async function deleteGroup(userId: string, groupId: string, extra?: { con
     }
     group.deletedAt = Date.now();
     data.groupMessages = data.groupMessages.filter((m) => m.groupId !== groupId);
+    enqueueSearchIndexSync(data, "group-delete");
     pushAudit(group, me, "delete", "Group deleted");
     return { ok: true as const };
   });

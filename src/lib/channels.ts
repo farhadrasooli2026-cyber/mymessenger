@@ -8,6 +8,7 @@ import { FILE_MAX_BYTES, maxBytesForKind, sanitizeFileName, scanNamedFile, sniff
 import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf } from "@/lib/stickers";
 import { canChannelInvite } from "@/lib/privacy";
 import { emitNotification } from "@/lib/notify";
+import { enqueueSearchIndexSync } from "@/lib/search";
 import { insertLive } from "@/lib/live";
 import { inspectTextLinks } from "@/lib/link-safety";
 import { publishChannelLive } from "@/lib/channel-live";
@@ -516,6 +517,7 @@ export async function createChannel(
       deletedAt: null,
     };
     data.pubChannels.push(channel);
+    enqueueSearchIndexSync(data, "channel-create");
     return { ok: true as const, channel: publicChannel(channel, userId, data) };
   });
 }
@@ -901,6 +903,7 @@ export async function deleteChannel(userId: string, channelId: string, extra?: {
     channel.status = "deleted";
     channel.inviteToken = "";
     data.channelPosts = data.channelPosts.filter((p) => p.channelId !== channelId);
+    enqueueSearchIndexSync(data, "channel-delete");
     return { ok: true as const };
   });
 }
@@ -1046,6 +1049,7 @@ export async function createPost(
       linkPreview: linkPreviewOf(`${body} ${caption}`),
     };
     data.channelPosts.push(post);
+    enqueueSearchIndexSync(data, "post");
     channel.updatedAt = now;
     if (status === "published") {
       enqueueBroadcast(data, channel.id, post.id);

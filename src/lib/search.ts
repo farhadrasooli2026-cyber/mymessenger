@@ -3,9 +3,20 @@ import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot, type StoreData } from "@/lib/store";
 import type { ChannelPost, CommunityRecord, GroupRecord, PubChannelRecord } from "@/lib/store";
 import { publicProfile } from "@/lib/profile";
-import { blobMatches, exactPhraseMatches, foldText, matchScore, recencyBoost, suggestTerms } from "@/lib/search-match";
-import { SEARCH_FLOOD_MAX, SEARCH_FLOOD_WINDOW_MS, SEARCH_HISTORY_MAX, SEARCH_PAGE, type SearchHit, type SearchKind } from "@/lib/search-types";
-import { hmacIdentifier } from "@/lib/crypto-utils";
+import { hmacIdentifier, randomId } from "@/lib/crypto-utils";
+import { blobMatches, exactPhraseMatches, foldText, highlightText, matchScore, recencyBoost, sanitizeSearchSnippet, suggestTerms } from "@/lib/search-match";
+import {
+  SEARCH_CACHE_TTL_MS,
+  SEARCH_FLOOD_MAX,
+  SEARCH_FLOOD_WINDOW_MS,
+  SEARCH_HISTORY_MAX,
+  SEARCH_INDEX_RETRY_MAX,
+  SEARCH_PAGE,
+  type SearchDoc,
+  type SearchHit,
+  type SearchIndexJob,
+  type SearchKind,
+} from "@/lib/search-types";
 import { normalizeEmail, normalizePhone } from "@/lib/identifiers";
 import { audienceAllows, canFindByUsername, pairBlocked } from "@/lib/privacy";
 import {
@@ -49,6 +60,117 @@ function canSeeChannel(channel: PubChannelRecord, userId: string) {
   const sub = channel.subscribers.some((s) => s.userId === userId && liveSub(s));
   if (staff || sub) return true;
   return channel.visibility === "public" && channel.status !== "restricted";
+}
+
+export function enqueueSearchIndexSync(data: StoreData, reason = "sync") {
+  data.searchIndexJobs ??= [];
+  const key = `sync:${reason}`;
+  if (data.searchIndexJobs.some((j) => j.idempotencyKey === key && (j.status === "queued" || j.status === "running"))) return;
+  const job: SearchIndexJob = {
+    id: randomId(),
+    idempotencyKey: key,
+    kind: "sync",
+    status: "queued",
+    attempts: 0,
+    createdAt: Date.now(),
+  };
+  data.searchIndexJobs.push(job);
+}
+
+function publicIndexFingerprint(docs: SearchDoc[]) {
+  return docs
+    .map((d) => `${d.id}:${d.updatedAt}:${d.title}:${d.preview}`)
+    .sort()
+    .join("|");
+}
+
+export function syncPublicSearchIndex(data: StoreData) {
+  const docs: SearchDoc[] = [];
+  for (const u of data.users) {
+    if (u.status !== "active" || (u.accountStatus && u.accountStatus !== "active")) continue;
+    if (!u.username || u.privacyFindUsername !== "everyone") continue;
+    docs.push({
+      id: `user:${u.id}`,
+      kind: "user",
+      entityId: u.id,
+      title: `${u.displayName || u.firstName || ""} ${u.username}`.trim(),
+      preview: `@${u.username}`,
+      tags: [],
+      public: true,
+      updatedAt: u.activatedAt ?? u.createdAt,
+    });
+  }
+  for (const g of data.groups) {
+    if (g.deletedAt || g.joinMode !== "open" || g.searchVisible === false) continue;
+    docs.push({
+      id: `group:${g.id}`,
+      kind: "group",
+      entityId: g.id,
+      title: g.name,
+      preview: g.username ? `@${g.username}` : g.description.slice(0, 80),
+      tags: [...(g.tags ?? []), g.category ?? ""].filter(Boolean),
+      public: true,
+      updatedAt: g.updatedAt,
+    });
+  }
+  for (const c of data.pubChannels) {
+    if (c.deletedAt || c.visibility !== "public" || c.status !== "active") continue;
+    docs.push({
+      id: `channel:${c.id}`,
+      kind: "channel",
+      entityId: c.id,
+      title: c.name,
+      preview: c.username ? `@${c.username}` : c.description.slice(0, 80),
+      tags: [c.purpose ?? ""],
+      public: true,
+      updatedAt: c.updatedAt,
+    });
+    for (const p of data.channelPosts) {
+      if (p.channelId !== c.id || p.deleted || p.status !== "published") continue;
+      docs.push({
+        id: `post:${p.id}`,
+        kind: "post",
+        entityId: p.id,
+        parentId: c.id,
+        title: c.name,
+        preview: sanitizeSearchSnippet(p.caption || p.body || p.fileName || p.kind, 120),
+        tags: [p.kind],
+        public: true,
+        updatedAt: p.publishedAt ?? p.createdAt,
+      });
+    }
+  }
+  const fp = publicIndexFingerprint(docs);
+  const prev = (data.searchDocs ?? []).length ? publicIndexFingerprint(data.searchDocs) : "";
+  data.searchDocs = docs;
+  if (fp !== prev) {
+    data.searchIndex = { gen: (data.searchIndex?.gen ?? 0) + 1, rebuiltAt: Date.now() };
+    data.searchQueryCache = [];
+  } else {
+    data.searchIndex = { gen: data.searchIndex?.gen ?? 0, rebuiltAt: Date.now() };
+  }
+}
+
+export function drainSearchIndexJobs(data: StoreData, now = Date.now()) {
+  data.searchIndexJobs ??= [];
+  for (const job of data.searchIndexJobs) {
+    if (job.status === "done") continue;
+    if (job.status === "failed" && (job.attempts >= SEARCH_INDEX_RETRY_MAX || (job.nextAt && job.nextAt > now))) continue;
+    job.status = "running";
+    try {
+      syncPublicSearchIndex(data);
+      job.status = "done";
+    } catch (err) {
+      job.attempts += 1;
+      job.lastError = err instanceof Error ? err.message : "index";
+      if (job.attempts >= SEARCH_INDEX_RETRY_MAX) job.status = "failed";
+      else {
+        job.status = "queued";
+        job.nextAt = now + Math.min(60_000, 1000 * 2 ** job.attempts);
+      }
+    }
+  }
+  data.searchIndexJobs = data.searchIndexJobs.filter((j) => j.status !== "done" || now - j.createdAt < 86_400_000).slice(-80);
 }
 
 function needleOf(q: string) {
@@ -113,6 +235,7 @@ export type SearchQuery = {
   exact?: boolean;
   sort?: SearchSort;
   feed?: SearchFeed;
+  cursor?: string;
 };
 
 function contentMatches(blob: string, q: string, exactPhrase: string | null, kind: SearchKind) {
@@ -247,7 +370,9 @@ function collectDiscoveryHits(data: StoreData, userId: string, input: SearchQuer
   const hits: SearchHit[] = [];
   const q = needleOf(input.q);
   const trending = input.feed === "trending";
+  const hidden = new Set(data.users.find((u) => u.id === userId)?.searchHideIds ?? []);
   for (const c of data.pubChannels) {
+    if (hidden.has(c.id)) continue;
     if (c.visibility !== "public" || c.status !== "active") continue;
     if (!canSeeChannel(c, userId)) continue;
     if (q.length >= 2 && !blobMatches(`${c.name} ${c.username ?? ""} ${c.description}`, q)) continue;
@@ -276,6 +401,7 @@ function collectDiscoveryHits(data: StoreData, userId: string, input: SearchQuer
     );
   }
   for (const g of data.groups) {
+    if (hidden.has(g.id)) continue;
     if (g.deletedAt || g.joinMode !== "open" || g.searchVisible === false) continue;
     if (!canSeeGroup(g, userId)) continue;
     if (q.length >= 2 && !blobMatches(`${g.name} ${g.username ?? ""} ${g.description} ${(g.tags ?? []).join(" ")} ${g.category ?? ""}`, q)) continue;
@@ -328,12 +454,16 @@ function collectDiscoveryHits(data: StoreData, userId: string, input: SearchQuer
 }
 
 function rank(hit: SearchHit, needle: string, extra = 0) {
+  hit.title = sanitizeSearchSnippet(hit.title, 80);
+  hit.preview = sanitizeSearchSnippet(hit.preview, 160);
   const base = Math.max(matchScore(hit.title, needle), matchScore(`${hit.title} ${hit.preview}`, needle));
   hit.score = base + recencyBoost(hit.date) + extra;
+  if (needle.length >= 2) hit.highlight = highlightText(hit.preview, needle);
   return hit;
 }
 
 export function collectSearchHits(data: StoreData, userId: string, input: SearchQuery): SearchHit[] {
+  drainSearchIndexJobs(data);
   const parsed = parseSearchQuery(input.q);
   const q = parsed.needle;
   const exactPhrase = input.exact ? q : parsed.exact;
@@ -720,6 +850,8 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
               chatName: c.name,
               date: p.publishedAt ?? p.createdAt,
               kind: p.kind,
+              fileName: fileName || undefined,
+              fileKind: p.kind,
               members: uniqueViewCount(p),
               target: { type: "channel", id: c.id, messageId: p.id },
             },
@@ -787,6 +919,8 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
               chatName: g.name,
               date: m.createdAt,
               kind: m.kind,
+              fileName: fileName || undefined,
+              fileKind: m.kind,
               target: { type: "group", id: g.id, messageId: m.id },
             },
             q,
@@ -823,8 +957,16 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
   }
 
   hits.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || b.date - a.date);
-  sortHits(hits, input.sort);
-  return hits.slice(0, SEARCH_HIT_CAP);
+  if (me.searchPersonalize !== false) {
+    const hist = (me.searchHistory ?? []).map((h) => foldText(h)).filter((h) => h.length >= 2);
+    for (const hit of hits) {
+      if (hist.some((h) => foldText(hit.title).includes(h))) hit.score = (hit.score ?? 0) + 4;
+    }
+  }
+  const hidden = new Set(me.searchHideIds ?? []);
+  const visible = hits.filter((h) => !hidden.has(h.target.id));
+  sortHits(visible, input.sort);
+  return visible.slice(0, SEARCH_HIT_CAP);
 }
 
 export async function globalSearch(userId: string, input: SearchQuery) {
@@ -836,8 +978,9 @@ export async function globalSearch(userId: string, input: SearchQuery) {
   const record = input.recordHistory !== false;
   const sensitive = Boolean(normalizePhone(input.q) || normalizeEmail(input.q));
   const feed = input.feed;
-
+  try {
   return mutateStore((data) => {
+    data.searchMetrics ??= { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0 };
     const now = Date.now();
     const flood = hitRateLimit(data, `search:${userId}`, SEARCH_FLOOD_WINDOW_MS, SEARCH_FLOOD_MAX, now);
     if (!flood.allowed) {
@@ -861,27 +1004,76 @@ export async function globalSearch(userId: string, input: SearchQuery) {
         hits: [] as SearchHit[],
         hasMore: false,
         nextOffset: 0,
+        nextCursor: null as string | null,
         history: me.searchHistory,
         suggestions: suggestTerms(input.q, me.searchHistory),
         note: "حداقل دو نویسه لازم است. متن گفتگوی خصوصی E2EE روی دستگاه جستجو می‌شود.",
       };
     }
 
-    const hits = collectSearchHits(data, userId, { ...input, q: check.q });
-    const page = hits.slice(offset, offset + limit);
+    if (!(data.searchDocs ?? []).length) enqueueSearchIndexSync(data, "bootstrap");
+    drainSearchIndexJobs(data);
+    data.searchMetrics ??= { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0 };
+    const cacheKey = `${userId}|${input.kind ?? "all"}|${input.sort ?? ""}|${input.feed ?? ""}|${foldText(check.q)}|${input.channelId ?? ""}|${input.groupId ?? ""}|${input.chatId ?? ""}`;
+    const gen = data.searchIndex?.gen ?? 0;
+    data.searchQueryCache ??= [];
+    const cached = data.searchQueryCache.find((c) => c.key === cacheKey && c.gen === gen && Date.now() - c.at < SEARCH_CACHE_TTL_MS && c.userId === userId);
+    let hits: SearchHit[] = [];
+    try {
+      hits = collectSearchHits(data, userId, { ...input, q: check.q });
+    } catch {
+      data.searchMetrics.errors += 1;
+      data.searchMetrics.lastError = "collect";
+      return {
+        ok: true as const,
+        hits: [] as SearchHit[],
+        hasMore: false,
+        nextOffset: 0,
+        nextCursor: null as string | null,
+        history: me.searchHistory,
+        suggestions: [] as string[],
+        note: "جستجو موقتاً در دسترس نیست. بقیهٔ نیکسو کار می‌کند.",
+        degraded: true as const,
+      };
+    }
+    if (cached) {
+      data.searchMetrics.cacheHits += 1;
+    } else {
+      data.searchQueryCache = [{ key: cacheKey, gen, at: Date.now(), userId, hitIds: hits.map((h) => h.id) }, ...data.searchQueryCache.filter((c) => Date.now() - c.at < SEARCH_CACHE_TTL_MS)].slice(0, 40);
+    }
+    const start = input.cursor ? Math.max(0, hits.findIndex((h) => h.id === input.cursor) + 1) : offset;
+    const page = hits.slice(start, start + limit);
+    const last = page[page.length - 1];
     const titles = hits.map((h) => h.title);
+    data.searchMetrics.queries += 1;
+    data.searchMetrics.lastLatencyMs = Date.now() - now;
     return {
       ok: true as const,
       hits: page,
-      hasMore: offset + limit < hits.length,
-      nextOffset: offset + page.length,
+      hasMore: start + page.length < hits.length,
+      nextOffset: start + page.length,
+      nextCursor: page.length === limit && last ? last.id : null,
       history: me.searchHistory,
       suggestions: suggestTerms(input.q, [...titles, ...me.searchHistory]),
       noResultHints: page.length === 0 ? suggestTerms(input.q, me.searchHistory).slice(0, 5) : [],
       note: "متن گفتگوی خصوصی E2EE روی سرور جستجو نمی‌شود؛ روی دستگاه ادغام می‌شود. نتایج فقط پس از Authentication، Authorization، Membership و Block در لحظهٔ درخواست است.",
       indexGen: data.searchIndex?.gen ?? 0,
+      metrics: { latencyMs: data.searchMetrics.lastLatencyMs, cacheHit: Boolean(cached) },
     };
   });
+  } catch {
+    return {
+      ok: true as const,
+      hits: [] as SearchHit[],
+      hasMore: false,
+      nextOffset: 0,
+      nextCursor: null as string | null,
+      history: [] as string[],
+      suggestions: [] as string[],
+      note: "جستجو موقتاً در دسترس نیست. بقیهٔ نیکسو کار می‌کند.",
+      degraded: true as const,
+    };
+  }
 }
 
 export async function suggestSearch(userId: string, q: string) {
@@ -923,7 +1115,7 @@ export async function rebuildSearchIndex(userId: string) {
     if (handle !== "nixo" && handle !== "nixo_ops") {
       return { ok: false as const, error: "فقط ایمنی نیکسو.", status: 403 };
     }
-    data.searchIndex = { gen: (data.searchIndex?.gen ?? 0) + 1, rebuiltAt: Date.now() };
+    syncPublicSearchIndex(data);
     data.audit = [
       { id: `sidx-${Date.now()}`, userId, kind: "suspicious" as const, createdAt: Date.now(), detail: "search-reindex" },
       ...(data.audit ?? []),
@@ -954,4 +1146,58 @@ export async function clearSearchHistory(userId: string) {
     me.searchHistory = [];
     return { ok: true as const };
   });
+}
+
+export async function hideSearchRecommendation(userId: string, entityId: string) {
+  return mutateStore((data) => {
+    const me = data.users.find((u) => u.id === userId);
+    if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    const id = entityId.trim().slice(0, 80);
+    if (!id) return { ok: false as const, error: "شناسه نامعتبر است.", status: 400 };
+    me.searchHideIds = [id, ...(me.searchHideIds ?? []).filter((x) => x !== id)].slice(0, 80);
+    data.searchQueryCache = (data.searchQueryCache ?? []).filter((c) => c.userId !== userId);
+    return { ok: true as const, hideIds: me.searchHideIds };
+  });
+}
+
+export async function openSearchResult(userId: string, hitId: string) {
+  return mutateStore((data) => {
+    const id = hitId.trim();
+    const parts = id.split(":");
+    const scope = parts[0] ?? "";
+    const entity = parts[1] ?? "";
+    const extra = parts.slice(2).join(":") || undefined;
+    const hint =
+      scope === "user" || scope === "group" || scope === "channel" || scope === "community" || scope === "chat" || scope === "live"
+        ? scope
+        : scope === "cpost" || scope === "post"
+          ? "channel"
+          : "unknown";
+    const lookup = scope === "cpost" || scope === "post" ? extra || entity : entity;
+    const hit = resolveAuthorizedEntity(data, userId, lookup ?? "", hint);
+    if (!hit && (scope === "cpost" || scope === "post")) {
+      const post = data.channelPosts.find((p) => p.id === lookup && !p.deleted);
+      if (!post) return { ok: false as const, error: "یافت نشد.", status: 404 as const };
+      const channel = data.pubChannels.find((c) => c.id === post.channelId);
+      if (!channel || !canSeeChannel(channel, userId)) {
+        return { ok: false as const, error: "یافت نشد.", status: 404 as const };
+      }
+      return { ok: true as const, href: "/app", target: { type: "channel" as const, id: post.channelId, messageId: post.id } };
+    }
+    if (!hit) return { ok: false as const, error: "یافت نشد.", status: 404 as const };
+    return { ok: true as const, href: "/app", target: hit.target };
+  });
+}
+
+export async function searchHealth() {
+  const data = await readStoreSnapshot();
+  return {
+    ok: true as const,
+    indexGen: data.searchIndex?.gen ?? 0,
+    docs: (data.searchDocs ?? []).length,
+    jobsQueued: (data.searchIndexJobs ?? []).filter((j) => j.status === "queued").length,
+    latencyMs: data.searchMetrics?.lastLatencyMs ?? 0,
+    queries: data.searchMetrics?.queries ?? 0,
+    errors: data.searchMetrics?.errors ?? 0,
+  };
 }

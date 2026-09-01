@@ -339,4 +339,42 @@ describe("NIXO search and saved messages", () => {
     expect(foldText("İstanbul")).toContain("stanbul");
     expect(blobMatches("fotoğraf mağaza", "fotograf")).toBe(true);
   });
+
+  it("indexes only public docs, hides recommendations, and authorizes search open", async () => {
+    const owner = await activeUser("sr_idxown");
+    const stranger = await activeUser("sr_idxstr");
+    const priv = await createChannel(owner, { name: "ایندکس خصوصی", visibility: "private" });
+    const pub = await createChannel(owner, { name: "ایندکس عمومی", username: "nixo_idx_pub", visibility: "public" });
+    expect(priv.ok && pub.ok).toBe(true);
+    if (!pub.ok || !priv.ok) return;
+    const ops = await activeUser("nixo_ops");
+    const rebuilt = await rebuildSearchIndex(ops);
+    expect(rebuilt.ok).toBe(true);
+    await mutateStore((data) => {
+      expect(data.searchDocs.some((d) => d.entityId === pub.channel.id && d.kind === "channel")).toBe(true);
+      expect(data.searchDocs.every((d) => d.entityId !== priv.channel.id)).toBe(true);
+    });
+    const closed = await createGroup(owner, { name: "گروه خصوصی ایندکس", joinMode: "invite" });
+    const pubGroup = await createGroup(owner, { name: "گروه عمومی ایندکس", joinMode: "open", username: "nixo_idx_g" });
+    expect(closed.ok && pubGroup.ok).toBe(true);
+    await rebuildSearchIndex(ops);
+    if (closed.ok && pubGroup.ok) {
+      await mutateStore((data) => {
+        expect(data.searchDocs.some((d) => d.entityId === pubGroup.group.id && d.kind === "group")).toBe(true);
+        expect(data.searchDocs.every((d) => d.entityId !== closed.group.id)).toBe(true);
+      });
+    }
+    const { hideSearchRecommendation, openSearchResult } = await import("./search");
+    await hideSearchRecommendation(stranger, pub.channel.id);
+    const feed = await globalSearch(stranger, { q: "", feed: "discovery", recordHistory: false });
+    expect(feed.ok && feed.hits.every((h) => h.target.id !== pub.channel.id)).toBe(true);
+    const opened = await openSearchResult(stranger, `cpost:not-a-real-id`);
+    expect(opened.ok).toBe(false);
+    const chOpen = await openSearchResult(stranger, `channel:${priv.channel.id}`);
+    expect(chOpen.ok).toBe(false);
+    const okOpen = await openSearchResult(stranger, `channel:${pub.channel.id}`);
+    expect(okOpen.ok).toBe(true);
+    const paged = await globalSearch(stranger, { q: "ایندکس", kind: "channels", limit: 1 });
+    expect(paged.ok && (paged.nextCursor === null || typeof paged.nextCursor === "string")).toBe(true);
+  });
 });

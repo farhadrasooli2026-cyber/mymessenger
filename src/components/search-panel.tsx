@@ -68,7 +68,7 @@ export function SearchPanel({
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [history, setHistory] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [offset, setOffset] = useState(0);
+  const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -99,7 +99,17 @@ export function SearchPanel({
     return () => window.clearTimeout(t);
   }, [q]);
 
-  async function run(nextOffset = 0, seed = q) {
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      if (q.trim().length < 2 && !feed) return;
+      void run(0, q, true);
+    }, 220);
+    return () => window.clearTimeout(t);
+    // live debounce; submit still records history
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, kind, sort, feed]);
+
+  async function run(nextOffset = 0, seed = q, live = false, nextCursor?: string | null) {
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
@@ -129,6 +139,8 @@ export function SearchPanel({
         params.set("feed", feed);
         params.set("historyWrite", "0");
       }
+      if (live) params.set("historyWrite", "0");
+      if (nextCursor) params.set("cursor", nextCursor);
       const res = await fetch(`/api/search?${params}`, { cache: "no-store", signal: ac.signal });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data) {
@@ -163,9 +175,9 @@ export function SearchPanel({
         seen.add(h.id);
         return true;
       });
-      setHits((prev) => (nextOffset === 0 ? unique : [...prev, ...remote]));
+      setHits((prev) => (nextOffset === 0 && !nextCursor ? unique : [...prev, ...remote]));
       setHasMore(Boolean(data.hasMore));
-      setOffset(data.nextOffset ?? nextOffset);
+      setCursor(data.nextCursor ?? null);
       setHistory(data.history ?? history);
       setSuggestions(data.suggestions ?? suggestions);
       setNote(data.note ?? "");
@@ -177,6 +189,16 @@ export function SearchPanel({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function openHit(hit: SearchHit) {
+    const res = await fetch(`/api/search/open?id=${encodeURIComponent(hit.id)}`, { cache: "no-store" });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      toast.error("این نتیجه در دسترس تو نیست.");
+      return;
+    }
+    onOpen({ ...hit, target: data.target ?? hit.target });
   }
 
   return (
@@ -380,7 +402,7 @@ export function SearchPanel({
           onScroll={(e) => {
             const el = e.currentTarget;
             if (hasMore && !busy && el.scrollTop + el.clientHeight >= el.scrollHeight - 48) {
-              void run(offset);
+              void run(0, q, true, cursor);
             }
           }}
         >
@@ -430,7 +452,17 @@ export function SearchPanel({
                 <p className="mt-2 text-[10px] uppercase tracking-wide text-emerald-100/40">{label}</p>
                 {group.map((hit) => (
                   <div key={hit.id} className="mt-1 rounded-xl bg-black/25 px-3 py-2">
-                    <button type="button" className="block w-full text-right" onClick={() => onOpen(hit)}>
+                    <button type="button" className="block w-full text-right" onClick={() => void openHit(hit)}>
+                      {hit.photoUrl || hit.kind === "photo" || hit.kind === "gif" ? (
+                        <span className="mb-1 inline-block h-10 w-10 overflow-hidden rounded-lg bg-black/40 text-[10px] leading-10 text-center">
+                          {hit.photoUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={hit.photoUrl} alt="" className="h-10 w-10 object-cover" />
+                          ) : (
+                            "رسانه"
+                          )}
+                        </span>
+                      ) : null}
                       <p className="text-sm font-medium">
                         {highlightText(hit.title, q).map((p, i) => (
                           <span key={i} className={p.hit ? "bg-amber-300/50 text-[#102824]" : undefined}>
@@ -446,7 +478,30 @@ export function SearchPanel({
                           </span>
                         ))}
                       </p>
+                      {hit.fileName ? (
+                        <p className="truncate text-[10px] text-emerald-100/50">
+                          {hit.fileKind ?? "file"} · {hit.fileName}
+                        </p>
+                      ) : null}
                     </button>
+                    {hit.chatName === "Discovery" || hit.chatName === "Trending" ? (
+                      <button
+                        type="button"
+                        className="mt-1 text-[10px] text-rose-200"
+                        onClick={() =>
+                          void fetch("/api/search", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ action: "hide", id: hit.target.id }),
+                          }).then(() => {
+                            setHits((prev) => prev.filter((h) => h.target.id !== hit.target.id));
+                            toast.success("از پیشنهادها حذف شد.");
+                          })
+                        }
+                      >
+                        پیشنهاد نشود
+                      </button>
+                    ) : null}
                     {hit.target.type === "user" && (
                       <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
                         <button
@@ -459,7 +514,7 @@ export function SearchPanel({
                         >
                           Open Profile
                         </button>
-                        <button type="button" className="rounded bg-white/10 px-2 py-0.5" onClick={() => onOpen(hit)}>
+                        <button type="button" className="rounded bg-white/10 px-2 py-0.5" onClick={() => void openHit(hit)}>
                           Message
                         </button>
                         <button
@@ -515,14 +570,27 @@ export function SearchPanel({
                 key={hit.id}
                 type="button"
                 className="block w-full rounded-xl bg-black/25 px-3 py-2 text-right"
-                onClick={() => onOpen(hit)}
+                onClick={() => void openHit(hit)}
               >
-                <p className="text-sm font-medium">{hit.title}</p>
-                <p className="truncate text-xs text-emerald-100/70">{hit.preview}</p>
+                <p className="text-sm font-medium">
+                  {highlightText(hit.title, q).map((p, i) => (
+                    <span key={i} className={p.hit ? "bg-amber-300/50 text-[#102824]" : undefined}>
+                      {p.t}
+                    </span>
+                  ))}
+                </p>
+                <p className="truncate text-xs text-emerald-100/70">
+                  {highlightText(hit.preview, q).map((p, i) => (
+                    <span key={`m${i}`} className={p.hit ? "bg-amber-300/40" : undefined}>
+                      {p.t}
+                    </span>
+                  ))}
+                </p>
+                {hit.fileName ? <p className="text-[10px] text-emerald-100/50">{hit.fileName}</p> : null}
               </button>
             ))}
           {hasMore && (
-            <Button type="button" variant="secondary" className="w-full" disabled={busy} onClick={() => void run(offset)}>
+            <Button type="button" variant="secondary" className="w-full" disabled={busy} onClick={() => void run(0, q, true, cursor)}>
               نتایج بیشتر
             </Button>
           )}

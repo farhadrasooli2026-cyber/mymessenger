@@ -36,7 +36,8 @@ export const DB_COLLECTIONS: DbCollection[] = [
   { name: "backups", pk: "id", ownerField: "userId", service: "backup", owner: "user", lifecycle: "hot", notes: "پاکت رمزشدهٔ کاربر." },
   { name: "fileAccessLogs", pk: "id", ownerField: "userId", service: "media", owner: "user", lifecycle: "ttl", notes: "آمار دسترسی فایل." },
   { name: "mediaJobs", pk: "id", ownerField: "ownerUserId", service: "media", owner: "user", lifecycle: "ttl", notes: "صف پردازش." },
-  { name: "searchIndex", pk: "gen", service: "search", owner: "system", lifecycle: "hot", notes: "ایندکس مجاز؛ متن خصوصی ایندکس نمی‌شود." },
+  { name: "searchIndex", pk: "gen", service: "search", owner: "system", lifecycle: "hot", notes: "ایندکس عمومی؛ محتوای خصوصی و E2EE وارد نمی‌شود." },
+  { name: "searchDocs", pk: "id", service: "search", owner: "system", lifecycle: "hot", notes: "اسناد عمومی همگام با Store." },
 ];
 
 export const SCHEMA_VERSION = 1;

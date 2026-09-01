@@ -64,6 +64,8 @@
 
 41. اعلان و Push: سیستم مرکزی با شناسهٔ یکتا و مالکیت سرور. نوع Message/Reply/Mention/Reaction/Group/Channel/Call/Security/System. صف Push با Worker محلی، اولویت، Retry محدود، Idempotency per-device، وضعیت Pending/Processing/Sent/Delivered/Failed/Read/Dismissed. توکن چنددستگاه با نشست معتبر؛ endpoint کامل در API نیست؛ Rotate/Revoke و پاک‌سازی توکن نامعتبر. Deep Link فقط با `GET /api/notify/open?id=` پس از مالکیت؛ تغییر Notification ID دسترسی اعلان دیگری نمی‌دهد. جداسازی Chat/Group/Channel/Call و Block. Quiet Hours، پیش‌نمایش، XSS روی متن، Aggregation، متریک صف. Web Push اختیاری با Notification API مرورگر؛ بدون توکن فقط داخل برنامه. اعلان امنیت سیاست نیکسو را دور نمی‌زند.
 
+42. جستجو و Discovery: ایندکس فقط محتوای عمومی (User قابل کشف، گروه/کانال Public، پست منتشرشدهٔ کانال عمومی). همگام با صف Idempotent و Retry. Cursor Pagination، Highlight، Debounce، Cache با ابطال نسل ایندکس. Deep Link `GET /api/search/open?id=` پس از Authorization. پیشنهاد Discovery قابل Hide. Query اعتبارسنجی، Rate Limit، Enumeration دو حرفی بسته، XSS روی snippet. فارسی/انگلیسی/ترکی با Normalization و Transliteration ساده. خرابی جستجو بقیهٔ نیکسو را متوقف نمی‌کند.
+
 همگام‌سازی کلید چنددستگاهی در بخش جداگانه کامل می‌شود.
 
 مدیر پس‌زمینه‌ها: `/admin/backgrounds`

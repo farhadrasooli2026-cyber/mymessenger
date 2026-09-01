@@ -63,6 +63,8 @@ export function defaultUserFields(): {
   storyAllowShare: boolean;
   storyArchiveEnabled: boolean;
   searchHistory: string[];
+  searchHideIds: string[];
+  searchPersonalize: boolean;
   privacyPhone: Visibility3;
   privacyFindPhone: Visibility3;
   privacyEmail: Visibility3;
@@ -148,6 +150,8 @@ export function defaultUserFields(): {
     storyAllowShare: true,
     storyArchiveEnabled: true,
     searchHistory: [],
+    searchHideIds: [],
+    searchPersonalize: true,
     privacyPhone: "contacts",
     privacyFindPhone: "contacts",
     privacyEmail: "nobody",

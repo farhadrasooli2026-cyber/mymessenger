@@ -59,6 +59,7 @@ import type {
   WalletRecord,
 } from "@/lib/shop-types";
 import type { NotifyAudit, NotifyPrefs, NotifyRecord, PushJob, PushToken } from "@/lib/notify-types";
+import type { SearchDoc, SearchIndexJob, SearchMetrics, SearchQueryCache } from "@/lib/search-types";
 import { applyMigrations, hydrateSchemaMeta } from "@/lib/db/migrate";
 import { repairOrphans } from "@/lib/db/integrity";
 
@@ -107,6 +108,8 @@ function hydrateUser(user: UserRecord): UserRecord {
     storyAllowShare: user.storyAllowShare !== false,
     storyArchiveEnabled: user.storyArchiveEnabled !== false,
     searchHistory: Array.isArray(user.searchHistory) ? user.searchHistory : [],
+    searchHideIds: Array.isArray(user.searchHideIds) ? user.searchHideIds : [],
+    searchPersonalize: user.searchPersonalize !== false,
     privacyPhone: user.privacyPhone ?? "contacts",
     privacyFindPhone: user.privacyFindPhone ?? "contacts",
     privacyEmail: user.privacyEmail ?? "nobody",
@@ -515,6 +518,8 @@ export type UserRecord = {
   storyAllowShare: boolean;
   storyArchiveEnabled: boolean;
   searchHistory: string[];
+  searchHideIds: string[];
+  searchPersonalize: boolean;
   privacyPhone: import("@/lib/profile-types").Visibility3;
   privacyFindPhone: import("@/lib/profile-types").Visibility3;
   privacyEmail: import("@/lib/profile-types").Visibility3;
@@ -1821,6 +1826,10 @@ export type StoreData = {
   liveRecordings: LiveRecordingMeta[];
   livePrefs: LivePrefs[];
   searchIndex: { gen: number; rebuiltAt: number | null };
+  searchDocs: SearchDoc[];
+  searchIndexJobs: SearchIndexJob[];
+  searchQueryCache: SearchQueryCache[];
+  searchMetrics: SearchMetrics;
   schemaMeta: import("@/lib/db/migrate").SchemaMeta;
   dbJobs: DbJob[];
   dbAudit: DbAudit[];
@@ -1934,6 +1943,10 @@ const EMPTY: StoreData = {
   liveRecordings: [],
   livePrefs: [],
   searchIndex: { gen: 0, rebuiltAt: null },
+  searchDocs: [],
+  searchIndexJobs: [],
+  searchQueryCache: [],
+  searchMetrics: { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0 },
   schemaMeta: { version: 0, migratedAt: 0, env: process.env.VITEST ? "test" : "development" },
   dbJobs: [],
   dbAudit: [],
@@ -2113,6 +2126,10 @@ async function readStore(): Promise<StoreData> {
         gen: typeof parsed.searchIndex?.gen === "number" ? parsed.searchIndex.gen : 0,
         rebuiltAt: typeof parsed.searchIndex?.rebuiltAt === "number" ? parsed.searchIndex.rebuiltAt : null,
       },
+      searchDocs: Array.isArray(parsed.searchDocs) ? parsed.searchDocs : [],
+      searchIndexJobs: Array.isArray(parsed.searchIndexJobs) ? parsed.searchIndexJobs : [],
+      searchQueryCache: Array.isArray(parsed.searchQueryCache) ? parsed.searchQueryCache : [],
+      searchMetrics: parsed.searchMetrics ?? { queries: 0, errors: 0, cacheHits: 0, lastLatencyMs: 0 },
       schemaMeta: hydrateSchemaMeta(parsed.schemaMeta),
       dbJobs: Array.isArray(parsed.dbJobs) ? parsed.dbJobs : [],
       dbAudit: Array.isArray(parsed.dbAudit) ? parsed.dbAudit : [],
@@ -2349,6 +2366,9 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
     participants: c.participants.map((p) => (p.userId === uid && !p.leftAt ? { ...p, leftAt: now } : p)),
     hostUserId: c.hostUserId === uid && c.status !== "ended" ? c.hostUserId : c.hostUserId,
   }));
+  data.searchDocs = (data.searchDocs ?? []).filter((d) => d.entityId !== uid && d.parentId !== uid);
+  data.searchQueryCache = [];
+  data.searchIndex = { gen: (data.searchIndex?.gen ?? 0) + 1, rebuiltAt: now };
   data.ledger = (data.ledger ?? []).filter((t) => t.userId !== uid);
   data.shopNotices = (data.shopNotices ?? []).filter((n) => n.userId !== uid);
 }

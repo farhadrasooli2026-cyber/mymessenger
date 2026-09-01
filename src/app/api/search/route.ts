@@ -5,8 +5,10 @@ import {
   exportSearchHistory,
   getSearchHistory,
   globalSearch,
+  hideSearchRecommendation,
   rebuildSearchIndex,
   removeSearchHistoryItem,
+  searchHealth,
 } from "@/lib/search";
 import { SEARCH_KINDS, type SearchKind } from "@/lib/search-types";
 import { SEARCH_FEEDS, SEARCH_SORTS, type SearchFeed, type SearchSort } from "@/lib/search-query";
@@ -15,6 +17,9 @@ export async function GET(request: Request) {
   const user = await requireActiveUser();
   if (!user) return jsonError("نشست فعال نیست.", 401);
   const url = new URL(request.url);
+  if (url.searchParams.get("health") === "1") {
+    return json(await searchHealth());
+  }
   if (url.searchParams.get("history") === "1") {
     const history = await getSearchHistory(user.id);
     return json({ ok: true, history });
@@ -54,6 +59,7 @@ export async function GET(request: Request) {
     exact: url.searchParams.get("exact") === "1",
     sort,
     feed,
+    cursor: url.searchParams.get("cursor") ?? undefined,
     recordHistory: url.searchParams.get("historyWrite") !== "0",
   });
   if (!result.ok) return jsonError(result.error, result.status);
@@ -63,9 +69,14 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await requireActiveUser();
   if (!user) return jsonError("نشست فعال نیست.", 401);
-  const body = (await request.json().catch(() => null)) as { action?: string } | null;
+  const body = (await request.json().catch(() => null)) as { action?: string; id?: string } | null;
   if (body?.action === "rebuild") {
     const result = await rebuildSearchIndex(user.id);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (body?.action === "hide") {
+    const result = await hideSearchRecommendation(user.id, String(body.id ?? ""));
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
   }

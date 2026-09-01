@@ -54,8 +54,28 @@ export function matchScore(haystack: string, needle: string) {
   return best;
 }
 
+export function sanitizeSearchSnippet(text: string, max = 160) {
+  return text
+    .replace(/<\s*script[\s\S]*?>[\s\S]*?<\s*\/\s*script\s*>/gi, "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/javascript:/gi, "")
+    .slice(0, max);
+}
+
+export function translitExpand(q: string) {
+  const folded = foldText(q);
+  const out = [q];
+  if (/(nixo|nikso)/.test(folded)) out.push("نیکسو");
+  if (/group/.test(folded)) out.push("گروه");
+  if (/channel/.test(folded)) out.push("کانال");
+  if (/(photo|fotograf)/.test(folded)) out.push("عکس");
+  if (/video/.test(folded)) out.push("ویدیو");
+  return [...new Set(out.filter(Boolean))];
+}
+
 export function blobMatches(blob: string, needle: string) {
-  return matchScore(blob, needle) >= 48;
+  if (matchScore(blob, needle) >= 48) return true;
+  return translitExpand(needle).some((v) => v !== needle && matchScore(blob, v) >= 48);
 }
 
 export function exactPhraseMatches(blob: string, phrase: string) {

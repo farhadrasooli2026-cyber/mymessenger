@@ -55,9 +55,10 @@ export async function recommendGroups(userId: string) {
   const mineIds = new Set(mine.map((g) => g.id));
   const cats = new Set(mine.map((g) => g.category).filter(Boolean));
   const tags = new Set(mine.flatMap((g) => g.tags));
+  const hidden = new Set(data.users.find((u) => u.id === userId)?.searchHideIds ?? []);
   const scored = data.groups
     .filter(isPublicDiscoverableGroup)
-    .filter((g) => !mineIds.has(g.id))
+    .filter((g) => !mineIds.has(g.id) && !hidden.has(g.id))
     .filter((g) => !g.bans.some((b) => b.key === userId && (!b.until || b.until > Date.now())))
     .map((g) => {
       let score = liveCount(g) / 8;
