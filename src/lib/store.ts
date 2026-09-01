@@ -1045,7 +1045,7 @@ export type ChatMessage = {
 export type SafetyReport = {
   id: string;
   reporterId: string;
-  targetKind: "user" | "chat" | "group" | "community" | "channel" | "story" | "bot" | "miniapp" | "business" | "sticker" | "live";
+  targetKind: "user" | "chat" | "group" | "community" | "channel" | "story" | "bot" | "miniapp" | "business" | "sticker" | "live" | "call";
   targetKey: string;
   threadId?: string;
   messageIds: string[];
@@ -1177,6 +1177,8 @@ export type CallRecord = {
   sessionId?: string;
   mediaTokenHash?: string;
   mediaTokenExpiresAt?: number;
+  /** Short-lived room secret; never returned from list/history payloads. */
+  mediaSecret?: string;
   reconnects?: number;
   reconnecting?: boolean;
   reconnectStartedAt?: number;
@@ -1254,6 +1256,9 @@ export type GroupCallRoom = {
   inviteToken: string | null;
   inviteExpiresAt?: number | null;
   sessionId?: string;
+  mediaTokenHash?: string;
+  mediaTokenExpiresAt?: number;
+  mediaSecret?: string;
   hiddenBy?: string[];
   createdAt: number;
   endedAt: number | null;

@@ -9,6 +9,7 @@ type BridgeOpts = {
   lowData: boolean;
   token?: string | null;
   quality?: "auto" | "saver" | "high";
+  audioDeviceId?: string;
 };
 
 async function iceConfig(): Promise<RTCConfiguration> {
@@ -35,7 +36,12 @@ async function postSignal(callId: string, type: string, body: string, token?: st
 
 export async function startBridgedCall(opts: BridgeOpts): Promise<LoopSession & { stopPoll: () => void }> {
   const local = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      deviceId: opts.audioDeviceId ? { exact: opts.audioDeviceId } : undefined,
+    },
     video: opts.video
       ? {
           facingMode: "user",

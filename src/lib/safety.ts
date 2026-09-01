@@ -66,7 +66,7 @@ export async function listBlocked(userId: string) {
 }
 
 export const reportInputSchema = z.object({
-  targetKind: z.enum(["user", "chat", "group", "community", "channel", "story", "bot", "miniapp", "business", "sticker", "live"]),
+  targetKind: z.enum(["user", "chat", "group", "community", "channel", "story", "bot", "miniapp", "business", "sticker", "live", "call"]),
   targetKey: z.string().min(1).max(160),
   threadId: z.string().max(80).optional(),
   messageIds: z.array(z.string().max(80)).max(20).optional(),
@@ -167,6 +167,13 @@ export async function fileReport(
     if (input.targetKind === "live") {
       const live = (data.lives ?? []).find((l) => l.id === input.targetKey);
       if (!live) return { ok: false as const, error: "Live یافت نشد.", status: 404 };
+    }
+    if (input.targetKind === "call") {
+      const one = data.calls.find((c) => c.id === input.targetKey && c.ownerUserId === reporterId);
+      const group = (data.groupCalls ?? []).find(
+        (c) => c.id === input.targetKey && c.participants.some((p) => p.userId === reporterId),
+      );
+      if (!one && !group) return { ok: false as const, error: "تماس یافت نشد.", status: 404 };
     }
     const report = {
       id: randomId(),

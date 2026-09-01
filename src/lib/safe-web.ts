@@ -77,7 +77,7 @@ export function safeRedirectPath(raw: unknown): string | null {
 }
 
 const SENSITIVE_KEY =
-  /^(password|passwordhash|passwordsalt|currentpassword|newpassword|totpsecretcipher|totppendingcipher|identifiercipher|codehash|pepper|sessionsecret|refreshhash|refreshsalt|privatekey|apikey|authorization|cookie|nixopepper|datakeyhex)$/i;
+  /^(password|passwordhash|passwordsalt|currentpassword|newpassword|totpsecretcipher|totppendingcipher|identifiercipher|codehash|pepper|sessionsecret|refreshhash|refreshsalt|privatekey|apikey|authorization|cookie|nixopepper|datakeyhex|mediasecret|mediatokenhash)$/i;
 
 export function stripSensitive(value: unknown, depth = 0): unknown {
   if (depth > 8 || value == null) return value;

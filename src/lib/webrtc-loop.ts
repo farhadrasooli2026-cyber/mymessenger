@@ -30,10 +30,16 @@ export async function startMediaLoop(opts: {
   video: boolean;
   lowData: boolean;
   deviceId?: string;
+  audioDeviceId?: string;
   iceServers?: RTCIceServer[];
 }): Promise<LoopSession> {
   const local = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      deviceId: opts.audioDeviceId ? { exact: opts.audioDeviceId } : undefined,
+    },
     video: opts.video
       ? {
           facingMode: "user",
@@ -147,6 +153,14 @@ export async function listAudioOutputs(): Promise<{ deviceId: string; label: str
   return all
     .filter((d) => d.kind === "audiooutput")
     .map((d) => ({ deviceId: d.deviceId, label: d.label || "خروجی صدا" }));
+}
+
+export async function listAudioInputs(): Promise<{ deviceId: string; label: string }[]> {
+  if (!navigator.mediaDevices?.enumerateDevices) return [];
+  const all = await navigator.mediaDevices.enumerateDevices();
+  return all
+    .filter((d) => d.kind === "audioinput")
+    .map((d) => ({ deviceId: d.deviceId, label: d.label || "میکروفون" }));
 }
 
 export async function sampleCallQuality(pc: RTCPeerConnection): Promise<{ rttMs: number; loss: number; jitterMs: number } | null> {

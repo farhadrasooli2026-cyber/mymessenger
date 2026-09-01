@@ -4,7 +4,7 @@ import { completeProfile } from "./profile";
 import { ackHumanChallenge, issueHumanChallenge, startRegistration, verifyOtp } from "./registration";
 import { getOutbox } from "./outbox";
 import { listMessages, listThreads, openDm } from "./chat";
-import { setBlocked } from "./safety";
+import { setBlocked, fileReport } from "./safety";
 import { mutateStore, resetStoreForTests } from "./store";
 import { actOnCall, deleteCallHistory, listCalls, refuseCallRecording, startIncomingDemo, startOutgoing, updateCallSettings, CALL_RECONNECT_TIMEOUT_MS } from "./calls";
 import { searchCallHistory, requestCallRecording } from "./call-center";
@@ -197,7 +197,7 @@ describe("voice and video calls", () => {
       const fresh = await postCallSignal(a, allowed.call.id, {
         type: "offer",
         body: "v=0\r\no=- nixo",
-        token: "mediaToken" in moved ? moved.mediaToken : undefined,
+        token: moved.mediaToken ?? undefined,
       });
       expect(fresh.ok).toBe(true);
     }
@@ -214,5 +214,91 @@ describe("voice and video calls", () => {
     });
     const timed = await listCalls(a);
     expect(timed.find((c) => c.id === seed.call.id)?.phase).toBe("failed");
+  });
+
+  it("gives the callee a live media token and rejects signaling without it", async () => {
+    const a = await activeUser("call_tok_a");
+    const b = await activeUser("call_tok_b");
+    const opened = await openDm(a, b);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const started = await startOutgoing(a, opened.thread.id, "voice");
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    expect(started.mediaToken).toBeTruthy();
+    const hist = await listCalls(a);
+    expect(hist.find((c) => c.id === started.call.id)).not.toHaveProperty("mediaSecret");
+    expect((hist.find((c) => c.id === started.call.id) as { mediaToken?: string } | undefined)?.mediaToken).toBeUndefined();
+
+    const incoming = (await listCalls(b, "incoming"))[0]!;
+    const accepted = await actOnCall(b, incoming.id, "accept");
+    expect(accepted.ok).toBe(true);
+    if (!accepted.ok) return;
+    expect(accepted.mediaToken).toBe(started.mediaToken);
+    const missing = await postCallSignal(b, incoming.id, { type: "answer", body: "v=0\r\no=- nixo answer" });
+    expect(missing.ok).toBe(false);
+    const ok = await postCallSignal(b, incoming.id, {
+      type: "answer",
+      body: "v=0\r\no=- nixo answer",
+      token: accepted.mediaToken ?? undefined,
+    });
+    expect(ok.ok).toBe(true);
+    await actOnCall(a, started.call.id, "end");
+    const after = await postCallSignal(b, incoming.id, {
+      type: "offer",
+      body: "v=0\r\no=- nixo",
+      token: accepted.mediaToken ?? undefined,
+    });
+    expect(after.ok).toBe(false);
+  });
+
+  it("exposes peer mute without copying mute onto both records", async () => {
+    const a = await activeUser("call_mute_peer_a");
+    const b = await activeUser("call_mute_peer_b");
+    const opened = await openDm(a, b);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const started = await startOutgoing(a, opened.thread.id, "voice");
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    const incoming = (await listCalls(b, "incoming"))[0]!;
+    await actOnCall(b, incoming.id, "accept");
+    const muted = await actOnCall(a, started.call.id, "mute");
+    expect(muted.ok).toBe(true);
+    if (!muted.ok) return;
+    expect(muted.call.micMuted).toBe(true);
+    expect(muted.call.peerMicMuted).toBe(false);
+    const peerView = await actOnCall(b, incoming.id, "unmute");
+    expect(peerView.ok).toBe(true);
+    if (!peerView.ok) return;
+    expect(peerView.call.micMuted).toBe(false);
+    expect(peerView.call.peerMicMuted).toBe(true);
+  });
+
+  it("lets a participant report a call and hides the call id from strangers", async () => {
+    const a = await activeUser("call_rep_a");
+    const b = await activeUser("call_rep_b");
+    const stranger = await activeUser("call_rep_s");
+    const opened = await openDm(a, b);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const started = await startOutgoing(a, opened.thread.id, "voice");
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    const mine = await fileReport(a, {
+      targetKind: "call",
+      targetKey: started.call.id,
+      category: "harassment",
+      details: "مزاحمت تماس",
+    });
+    expect(mine.ok).toBe(true);
+    const stolen = await fileReport(stranger, {
+      targetKind: "call",
+      targetKey: started.call.id,
+      category: "spam",
+      details: "idor",
+    });
+    expect(stolen.ok).toBe(false);
+    if (!stolen.ok) expect(stolen.status).toBe(404);
   });
 });

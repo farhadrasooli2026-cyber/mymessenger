@@ -40,6 +40,7 @@ export type PublicGroupCallUi = {
   maxParticipants: number;
   createdAt: number;
   inviteToken: string | boolean | null;
+  roomToken?: string;
   participants: { id?: string; userId: string; name: string; role: string; state?: string; mutedByHost: boolean; camOff?: boolean; micMuted?: boolean; sharing?: boolean; speaking?: boolean; me: boolean }[];
   iAmHost: boolean;
   canModerate: boolean;
@@ -123,6 +124,14 @@ export function GroupCallStage({
         session.pcLocal.addEventListener("iceconnectionstatechange", onIce);
       } catch (err) {
         toast.error(getMediaErrorMessage(err));
+        if (!cancelled) {
+          void fetch(`/api/calls/group/${room.id}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "leave" }),
+          });
+          onClose();
+        }
       }
     })();
     return () => {

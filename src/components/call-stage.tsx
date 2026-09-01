@@ -25,6 +25,7 @@ import {
   applyBitrate,
   getMediaErrorMessage,
   listAudioOutputs,
+  listAudioInputs,
   listCameras,
   sampleCallQuality,
   shareScreen,
@@ -51,6 +52,7 @@ export type LiveCall = {
   bridged?: boolean;
   sessionId?: string | null;
   mediaToken?: string | null;
+  peerMicMuted?: boolean;
 };
 
 export function CallStage({
@@ -62,6 +64,7 @@ export function CallStage({
   onClose,
   onMessageDecline,
   onWaitingAction,
+  onRetry,
   minimized,
   onMinimized,
 }: {
@@ -73,6 +76,7 @@ export function CallStage({
   onClose: () => void;
   onMessageDecline: () => void;
   onWaitingAction?: (action: "accept" | "decline" | "end-current-accept", waitingId: string) => void;
+  onRetry?: () => void;
   minimized: boolean;
   onMinimized: (v: boolean) => void;
 }) {
@@ -89,6 +93,14 @@ export function CallStage({
   const [facing, setFacing] = useState<"user" | "environment">("user");
   const [speaker, setSpeaker] = useState<"earpiece" | "speaker" | "bluetooth" | "headphones">("speaker");
   const [sinks, setSinks] = useState<{ deviceId: string; label: string }[]>([]);
+  const [mics, setMics] = useState<{ deviceId: string; label: string }[]>([]);
+  const [audioDeviceId, setAudioDeviceId] = useState<string | undefined>();
+  const [tokenById, setTokenById] = useState<{ id: string; token?: string | null }>({
+    id: call.id,
+    token: call.mediaToken,
+  });
+  const mediaToken = tokenById.id === call.id ? (tokenById.token ?? call.mediaToken) : call.mediaToken;
+  const [failed, setFailed] = useState(false);
   const [quality, setQuality] = useState<"auto" | "saver" | "high">(lowData ? "saver" : "auto");
   const [sharing, setSharing] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -134,7 +146,7 @@ export function CallStage({
         void fetch(`/api/calls/${call.id}/signal`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "reconnect", body: st, token: call.mediaToken }),
+          body: JSON.stringify({ type: "reconnect", body: st, token: mediaToken }),
         });
       } else if (st === "checking") setPhase("poor");
       else if (st === "connected" || st === "completed") {
@@ -142,12 +154,12 @@ export function CallStage({
         void fetch(`/api/calls/${call.id}/signal`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "quality", body: `ice:${st}`, token: call.mediaToken }),
+          body: JSON.stringify({ type: "quality", body: `ice:${st}`, token: mediaToken }),
         });
       }
     };
     session.pcLocal.addEventListener("iceconnectionstatechange", onIce);
-  }, [call.id, call.mediaToken]);
+  }, [call.id, mediaToken]);
 
   async function mediaForConnect() {
     try {
@@ -159,12 +171,14 @@ export function CallStage({
             offerer: call.direction === "in",
             video: call.kind === "video",
             lowData: quality === "saver" || lowData,
-            token: call.mediaToken,
+            token: mediaToken,
             quality,
+            audioDeviceId,
           })
         : await startMediaLoop({
             video: call.kind === "video",
             lowData: quality === "saver" || lowData,
+            audioDeviceId,
           });
       attach(session);
       return true;
@@ -176,7 +190,12 @@ export function CallStage({
 
   useEffect(() => {
     if (incoming) return;
-    void mediaForConnect();
+    void mediaForConnect().then((ok) => {
+      if (!ok) {
+        setFailed(true);
+        void hang("fail");
+      }
+    });
     return () => {
       stopShareRef.current?.();
       stopStream(previewRef.current);
@@ -188,6 +207,7 @@ export function CallStage({
 
   useEffect(() => {
     void listAudioOutputs().then(setSinks);
+    void listAudioInputs().then(setMics);
     void listCameras().then(setCameras);
   }, []);
 
@@ -273,12 +293,12 @@ export function CallStage({
           type: "quality",
           nonce,
           body: `rtt=${sample.rttMs},loss=${sample.loss},jitter=${sample.jitterMs}`,
-          token: call.mediaToken,
+          token: mediaToken,
         }),
       });
     }, 5000);
     return () => window.clearInterval(t);
-  }, [phase, call.id, call.mediaToken]);
+  }, [phase, call.id, mediaToken]);
 
   useEffect(() => {
     if (!incoming) return;
@@ -333,6 +353,13 @@ export function CallStage({
     stopShareRef.current?.();
     stopLoop(loopRef.current);
     loopRef.current = null;
+    if (action === "fail") {
+      setFailed(true);
+      setBusy(false);
+      setPhase("ringing");
+      toast.error("تماس برقرار نشد. می‌توانی دوباره تلاش کنی.");
+      return;
+    }
     if (action === "message-decline") onMessageDecline();
     else onClose();
   }
@@ -342,6 +369,7 @@ export function CallStage({
     const ok = await mediaForConnect();
     if (!ok) {
       setBusy(false);
+      await hang("fail");
       return;
     }
     const res = await fetch(`/api/calls/${call.id}`, {
@@ -349,11 +377,13 @@ export function CallStage({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "accept" }),
     });
+    const data = (await res.json().catch(() => null)) as { mediaToken?: string } | null;
     setBusy(false);
     if (!res.ok) {
       toast.error("پذیرش تماس انجام نشد.");
       return;
     }
+    if (data?.mediaToken) setTokenById({ id: call.id, token: data.mediaToken });
     setPhase("active");
   }
 
@@ -517,6 +547,7 @@ export function CallStage({
           </span>
           <p className="text-2xl font-semibold">{hideLockInfo && incoming ? "تماس خصوصی" : call.peerName}</p>
           <p className="text-sm text-amber-200">{statusText}</p>
+          {call.peerMicMuted ? <p className="text-xs text-emerald-100/60">میکروفون مخاطب قطع است</p> : null}
           {(phase === "active" || phase === "poor") && (
             <p className="text-lg tabular-nums" dir="ltr">
               {formatCallClock(elapsed)}
@@ -545,7 +576,27 @@ export function CallStage({
             ? ` · RTT ${metrics.rttMs}ms · Loss ${metrics.loss}% · Jitter ${metrics.jitterMs}ms`
             : ""}
         </p>
-        {incoming ? (
+        {failed ? (
+          <div className="flex flex-col items-center gap-3">
+            <p className="text-center text-sm text-amber-100">تماس برقرار نشد. بدون میکروفون تماس ناقص شروع نمی‌شود.</p>
+            <div className="flex w-full gap-2">
+              <Button
+                type="button"
+                className="h-12 flex-1 rounded-2xl bg-emerald-500 text-[#071614]"
+                onClick={() => {
+                  setFailed(false);
+                  if (onRetry) onRetry();
+                  else onClose();
+                }}
+              >
+                تماس دوباره
+              </Button>
+              <Button type="button" variant="secondary" className="h-12 flex-1 rounded-2xl" onClick={onClose}>
+                بستن
+              </Button>
+            </div>
+          </div>
+        ) : incoming ? (
           <div className="flex justify-center gap-3">
             <Button type="button" className="h-14 flex-1 rounded-2xl bg-rose-500 text-white" disabled={busy} onClick={() => void hang("decline")}>
               <PhoneOff className="size-5" />
@@ -620,6 +671,27 @@ export function CallStage({
                 onClick={() => setQuality(q)}
               >
                 {q === "auto" ? "کیفیت خودکار" : q === "saver" ? "کم‌مصرف" : "کیفیت بالا"}
+              </button>
+            ))}
+            {mics.map((m) => (
+              <button
+                key={m.deviceId}
+                type="button"
+                className={cn("rounded-full px-2 py-1", audioDeviceId === m.deviceId ? "bg-amber-300 text-[#102824]" : "bg-white/10")}
+                onClick={() => {
+                  setAudioDeviceId(m.deviceId);
+                  if (!loopRef.current) return;
+                  void navigator.mediaDevices
+                    .getUserMedia({ audio: { deviceId: { exact: m.deviceId }, echoCancellation: true, noiseSuppression: true } })
+                    .then(async (stream) => {
+                      const track = stream.getAudioTracks()[0];
+                      const sender = loopRef.current?.pcLocal.getSenders().find((s) => s.track?.kind === "audio");
+                      if (track) await sender?.replaceTrack(track);
+                    })
+                    .catch(() => toast.error("این میکروفون در دسترس نیست."));
+                }}
+              >
+                {m.label.slice(0, 16) || "میکروفون"}
               </button>
             ))}
             {cameras.map((c) => (

@@ -7,11 +7,13 @@ import { listThreads } from "./chat";
 import { mutateStore, resetStoreForTests } from "./store";
 import { createGroup, joinByToken } from "./groups";
 import { actOnCall, startIncomingDemo, startOutgoing } from "./calls";
+import { postCallSignal } from "./call-signal";
 import {
   addToGroupCall,
   GROUP_CALL_HARD_MAX,
   joinByToken as joinCallByToken,
   joinGroupCall,
+  listGroupCalls,
   moderateGroupCall,
   peekCallLink,
   setOwnCallMedia,
@@ -173,5 +175,60 @@ describe("group calls and second-line", () => {
       }
     }
     expect(lastOk).toBe(false);
+  });
+
+  it("issues a short-lived room token and rejects outsider or stale signaling", async () => {
+    const host = await activeUser("gcall_tok_h");
+    const a = await activeUser("gcall_tok_a");
+    const stranger = await activeUser("gcall_tok_s");
+    const created = await createGroup(host, { name: "اتاق توکن", joinMode: "open" });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    await joinByToken(a, created.group.inviteToken!);
+    const started = await startGroupCall(host, created.group.id, "voice", 8);
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    expect(started.call.roomToken).toBeTruthy();
+    const listed = await listGroupCalls(host);
+    expect((listed.find((c) => c.id === started.call.id) as { roomToken?: string } | undefined)?.roomToken).toBeUndefined();
+
+    const joined = await joinGroupCall(a, started.call.id);
+    expect(joined.ok).toBe(true);
+    if (!joined.ok) return;
+    expect(joined.call.roomToken).toBe(started.call.roomToken);
+
+    const outsider = await postCallSignal(stranger, started.call.id, {
+      type: "offer",
+      body: "v=0\r\no=- nixo",
+      token: started.call.roomToken,
+    });
+    expect(outsider.ok).toBe(false);
+
+    const missing = await postCallSignal(a, started.call.id, { type: "offer", body: "v=0\r\no=- nixo" });
+    expect(missing.ok).toBe(false);
+
+    const ok = await postCallSignal(a, started.call.id, {
+      type: "offer",
+      body: "v=0\r\no=- nixo group",
+      token: joined.call.roomToken,
+    });
+    expect(ok.ok).toBe(true);
+
+    const kicked = await moderateGroupCall(host, started.call.id, "kick", { targetId: a });
+    expect(kicked.ok).toBe(true);
+    const stale = await postCallSignal(a, started.call.id, {
+      type: "offer",
+      body: "v=0\r\no=- nixo",
+      token: joined.call.roomToken,
+    });
+    expect(stale.ok).toBe(false);
+
+    await moderateGroupCall(host, started.call.id, "end");
+    const ended = await postCallSignal(host, started.call.id, {
+      type: "hangup",
+      body: "done",
+      token: started.call.roomToken,
+    });
+    expect(ended.ok).toBe(false);
   });
 });

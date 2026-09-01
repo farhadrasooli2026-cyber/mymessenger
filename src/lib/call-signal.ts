@@ -25,7 +25,12 @@ export function signalRoomForUser(data: StoreData, userId: string, callId: strin
   const room = (data.groupCalls ?? []).find((c) => c.id === callId);
   if (!room || room.status === "ended") return null;
   if (!room.participants.some((p) => p.userId === userId && !p.leftAt && !p.kicked)) return null;
-  return { room: callId, live: true };
+  return {
+    room: callId,
+    tokenHash: room.mediaTokenHash,
+    tokenExp: room.mediaTokenExpiresAt,
+    live: true,
+  };
 }
 
 function looksLikeIce(body: string) {

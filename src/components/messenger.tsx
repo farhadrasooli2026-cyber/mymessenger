@@ -656,13 +656,18 @@ export function Messenger({
           setWaitingCall(waiting && waiting.id !== incoming?.id ? waiting : null);
           setLiveCall((cur) => {
             if (cur && (cur.status === "active" || cur.direction === "out")) return cur;
-    if (incoming && (incoming.status === "ringing" || incoming.status === "queued")) {
+            if (incoming && (incoming.status === "ringing" || incoming.status === "queued")) {
               try {
                 window.dispatchEvent(new Event("nixo:incoming-call"));
               } catch {
                 /* ignore */
               }
-              return incoming;
+              return {
+                ...incoming,
+                mediaToken: data.mediaToken ?? null,
+                bridged: Boolean(incoming.bridged),
+                peerMicMuted: Boolean((incoming as LiveCall).peerMicMuted),
+              };
             }
             if (cur && cur.direction === "in" && cur.status === "ringing" && !incoming) return null;
             return cur;
@@ -2203,8 +2208,8 @@ export function Messenger({
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  targetKind: "user",
-                  targetKey: c.peerKey,
+                  targetKind: "call",
+                  targetKey: c.id,
                   threadId: c.threadId,
                   category: "harassment",
                   details: "گزارش تماس مزاحم",
@@ -2950,6 +2955,12 @@ export function Messenger({
             setLiveCall(null);
             void sendBusyMessage(id);
             void refreshCalls();
+          }}
+          onRetry={() => {
+            const threadId = liveCall.threadId;
+            const kind = liveCall.kind;
+            setLiveCall(null);
+            void startCall(threadId, kind);
           }}
         />
       )}

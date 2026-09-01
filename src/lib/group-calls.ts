@@ -3,6 +3,7 @@ import { randomId } from "@/lib/crypto-utils";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, type StoreData } from "@/lib/store";
 import type { CallKind, CallParticipantState, GroupCallParticipant, GroupCallRoom } from "@/lib/store";
+import { CALL_TOKEN_TTL_MS, hashCallToken } from "@/lib/calls";
 import { emitNotification } from "@/lib/notify";
 import { rankRole } from "@/lib/group-types";
 import { appendCallEvent } from "@/lib/call-events";
@@ -44,6 +45,27 @@ function inviteLive(room: GroupCallRoom, now = Date.now()) {
   return true;
 }
 
+function issueRoomMedia(room: GroupCallRoom, now = Date.now()) {
+  const token = randomId();
+  room.mediaSecret = token;
+  room.mediaTokenHash = hashCallToken(token);
+  room.mediaTokenExpiresAt = now + CALL_TOKEN_TTL_MS;
+}
+
+function revokeRoomMedia(room: GroupCallRoom) {
+  room.mediaSecret = undefined;
+  room.mediaTokenHash = undefined;
+  room.mediaTokenExpiresAt = undefined;
+}
+
+function liveRoomToken(room: GroupCallRoom, userId: string, now = Date.now()) {
+  const me = room.participants.find((p) => p.userId === userId);
+  if (!me || me.kicked || me.leftAt || room.status === "ended") return undefined;
+  if (!room.mediaSecret || !room.mediaTokenHash) return undefined;
+  if (room.mediaTokenExpiresAt && room.mediaTokenExpiresAt < now) return undefined;
+  return room.mediaSecret;
+}
+
 export function publicGroupCall(room: GroupCallRoom, userId: string) {
   const me = room.participants.find((p) => p.userId === userId);
   const tokenLive = inviteLive(room);
@@ -77,6 +99,7 @@ export function publicGroupCall(room: GroupCallRoom, userId: string) {
       .sort((a, b) => (b.speakingAt ?? 0) - (a.speakingAt ?? 0))[0]?.userId ?? null,
     iAmHost: room.hostUserId === userId,
     canModerate: Boolean(me && (me.role === "host" || me.role === "admin")),
+    roomToken: liveRoomToken(room, userId),
   };
 }
 
@@ -126,6 +149,7 @@ export async function startGroupCall(userId: string, groupId: string, kind: Call
       endedAt: null,
       participants: [host],
     };
+    issueRoomMedia(room, now);
     data.groupCalls ??= [];
     data.groupCalls.unshift(room);
     appendCallEvent(data, { userId, callId: room.id, kind: "group_created" });
@@ -343,6 +367,7 @@ export async function moderateGroupCall(
         } else {
           room.status = "ended";
           room.endedAt = Date.now();
+          revokeRoomMedia(room);
         }
       }
       appendCallEvent(data, { userId: actorId, callId: room.id, kind: "leave" });
@@ -356,6 +381,7 @@ export async function moderateGroupCall(
       room.endedAt = Date.now();
       room.inviteToken = null;
       room.inviteExpiresAt = null;
+      revokeRoomMedia(room);
       for (const p of room.participants) if (!p.leftAt) {
         p.leftAt = Date.now();
         p.state = "disconnected";
@@ -437,6 +463,7 @@ export async function moderateGroupCall(
       target.kicked = true;
       target.leftAt = Date.now();
       target.state = "removed";
+      issueRoomMedia(room);
       appendCallEvent(data, { userId: actorId, callId: room.id, kind: "kick" });
     } else if (action === "mute") {
       target.mutedByHost = true;
@@ -472,6 +499,7 @@ export function expireAbandonedGroupCalls(data: StoreData, now = Date.now()) {
       room.status = "ended";
       room.endedAt = now;
       room.inviteToken = null;
+      revokeRoomMedia(room);
       appendCallEvent(data, { userId: "system", callId: room.id, kind: "room_cleanup" });
     }
   }
