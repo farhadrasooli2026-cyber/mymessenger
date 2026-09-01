@@ -1,0 +1,24 @@
+name: Feature request
+description: پیشنهاد قابلیت
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: مسئله
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: پیشنهاد
+    validations:
+      required: true
+  - type: checkboxes
+    id: security
+    attributes:
+      label: امنیت
+      options:
+        - label: این قابلیت Authorization سمت سرور را دور نمی‌زند
+          required: true

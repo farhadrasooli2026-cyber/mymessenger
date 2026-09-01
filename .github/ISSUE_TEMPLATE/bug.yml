@@ -1,0 +1,30 @@
+name: Bug report
+description: گزارش باگ نیکسو
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: چه اتفاقی افتاد؟
+      description: بدون دادهٔ واقعی کاربر، بدون Secret.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: نسخه (از /api/version)
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: گام بازتولید
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: ناحیه
+      options: [account, messages, groups, channels, calls, storage, search, admin, deploy, docs]

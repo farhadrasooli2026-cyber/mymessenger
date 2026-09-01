@@ -125,6 +125,7 @@ export const CRITICAL_API_PREFIXES = [
   "/api/health",
   "/api/status",
   "/api/version",
+  "/api/docs",
   "/api/register",
   "/api/recover",
   "/api/security",

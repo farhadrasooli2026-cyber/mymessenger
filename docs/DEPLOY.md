@@ -35,4 +35,4 @@ Staff → `/app/admin` → انتشار (`/api/deploy`, perms `deploy.view` / `d
 - CDN: hashed `/_next/static` assets; icons immutable; APIs `private, no-store`.
 - Security patch: same CI + Production Approval; emergency path still audits.
 
-Version is on `/api/version` and `X-NIXO-App-Version`.
+نسخه است روی `/api/version` و `X-NIXO-App-Version`. راهنمای Developer: `/docs/deploy`.

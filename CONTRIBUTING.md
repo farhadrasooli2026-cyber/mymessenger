@@ -1,10 +1,31 @@
-# Branch and review
+# مشارکت در نیکسو
 
-- `main` is the production-track branch. Do not push secrets or `.env.local`.
-- Feature work uses `cursor/*` or `feature/*`. Release cuts use `release/x.y.z`.
-- Commits should say what changed and why. Sensitive changes need review before merge.
-- CI must be green: lint, `tsc`, tests, secret scan.
+مرجع کامل: `/docs/contributing` (نسخهٔ اپ باید با `package.json` یکی باشد).
 
-# Secrets
+## Branch
 
-Production pepper, data key, session secret, TURN credentials, and backup key live in the host secret store or `EnvironmentFile`, never in git or CI logs.
+- `main` مسیر انتشار است.
+- ویژگی: `cursor/*` یا `feature/*` (حروف کوچک).
+- برش نسخه: `release/x.y.z`.
+
+## Commit
+
+پیام روشن: چه چیزی و چرا. Secret، توکن و dump در commit نیست.
+
+## Pull Request
+
+از `.github/pull_request_template.md`. قبل از merge: `npm run ci`.
+
+تغییر Architecture / API / Database / Security / Deployment باید Documentation (`/docs` یا `docs/`) را به‌روز کند.
+
+## Code Review
+
+- هویت سمت سرور؛ IDOR
+- عدم نشت Secret در پاسخ/لاگ
+- `mutateStore` تو در تو نباشد
+- تست مسیر اصلی
+- مستند هم‌نسخه
+
+## Secret
+
+فقط نام متغیر در docs. مقدار در secret store یا `.env.local` (gitignore).

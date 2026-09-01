@@ -7,6 +7,8 @@
 
 نیکسو کپی واتساپ یا تلگرام نیست. هویت آن روی حریم خصوصی، امنیت لایه‌لایه، اتصال، سرعت، سادگی، طراحی مدرن، پایداری و ارتباط جهانی است. حرف **X** یعنی Connection، Exchange، Cross-border و Next — دو مسیر که به هم می‌رسند.
 
+**مستندات:** داخل برنامه [`/docs`](/docs) (جستجو + فهرست). فایل‌های Git در [`docs/README.md`](docs/README.md). نصب: [`docs/INSTALL.md`](docs/INSTALL.md).
+
 ## این نسخه
 
 برش قابل استفاده:
@@ -41,6 +43,7 @@
 86. Backup & Disaster Recovery: پشتیبان مرکزی رمزنگاری‌شده با کلید جدا (`NIXO_BACKUP_KEY`) در `.data/backups` و کپی Offsite در `.data/offsite-backups`. Full / Incremental / Differential، زمان‌بندی، Retention روزانه/هفتگی/ماهانه، Immutable ماهانه، Checksum+HMAC، Verify و Restore Test ایزوله. Restore Point و PITR نزدیک‌ترین نقطه. RPO/RTO. Runbook و اولویت Authentication→Database→Messaging→Storage→… پنل `/app/admin` زبانهٔ بازیابی (`/api/dr`) فقط Staff؛ دانلود Dump از API عمومی نیست. Restore Production با رمز + `RESTORE_PRODUCTION` فقط ابرادمین. Preview، Selective، Checkpoint/Rollback، Failover/Failback با قفل نسل ضد Split-Brain، Maintenance/Read-Only، صفحهٔ وضعیت عمومی `/status`. اعتبارسنجی پس از بازیابی. پشتیبان ناشناس بدون امضا وارد نمی‌شود. تغییر Backup ID دسترسی Dump نمی‌دهد.
 87. Performance & Scalability: لایهٔ صف Worker با Priority، Retry+Backoff، Dead Letter و سقف همزمانی. کش TTL با Single-Flight ضد Stampede؛ مقدار Cache بدون ciphertext/رمز. Load Shed نرم/سخت که Login/Health/Chat را قطع نمی‌کند. Rate تطبیقی بدون سخت‌گیری روی OTP. Circuit Breaker، Index گرم ضد N+1، Cursor/Limit سقف ۸۰، Pool تک‌نویسنده و Timeout کوئری. Fan-out و Pub/Sub شناسه. تاریخچهٔ پیام با Snapshot خواندنی (بدون قفل نوشتن). CDN Cache برای `/icons` و `/_next/static`؛ API همچنان `private, no-store`. داشبورد `/app/admin` زبانهٔ عملکرد (`/api/perf`) با مجوز monitor. HTTP/2، Keep-Alive، فشرده‌سازی ایمن. Min/Max Instance در Policy. نشت حافظه از روند Heap. بهینه‌سازی مجوز یا CDN را دور نمی‌زند.
 89. Deployment & DevOps: محیط‌های development/testing/staging/production جدا. CI (lint/tsc/test/secret-scan) با حداقل مجوز. Artifact با Checksum. Staging قبل از Production؛ Production با رمز + `DEPLOY_PRODUCTION` و مجوز `deploy.approve`. Emergency با `EMERGENCY_DEPLOY` همچنان Secret Scan دارد. Rollback با `ROLLBACK` نشست و Job را پاک نمی‌کند. Feature Flag با Kill و درصد؛ جایگزین Authorization نیست. Health live/ready برای Drain. Docker/Compose/systemd/k8s نمونه، محدودیت منابع و Restart سقف‌دار. پنل `/app/admin` زبانهٔ انتشار (`/api/deploy`). `/api/version`. Runbook در `docs/DEPLOY.md`. Secret در Git/لاگ/پاسخ API نیست.
+90. Documentation & Developer Experience: مرکز `/docs` هم‌نسخه با اپ، جستجو و فهرست. Markdown در `docs/`، CHANGELOG، ADR، قالب Bug/Feature، SECURITY.md، CONTRIBUTING. `npm run docs:check` مسیر API و env را با کد می‌سنجد. Secret واقعی در docs نیست.
 
 
 
