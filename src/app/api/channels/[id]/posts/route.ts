@@ -1,6 +1,7 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
 import { commentPost, createPost, deleteComment, deletePost, editPost, listChannelMedia, listChannelPosts, pinPost, reactPost, recordForward, recordPostView, votePoll, cancelScheduledPost, repostPost } from "@/lib/channels";
+import { fileReport } from "@/lib/safety";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -68,6 +69,16 @@ export async function POST(request: Request, ctx: Ctx) {
   }
   if (body.action === "deleteComment") {
     const result = await deleteComment(user.id, id, String(body.postId ?? ""), String(body.commentId ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true });
+  }
+  if (body.action === "reportComment") {
+    const result = await fileReport(user.id, {
+      targetKind: "channel",
+      targetKey: `${id}:comment:${String(body.postId ?? "")}:${String(body.commentId ?? "")}`,
+      category: "spam",
+      details: typeof body.details === "string" ? body.details : "",
+    });
     if (!result.ok) return jsonError(result.error, result.status);
     return json({ ok: true });
   }

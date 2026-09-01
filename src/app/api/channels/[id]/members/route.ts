@@ -111,6 +111,7 @@ export async function POST(request: Request, ctx: Ctx) {
   const action = body.action as "remove" | "ban" | "unban";
   const result = await moderateSubscriber(user.id, id, String(body.targetId ?? ""), action, {
     until: body.until === null ? null : typeof body.until === "number" ? body.until : undefined,
+    reason: typeof body.reason === "string" ? body.reason : undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, channel: result.channel });

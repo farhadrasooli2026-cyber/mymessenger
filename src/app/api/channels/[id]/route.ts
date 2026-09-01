@@ -39,6 +39,8 @@ export async function PATCH(request: Request, ctx: Ctx) {
     rules: typeof body.rules === "string" ? body.rules : undefined,
     joinMode: body.joinMode === "request" || body.joinMode === "invite" || body.joinMode === "open" ? body.joinMode : undefined,
     showSubscriberCount: typeof body.showSubscriberCount === "boolean" ? body.showSubscriberCount : undefined,
+    maxSubscribers: typeof body.maxSubscribers === "number" ? body.maxSubscribers : undefined,
+    hideSubscriberList: typeof body.hideSubscriberList === "boolean" ? body.hideSubscriberList : undefined,
     purpose:
       body.purpose === "news" ||
       body.purpose === "products" ||

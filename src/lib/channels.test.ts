@@ -3,7 +3,7 @@ import { hashIp } from "./crypto-utils";
 import { completeProfile } from "./profile";
 import { ackHumanChallenge, issueHumanChallenge, startRegistration, verifyOtp } from "./registration";
 import { getOutbox } from "./outbox";
-import { resetStoreForTests } from "./store";
+import { mutateStore, resetStoreForTests } from "./store";
 import {
   createChannel,
   createPost,
@@ -13,6 +13,7 @@ import {
   joinByToken,
   recordPostView,
   searchPublicChannels,
+  searchChannel,
   setStaff,
   subscribe,
   transferChannelOwner,
@@ -22,6 +23,10 @@ import {
   listChannelDiscovery,
   exportChannelData,
   adminChannelLifecycle,
+  updateChannel,
+  moderateSubscriber,
+  commentPost,
+  reactPost,
 } from "./channels";
 
 async function activeUser(username: string) {
@@ -281,5 +286,66 @@ describe("NIXO channels", () => {
     const quiet = await createPost(owner, pub.channel.id, { body: "بی‌صدا", silent: true });
     expect(quiet.ok).toBe(true);
     if (quiet.ok) expect(quiet.post.silent).toBe(true);
+  });
+
+  it("validates name and avatar, enforces ban, expired join, cap, and public hashtags", async () => {
+    const owner = await activeUser("ch_sec_o");
+    const fan = await activeUser("ch_sec_f");
+    const short = await createChannel(owner, { name: "خ", username: "nixo_chsec", visibility: "public" });
+    expect(short.ok).toBe(false);
+    const scriptName = await createChannel(owner, { name: "<script>x</script>", username: "nixo_chsec2", visibility: "public" });
+    expect(scriptName.ok).toBe(false);
+    const badPhoto = await createChannel(owner, {
+      name: "آواتار بد",
+      username: "nixo_chsec3",
+      visibility: "public",
+      photoDataUrl: "data:image/gif;base64,AAAA",
+    });
+    expect(badPhoto.ok).toBe(false);
+
+    const created = await createChannel(owner, { name: "هشتگ عمومی", username: "nixo_hashtag1", visibility: "public" });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const tagged = await createPost(owner, created.channel.id, { body: "گزارش #نیکسو_خبر امروز", kind: "text" });
+    expect(tagged.ok).toBe(true);
+    if (tagged.ok) expect(tagged.post.tags).toContain("نیکسو_خبر");
+    const found = await searchPublicChannels("نیکسو_خبر", fan);
+    expect(found.some((c) => c.id === created.channel.id)).toBe(true);
+    const inner = await searchChannel(owner, created.channel.id, "نیکسو_خبر");
+    expect(inner?.posts.some((p) => p.id === (tagged.ok ? tagged.post.id : ""))).toBe(true);
+
+    await subscribe(fan, created.channel.id);
+    const banned = await moderateSubscriber(owner, created.channel.id, fan, "ban", { reason: "spam" });
+    expect(banned.ok).toBe(true);
+    const again = await subscribe(fan, created.channel.id);
+    expect(again.ok).toBe(false);
+    const react = await reactPost(fan, created.channel.id, tagged.ok ? tagged.post.id : "", "❤️");
+    expect(react.ok).toBe(false);
+    const unban = await moderateSubscriber(owner, created.channel.id, fan, "unban");
+    expect(unban.ok).toBe(true);
+    const back = await subscribe(fan, created.channel.id);
+    expect(back.ok).toBe(true);
+
+    const cap = await updateChannel(owner, created.channel.id, { maxSubscribers: 1 });
+    expect(cap.ok).toBe(true);
+    const other = await activeUser("ch_sec_g");
+    const overflow = await subscribe(other, created.channel.id);
+    expect(overflow.ok).toBe(false);
+
+    const priv = await createChannel(owner, { name: "درخواست منقضی", visibility: "private", joinMode: "request" });
+    expect(priv.ok).toBe(true);
+    if (!priv.ok) return;
+    const asked = await subscribe(fan, priv.channel.id);
+    expect(asked.ok).toBe(true);
+    await mutateStore((data) => {
+      const ch = data.pubChannels.find((c) => c.id === priv.channel.id);
+      const req = ch?.requests.find((r) => r.userId === fan);
+      if (req) req.expiresAt = Date.now() - 1000;
+    });
+    const late = await moderateJoinRequest(owner, priv.channel.id, fan, true);
+    expect(late.ok).toBe(false);
+    expect(await getChannel(fan, priv.channel.id)).toBeNull();
+    const stealComment = await commentPost(other, priv.channel.id, "not-a-post", "سلام");
+    expect(stealComment.ok).toBe(false);
   });
 });

@@ -113,7 +113,8 @@ export async function fileReport(
       }
     }
     if (input.targetKind === "channel") {
-      const [cid] = input.targetKey.split(":");
+      const parts = input.targetKey.split(":");
+      const cid = parts[0];
       const inCommunity = data.communities.some(
         (c) => !c.deletedAt && c.channels.some((ch) => ch.id === cid || ch.id === input.targetKey),
       );
@@ -124,9 +125,23 @@ export async function fileReport(
         const sub = pub.subscribers.some((s) => s.userId === reporterId && !s.leftAt);
         if (!staff && !sub) return { ok: false as const, error: "کانال یافت نشد.", status: 404 };
       }
-      const pid = input.targetKey.includes(":") ? input.targetKey.slice(cid.length + 1) : "";
-      if (pid && pub && !data.channelPosts.some((p) => p.id === pid && p.channelId === pub.id)) {
-        return { ok: false as const, error: "پست یافت نشد.", status: 404 };
+      if (pub && parts[1] === "comment") {
+        const postId = parts[2] ?? "";
+        const commentId = parts[3] ?? "";
+        const post = data.channelPosts.find((p) => p.id === postId && p.channelId === pub.id);
+        if (!post || !post.comments.some((c) => c.id === commentId)) {
+          return { ok: false as const, error: "نظر یافت نشد.", status: 404 };
+        }
+      } else if (pub && parts[1] === "member") {
+        const memberKey = parts[2] ?? "";
+        if (!pub.subscribers.some((s) => s.userId === memberKey) && !pub.staff.some((s) => s.userId === memberKey)) {
+          return { ok: false as const, error: "مشترک یافت نشد.", status: 404 };
+        }
+      } else {
+        const pid = input.targetKey.includes(":") ? input.targetKey.slice(cid.length + 1) : "";
+        if (pid && pub && !data.channelPosts.some((p) => p.id === pid && p.channelId === pub.id)) {
+          return { ok: false as const, error: "پست یافت نشد.", status: 404 };
+        }
       }
     }
     if (input.targetKind === "sticker") {

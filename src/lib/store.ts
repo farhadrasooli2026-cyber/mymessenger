@@ -446,10 +446,25 @@ function hydratePubChannel(channel: PubChannelRecord): PubChannelRecord {
           ...s,
           id: s.id || `csub_${s.userId}_${s.subscribedAt}`,
           mutedUntil: s.mutedUntil ?? null,
+          removedBy: s.removedBy ?? null,
         }))
       : [],
-    requests: Array.isArray(channel.requests) ? channel.requests : [],
-    bans: Array.isArray(channel.bans) ? channel.bans : [],
+    requests: Array.isArray(channel.requests)
+      ? channel.requests.map((r) => ({
+          ...r,
+          expiresAt: r.expiresAt,
+          status: r.status === "expired" || r.status === "approved" || r.status === "rejected" || r.status === "cancelled" ? r.status : "pending",
+        }))
+      : [],
+    bans: Array.isArray(channel.bans)
+      ? channel.bans.map((b) => ({
+          ...b,
+          id: b.id || `cban_${b.key}_${b.at}`,
+          permanent: b.permanent ?? !b.until,
+        }))
+      : [],
+    maxSubscribers: typeof channel.maxSubscribers === "number" ? channel.maxSubscribers : undefined,
+    hideSubscriberList: Boolean(channel.hideSubscriberList),
     pinIds: Array.isArray(channel.pinIds) ? channel.pinIds : [],
     audit: Array.isArray(channel.audit) ? channel.audit : [],
     liveActive: Boolean(channel.liveActive),
@@ -1433,6 +1448,7 @@ export type ChannelSubscriber = {
   notify: ChannelNotify;
   mutedUntil?: number | null;
   leftAt: number | null;
+  removedBy?: string | null;
 };
 
 export type ChannelComment = {
@@ -1450,7 +1466,8 @@ export type ChannelJoinRequest = {
   userId: string;
   name: string;
   createdAt: number;
-  status: "pending" | "approved" | "rejected" | "cancelled";
+  expiresAt?: number;
+  status: "pending" | "approved" | "rejected" | "cancelled" | "expired";
 };
 
 export type ChannelBroadcastJob = {
@@ -1587,6 +1604,7 @@ export type ChannelPost = {
   linkPreview?: { url: string; host: string } | null;
   silent?: boolean;
   announcement?: boolean;
+  tags?: string[];
 };
 
 export type PubChannelRecord = {
@@ -1621,7 +1639,7 @@ export type PubChannelRecord = {
   customRoles: import("@/lib/channel-types").CustomChannelRole[];
   subscribers: ChannelSubscriber[];
   requests: ChannelJoinRequest[];
-  bans: { key: string; at: number; until?: number | null }[];
+  bans: { id?: string; key: string; at: number; until?: number | null; byKey?: string; byName?: string; reason?: string; permanent?: boolean }[];
   previousUsernames?: string[];
   pinIds: string[];
   audit: ChannelAuditEvent[];
@@ -1634,6 +1652,8 @@ export type PubChannelRecord = {
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
+  maxSubscribers?: number;
+  hideSubscriberList?: boolean;
 };
 
 export type MusicTrack = {

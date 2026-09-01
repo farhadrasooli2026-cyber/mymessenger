@@ -25,6 +25,7 @@ type Post = {
   editedAt: number | null;
   reactions: { emoji: string; count?: number; keys?: string[]; mine?: boolean; users?: { username: string }[] }[];
   comments: { id: string; authorName: string; body: string; parentId?: string | null }[];
+  tags?: string[];
   poll?: { question: string; options: string[]; votes: { indexes: number[] }[]; quiz?: boolean; correctIndex?: number | null };
   album: string[];
   authorName: string;
@@ -70,12 +71,16 @@ type Ch = {
   liveChat?: { id: string; authorName: string; body: string }[];
   liveStreamId?: string | null;
   stories?: { id: string; body: string; createdAt: number; views: number }[];
-  analytics?: { subscribers: number; posts: number; views: number; reactions: number; comments: number; forwards: number; viewHits?: number } | null;
+  analytics?: { subscribers: number; posts: number; views: number; reactions: number; comments: number; forwards: number; viewHits?: number; growth7d?: number } | null;
   audit?: { at: number; actorName: string; kind: string; detail: string }[];
   status?: string;
   joinMode?: string;
   joinRequests?: { id: string; userId: string; name: string; createdAt: number }[];
   pendingJoin?: boolean;
+  publicLink?: string | null;
+  hideSubscriberList?: boolean;
+  maxSubscribers?: number;
+  bans?: { id: string; key: string; reason?: string; until?: number | null; permanent?: boolean }[];
 };
 
 export function ChannelPane({
@@ -175,7 +180,7 @@ export function ChannelPane({
     const at = p.publishedAt ?? 0;
     if (fromMs && at && at < fromMs) return false;
     if (toDate && at && at > toMs) return false;
-    return blobMatches(`${p.body} ${p.caption} ${p.kind} ${p.authorName}`, search);
+    return blobMatches(`${p.body} ${p.caption} ${p.kind} ${p.authorName} ${(p.tags ?? []).join(" ")}`, search);
   });
   const published = visible.filter((p) => p.status === "published");
   const pins = published.filter((p) => channel.pinIds.includes(p.id));
@@ -452,6 +457,9 @@ export function ChannelPane({
                   <p className="mt-1 leading-7">{p.body}</p>
                 )}
                 {p.caption && <p className="mt-1 text-xs text-emerald-100/70">{p.caption}</p>}
+                {(p.tags ?? []).length > 0 && (
+                  <p className="mt-1 text-[11px] text-amber-200/80">{p.tags!.map((t) => `#${t}`).join(" ")}</p>
+                )}
                 <div className="mt-2">
                   <ReactionBar
                     reactions={p.reactions}
@@ -514,6 +522,7 @@ export function ChannelPane({
                           {staff && (
                             <button type="button" className="text-rose-200" onClick={() => void act({ action: "deleteComment", postId: p.id, commentId: c.id })}>حذف</button>
                           )}
+                          <button type="button" className="text-rose-200" onClick={() => void act({ action: "reportComment", postId: p.id, commentId: c.id })}>گزارش</button>
                         </span>
                       </p>
                     ))}
@@ -601,6 +610,19 @@ export function ChannelPane({
                   واکنش
                   <input type="checkbox" checked={channel.reactionsEnabled !== false} onChange={(e) => void fetch(`/api/channels/${channelId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reactionsEnabled: e.target.checked }) }).then(load)} />
                 </label>
+                <label className="flex items-center justify-between">
+                  پنهان کردن فهرست مشترک از غیر ادمین
+                  <input type="checkbox" checked={Boolean(channel.hideSubscriberList)} onChange={(e) => void fetch(`/api/channels/${channelId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hideSubscriberList: e.target.checked }) }).then(load)} />
+                </label>
+                <label className="flex items-center justify-between gap-2">
+                  سقف مشترک
+                  <Input
+                    type="number"
+                    defaultValue={channel.maxSubscribers ?? 50000}
+                    className="h-8 w-28 bg-black/20"
+                    onBlur={(e) => void fetch(`/api/channels/${channelId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxSubscribers: Number(e.target.value) }) }).then(load)}
+                  />
+                </label>
                 <Textarea defaultValue={channel.rules} placeholder="قوانین کانال" className="min-h-16 bg-black/20" onBlur={(e) => void fetch(`/api/channels/${channelId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rules: e.target.value }) }).then(load)} />
                 <div className="flex gap-2">
                   <Button type="button" size="sm" variant="secondary" onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "live", active: !channel.liveActive, title: "پخش نیکسو" }) }).then(load)}>
@@ -613,7 +635,7 @@ export function ChannelPane({
                 </div>
                 {channel.analytics && (
                   <p className="rounded-xl bg-black/20 p-2">
-                    آمار: {channel.analytics.subscribers} مشترک · {channel.analytics.posts} پست · {channel.analytics.views} بازدید · {channel.analytics.reactions} واکنش · {channel.analytics.comments} نظر · {channel.analytics.forwards} هدایت
+                    آمار: {channel.analytics.subscribers} مشترک · رشد ۷روز {channel.analytics.growth7d ?? 0} · {channel.analytics.posts} پست · {channel.analytics.views} بازدید · {channel.analytics.reactions} واکنش · {channel.analytics.comments} نظر · {channel.analytics.forwards} هدایت
                   </p>
                 )}
                 {(channel.audit ?? []).slice(0, 8).map((a, i) => (
@@ -639,7 +661,7 @@ export function ChannelPane({
                     {(Object.keys(channel.adminPerms) as (keyof ChannelAdminPerms)[]).map((k) => (
                       <label key={k} className="flex items-center justify-between">
                         <span>{CHANNEL_PERM_FA[k]}</span>
-                        <input type="checkbox" checked={channel.adminPerms[k]} onChange={(e) => void fetch(`/api/channels/${channelId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ adminPerms: { ...channel.adminPerms, [k]: e.target.checked } }) }).then(load)} />
+                        <input type="checkbox" checked={Boolean(channel.adminPerms[k])} onChange={(e) => void fetch(`/api/channels/${channelId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ adminPerms: { ...channel.adminPerms, [k]: e.target.checked } }) }).then(load)} />
                       </label>
                     ))}
                   </>
@@ -653,9 +675,15 @@ export function ChannelPane({
                         <button type="button" onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "staff", targetId: s.userId, role: "editor" }) }).then(load)}>ویراستار</button>
                         <button type="button" onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "staff", targetId: s.userId, role: "moderator" }) }).then(load)}>ناظم</button>
                         <button type="button" onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "remove", targetId: s.userId }) }).then(load)}>حذف</button>
-                        <button type="button" className="text-rose-200" onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ban", targetId: s.userId }) }).then(load)}>بن</button>
+                        <button type="button" className="text-rose-200" onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ban", targetId: s.userId, reason: "abuse" }) }).then(load)}>بن</button>
                       </span>
                     )}
+                  </div>
+                ))}
+                {(channel.bans ?? []).map((b) => (
+                  <div key={b.id} className="flex justify-between text-rose-200/80">
+                    <span>بن {b.key.slice(0, 8)} {b.reason ? `· ${b.reason}` : ""} {b.permanent ? "· دائم" : ""}</span>
+                    <button type="button" onClick={() => void fetch(`/api/channels/${channelId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "unban", targetId: b.key }) }).then(load)}>رفع بن</button>
                   </div>
                 ))}
                 {channel.staff.map((s) => (
