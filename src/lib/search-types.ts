@@ -25,6 +25,8 @@ export const SEARCH_KINDS = [
   "music",
   "links",
   "live",
+  "hashtags",
+  "mentions",
 ] as const;
 
 export type SearchKind = (typeof SEARCH_KINDS)[number];
@@ -47,7 +49,9 @@ export type SearchHit = {
     | "mini"
     | "product"
     | "chat"
-    | "live";
+    | "live"
+    | "hashtag"
+    | "mention";
   title: string;
   preview: string;
   sender: string;
@@ -65,7 +69,7 @@ export type SearchHit = {
   category?: string;
   username?: string | null;
   target: {
-    type: "user" | "group" | "channel" | "community" | "chat" | "saved" | "bot" | "business" | "mini" | "product" | "live";
+    type: "user" | "group" | "channel" | "community" | "chat" | "saved" | "bot" | "business" | "mini" | "product" | "live" | "hashtag";
     id: string;
     messageId?: string;
     businessId?: string;

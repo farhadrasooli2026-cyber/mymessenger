@@ -2,7 +2,8 @@
 
 import { loadLocalMessages, loadOrCreateThreadKey } from "@/lib/e2ee";
 import type { SearchHit, SearchKind } from "@/lib/search-types";
-import { blobMatches, foldText } from "@/lib/search-match";
+import { blobMatches, exactPhraseMatches } from "@/lib/search-match";
+import { parseSearchQuery } from "@/lib/search-query";
 
 export type LocalThreadHint = {
   id: string;
@@ -17,7 +18,7 @@ function kindOfText(text: string, hint?: string): string {
 }
 
 function matchesKind(kind: SearchKind, itemKind: string) {
-  if (kind === "all" || kind === "messages") return itemKind === "text" || itemKind === "message" || itemKind === "link";
+  if (kind === "all" || kind === "messages" || kind === "hashtags" || kind === "mentions") return itemKind === "text" || itemKind === "message" || itemKind === "link";
   if (kind === "photos" || kind === "gifs") return itemKind === "photo" || itemKind === "gif";
   if (kind === "videos") return itemKind === "video";
   if (kind === "files") return itemKind === "file";
@@ -34,15 +35,17 @@ function matchesKind(kind: SearchKind, itemKind: string) {
 export async function searchLocalChats(
   threads: LocalThreadHint[],
   q: string,
-  opts?: { kind?: SearchKind; from?: string; fromDate?: number; toDate?: number },
+  opts?: { kind?: SearchKind; from?: string; fromDate?: number; toDate?: number; chatId?: string; exact?: boolean },
 ): Promise<SearchHit[]> {
-  const needle = foldText(q.trim().replace(/^@/, ""));
-  if (needle.length < 2 || typeof window === "undefined") return [];
+  const parsed = parseSearchQuery(q);
+  const needle = parsed.needle;
+  if ((needle.length < 2 && !parsed.exact && !opts?.exact) || typeof window === "undefined") return [];
   const kind = opts?.kind ?? "all";
   const hits: SearchHit[] = [];
+  const pool = opts?.chatId ? threads.filter((t) => t.id === opts.chatId) : threads;
   if (kind === "chats" || kind === "all") {
-    for (const thread of threads) {
-      if (!blobMatches(`${thread.peerName} ${thread.peerKey}`, needle)) continue;
+    for (const thread of pool) {
+      if (!blobMatches(`${thread.peerName} ${thread.peerKey}`, needle) && !parsed.exact) continue;
       hits.push({
         id: `chatname:${thread.id}`,
         scope: "chatLocal",
@@ -57,7 +60,7 @@ export async function searchLocalChats(
     }
     if (kind === "chats") return hits.slice(0, 40);
   }
-  for (const thread of threads.slice(0, 80)) {
+  for (const thread of pool.slice(0, 80)) {
     try {
       const key = await loadOrCreateThreadKey(thread.id);
       const local = await loadLocalMessages(thread.id, key);
@@ -71,7 +74,11 @@ export async function searchLocalChats(
         }
         const itemKind = kindOfText(msg.text);
         if (!matchesKind(kind, itemKind) && kind !== "all") continue;
-        if (!msg.text.toLowerCase().includes(needle) && !blobMatches(msg.text, needle)) continue;
+        const phrase = opts?.exact || parsed.exact;
+        const ok = phrase
+          ? exactPhraseMatches(msg.text, typeof phrase === "string" ? phrase : needle)
+          : msg.text.toLowerCase().includes(needle) || blobMatches(msg.text, needle);
+        if (!ok) continue;
         hits.push({
           id: `local:${thread.id}:${msg.id}`,
           scope: "chatLocal",

@@ -1080,6 +1080,7 @@ export type GroupMessage = {
   blobId?: string;
   chunkCount?: number;
   byteLength?: number;
+  fileName?: string;
   deleted?: boolean;
   stickerId?: string;
   durationMs?: number;
@@ -1313,6 +1314,7 @@ export type ChannelPost = {
   deleted?: boolean;
   cancelled?: boolean;
   sourcePostId?: string | null;
+  fileName?: string;
 };
 
 export type PubChannelRecord = {
@@ -1663,6 +1665,7 @@ export type StoreData = {
   lives: LiveStream[];
   liveRecordings: LiveRecordingMeta[];
   livePrefs: LivePrefs[];
+  searchIndex: { gen: number; rebuiltAt: number | null };
 };
 
 const EMPTY: StoreData = {
@@ -1767,6 +1770,7 @@ const EMPTY: StoreData = {
   lives: [],
   liveRecordings: [],
   livePrefs: [],
+  searchIndex: { gen: 0, rebuiltAt: null },
 };
 
 const STORE_PATH = path.join(
@@ -1820,6 +1824,7 @@ async function readStore(): Promise<StoreData> {
             comments: Array.isArray(p.comments) ? p.comments : [],
             cancelled: Boolean(p.cancelled),
             sourcePostId: p.sourcePostId ?? null,
+            fileName: typeof p.fileName === "string" ? p.fileName : "",
           }))
         : [],
       channelBroadcasts: Array.isArray(parsed.channelBroadcasts) ? parsed.channelBroadcasts : [],
@@ -1923,6 +1928,10 @@ async function readStore(): Promise<StoreData> {
       lives: Array.isArray(parsed.lives) ? parsed.lives : [],
       liveRecordings: Array.isArray(parsed.liveRecordings) ? parsed.liveRecordings : [],
       livePrefs: Array.isArray(parsed.livePrefs) ? parsed.livePrefs : [],
+      searchIndex: {
+        gen: typeof parsed.searchIndex?.gen === "number" ? parsed.searchIndex.gen : 0,
+        rebuiltAt: typeof parsed.searchIndex?.rebuiltAt === "number" ? parsed.searchIndex.rebuiltAt : null,
+      },
     };
   } catch {
     return structuredClone(EMPTY);

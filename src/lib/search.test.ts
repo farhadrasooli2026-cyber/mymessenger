@@ -7,7 +7,7 @@ import { getOutbox } from "./outbox";
 import { mutateStore, resetStoreForTests } from "./store";
 import { createChannel, createPost } from "./channels";
 import { createGroup } from "./groups";
-import { clearSearchHistory, globalSearch, removeSearchHistoryItem } from "./search";
+import { clearSearchHistory, exportSearchHistory, globalSearch, rebuildSearchIndex, removeSearchHistoryItem } from "./search";
 import { blobMatches, foldText, matchScore, suggestTerms } from "./search-match";
 import { listSaved, saveItem } from "./saved";
 import { createBusiness, upsertProduct } from "./business";
@@ -264,5 +264,79 @@ describe("NIXO search and saved messages", () => {
     if (!ai.ok) return;
     expect(ai.assistant.text).toMatch(/اخبار عمومی نکسو AI/);
     expect(ai.assistant.text).not.toMatch(/اتاق داخلی نکسو AI/);
+  });
+
+  it("matches exact quotes, hashtags for authorized posts only, and file names", async () => {
+    const owner = await activeUser("sr_exown");
+    const fan = await activeUser("sr_exfan");
+    const pub = await createChannel(owner, { name: "کانال هشتگ", username: "nixo_hash_sr", visibility: "public" });
+    const priv = await createChannel(owner, { name: "کانال هشتگ خصوصی", visibility: "private" });
+    expect(pub.ok && priv.ok).toBe(true);
+    if (!pub.ok || !priv.ok) return;
+    await createPost(owner, pub.channel.id, { body: "گزارش فوری #nixoalpha سلام نیکسو", kind: "text" });
+    await createPost(owner, pub.channel.id, { body: "فایل پیوست", caption: "invoice-nixo.pdf", kind: "file", fileName: "invoice-nixo.pdf" });
+    await createPost(owner, priv.channel.id, { body: "مخفی #nixoalpha", kind: "text" });
+    const exact = await globalSearch(fan, { q: '"گزارش فوری"', kind: "messages" });
+    expect(exact.ok && exact.hits.some((h) => h.preview.includes("گزارش فوری"))).toBe(true);
+    const loose = await globalSearch(fan, { q: '"گزارش فوری نیست"', kind: "messages" });
+    expect(loose.ok && loose.hits.every((h) => !h.preview.includes("گزارش فوری"))).toBe(true);
+    const tags = await globalSearch(fan, { q: "nixoalpha", kind: "hashtags" });
+    expect(tags.ok && tags.hits.some((h) => h.target.id === pub.channel.id)).toBe(true);
+    expect(tags.ok && tags.hits.every((h) => h.target.id !== priv.channel.id)).toBe(true);
+    const files = await globalSearch(fan, { q: "invoice-nixo", kind: "files" });
+    expect(files.ok && files.hits.some((h) => h.preview.includes("invoice-nixo"))).toBe(true);
+  });
+
+  it("refuses channelId IDOR, search-by-id without access, and regex/oversize queries", async () => {
+    const owner = await activeUser("sr_idorown");
+    const stranger = await activeUser("sr_idorstr");
+    const priv = await createChannel(owner, { name: "اتاق شناسه مخفی", visibility: "private" });
+    expect(priv.ok).toBe(true);
+    if (!priv.ok) return;
+    await createPost(owner, priv.channel.id, { body: "secret-idor-body-nixo", kind: "text" });
+    const scoped = await globalSearch(stranger, { q: "secret-idor-body-nixo", kind: "messages", channelId: priv.channel.id });
+    expect(scoped.ok && scoped.hits.length === 0).toBe(true);
+    const byId = await globalSearch(stranger, { q: priv.channel.id, kind: "channels" });
+    expect(byId.ok && byId.hits.every((h) => h.target.id !== priv.channel.id)).toBe(true);
+    const ownerId = await globalSearch(owner, { q: `nixo:channel:${priv.channel.id}` });
+    expect(ownerId.ok && ownerId.hits.some((h) => h.target.id === priv.channel.id)).toBe(true);
+    const regex = await globalSearch(stranger, { q: "(a+)+" });
+    expect(regex.ok).toBe(false);
+    const huge = await globalSearch(stranger, { q: "x".repeat(250) });
+    expect(huge.ok).toBe(false);
+  });
+
+  it("keeps discovery public-only, sorts by recency, and isolates history export", async () => {
+    const owner = await activeUser("sr_discown");
+    const stranger = await activeUser("sr_discstr");
+    const priv = await createChannel(owner, { name: "کشف خصوصی نکسو", visibility: "private" });
+    const pub = await createChannel(owner, { name: "کشف عمومی نکسو", username: "nixo_disc_pub", visibility: "public" });
+    expect(priv.ok && pub.ok).toBe(true);
+    if (!pub.ok || !priv.ok) return;
+    await createPost(owner, pub.channel.id, { body: "پست کهنه", kind: "text" });
+    await createPost(owner, pub.channel.id, { body: "پست تازه نکسو", kind: "text" });
+    const feed = await globalSearch(stranger, { q: "", feed: "discovery", recordHistory: false });
+    expect(feed.ok && feed.hits.some((h) => h.target.id === pub.channel.id)).toBe(true);
+    expect(feed.ok && feed.hits.every((h) => h.target.id !== priv.channel.id)).toBe(true);
+    const newest = await globalSearch(stranger, { q: "نکسو", kind: "messages", sort: "newest" });
+    expect(newest.ok).toBe(true);
+    if (newest.ok && newest.hits.length >= 2) {
+      expect(newest.hits[0]!.date).toBeGreaterThanOrEqual(newest.hits[1]!.date);
+    }
+    await globalSearch(owner, { q: "تاریخچه اختصاصی مالک" });
+    const mine = await exportSearchHistory(owner);
+    const theirs = await exportSearchHistory(stranger);
+    expect(mine.ok && mine.export.queries.some((q) => q.includes("تاریخچه اختصاصی"))).toBe(true);
+    expect(theirs.ok && theirs.export.queries.every((q) => !q.includes("تاریخچه اختصاصی"))).toBe(true);
+    const ops = await activeUser("nixo_ops");
+    const rebuilt = await rebuildSearchIndex(ops);
+    expect(rebuilt.ok).toBe(true);
+    const denied = await rebuildSearchIndex(stranger);
+    expect(denied.ok).toBe(false);
+  });
+
+  it("folds Turkish letters for matching", async () => {
+    expect(foldText("İstanbul")).toContain("stanbul");
+    expect(blobMatches("fotoğraf mağaza", "fotograf")).toBe(true);
   });
 });

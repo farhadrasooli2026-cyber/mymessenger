@@ -31,6 +31,8 @@ const KIND_FA: Record<SearchKind, string> = {
   music: "موسیقی",
   links: "لینک",
   live: "لایو",
+  hashtags: "هشتگ",
+  mentions: "منشن",
 };
 
 export function SearchPanel({
@@ -38,11 +40,13 @@ export function SearchPanel({
   initialQuery,
   onClose,
   onOpen,
+  chatId,
 }: {
   threads: LocalThreadHint[];
   initialQuery?: string;
   onClose: () => void;
   onOpen: (hit: SearchHit) => void;
+  chatId?: string | null;
 }) {
   const router = useRouter();
   const [q, setQ] = useState(initialQuery ?? "");
@@ -53,6 +57,14 @@ export function SearchPanel({
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [category, setCategory] = useState("");
+  const [sort, setSort] = useState("relevance");
+  const [fileType, setFileType] = useState("");
+  const [groupId, setGroupId] = useState("");
+  const [channelId, setChannelId] = useState("");
+  const [exact, setExact] = useState(false);
+  const [scopeChat, setScopeChat] = useState(false);
+  const [feed, setFeed] = useState<"" | "discovery" | "trending">("");
+  const [hints, setHints] = useState<string[]>([]);
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [history, setHistory] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -100,6 +112,7 @@ export function SearchPanel({
         q: seed,
         kind,
         offset: String(nextOffset),
+        sort,
       });
       if (from.trim()) params.set("from", from.trim());
       if (fromMs) params.set("fromDate", String(fromMs));
@@ -107,6 +120,15 @@ export function SearchPanel({
       if (minPrice) params.set("minPrice", minPrice);
       if (maxPrice) params.set("maxPrice", maxPrice);
       if (category.trim()) params.set("category", category.trim());
+      if (fileType.trim()) params.set("fileType", fileType.trim());
+      if (groupId.trim()) params.set("groupId", groupId.trim());
+      if (channelId.trim()) params.set("channelId", channelId.trim());
+      if (exact) params.set("exact", "1");
+      if (scopeChat && chatId) params.set("chatId", chatId);
+      if (feed) {
+        params.set("feed", feed);
+        params.set("historyWrite", "0");
+      }
       const res = await fetch(`/api/search?${params}`, { cache: "no-store", signal: ac.signal });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data) {
@@ -126,7 +148,14 @@ export function SearchPanel({
         kind === "products" ||
         kind === "mini"
           ? []
-          : await searchLocalChats(threads, seed, { kind, from: from.trim() || undefined, fromDate: fromMs, toDate: toMs });
+          : await searchLocalChats(threads, seed, {
+              kind,
+              from: from.trim() || undefined,
+              fromDate: fromMs,
+              toDate: toMs,
+              chatId: scopeChat && chatId ? chatId : undefined,
+              exact,
+            });
       const merged = [...(nextOffset === 0 ? local : []), ...remote];
       const seen = new Set<string>();
       const unique = merged.filter((h) => {
@@ -140,6 +169,7 @@ export function SearchPanel({
       setHistory(data.history ?? history);
       setSuggestions(data.suggestions ?? suggestions);
       setNote(data.note ?? "");
+      setHints(data.noResultHints ?? []);
     } catch (err) {
       if ((err as { name?: string }).name === "AbortError") return;
       setError("Network Error / Timeout");
@@ -171,7 +201,7 @@ export function SearchPanel({
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="کاربر، @username، چت، محصول، فایل…"
+            placeholder='کاربر، @username، "عبارت دقیق"، #هشتگ، فایل…'
             className="h-10 bg-black/20"
             enterKeyHint="search"
             inputMode="search"
@@ -211,6 +241,21 @@ export function SearchPanel({
           </div>
         )}
         <div className="mt-2 flex flex-wrap gap-1">
+          {(["", "discovery", "trending"] as const).map((f) => (
+            <button
+              key={f || "search"}
+              type="button"
+              className={`rounded-full px-2 py-0.5 text-[11px] ${feed === f ? "bg-amber-300 text-[#102824]" : "bg-white/10"}`}
+              onClick={() => {
+                setFeed(f);
+                if (f) void run(0, q || "nixo");
+              }}
+            >
+              {f === "" ? "جستجو" : f === "discovery" ? "Discovery" : "Trending"}
+            </button>
+          ))}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1">
           {SEARCH_KINDS.map((k) => (
             <button
               key={k}
@@ -224,7 +269,21 @@ export function SearchPanel({
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
           <Input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="From User / @username" dir="ltr" className="h-8 bg-black/20 text-left" />
+          <select
+            className="h-8 rounded-md bg-black/30 px-2 text-[11px]"
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+            aria-label="مرتب‌سازی"
+          >
+            <option value="relevance">Relevance</option>
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+            <option value="popular">Popular</option>
+          </select>
           <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Category محصول" className="h-8 bg-black/20" />
+          <Input value={fileType} onChange={(e) => setFileType(e.target.value)} placeholder="File type (pdf, zip…)" dir="ltr" className="h-8 bg-black/20 text-left" />
+          <Input value={groupId} onChange={(e) => setGroupId(e.target.value)} placeholder="Group ID" dir="ltr" className="h-8 bg-black/20 text-left" />
+          <Input value={channelId} onChange={(e) => setChannelId(e.target.value)} placeholder="Channel ID" dir="ltr" className="h-8 bg-black/20 text-left" />
           <label className="flex items-center gap-1">
             From
             <input type="date" className="flex-1 rounded bg-black/30 px-1" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
@@ -239,6 +298,16 @@ export function SearchPanel({
               <Input value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)} placeholder="Max price" className="h-8 bg-black/20" />
             </>
           )}
+          <label className="col-span-2 flex items-center gap-2 text-[11px] text-emerald-100/70">
+            <input type="checkbox" checked={exact} onChange={(e) => setExact(e.target.checked)} />
+            Exact Search
+          </label>
+          {chatId ? (
+            <label className="col-span-2 flex items-center gap-2 text-[11px] text-emerald-100/70">
+              <input type="checkbox" checked={scopeChat} onChange={(e) => setScopeChat(e.target.checked)} />
+              فقط همین گفتگو
+            </label>
+          ) : null}
         </div>
         {history.length > 0 && (
           <div className="mt-2">
@@ -253,6 +322,25 @@ export function SearchPanel({
                 }}
               >
                 Clear Search History
+              </button>
+              <button
+                type="button"
+                className="text-amber-200"
+                onClick={async () => {
+                  const res = await fetch("/api/search?export=1", { cache: "no-store" });
+                  const data = await res.json();
+                  if (!res.ok) {
+                    toast.error("خروجی گرفته نشد.");
+                    return;
+                  }
+                  const blob = new Blob([JSON.stringify(data.export, null, 2)], { type: "application/json" });
+                  const a = document.createElement("a");
+                  a.href = URL.createObjectURL(blob);
+                  a.download = "nixo-search-history.json";
+                  a.click();
+                }}
+              >
+                خروجی تاریخچه
               </button>
             </div>
             <div className="mt-1 flex flex-wrap gap-1">
@@ -287,10 +375,39 @@ export function SearchPanel({
         <p className="mt-2 text-[10px] leading-5 text-emerald-100/50">
           فقط چیزهایی که اجازهٔ دیدنشان را داری. متن چت خصوصی و گروه E2EE روی دستگاه است. {note}
         </p>
-        <div className="mt-2 min-h-0 flex-1 space-y-1 overflow-auto">
+        <div
+          className="mt-2 min-h-0 flex-1 space-y-1 overflow-auto"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            if (hasMore && !busy && el.scrollTop + el.clientHeight >= el.scrollHeight - 48) {
+              void run(offset);
+            }
+          }}
+        >
           {busy && <p className="text-xs text-amber-200">Loading…</p>}
           {error && <p className="text-xs text-rose-200">{error}</p>}
-          {hits.length === 0 && !busy && !error && <p className="text-xs text-emerald-100/50">No results found</p>}
+          {hits.length === 0 && !busy && !error && (
+            <div>
+              <p className="text-xs text-emerald-100/50">No results found</p>
+              {hints.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {hints.map((h) => (
+                    <button
+                      key={h}
+                      type="button"
+                      className="rounded-full bg-white/10 px-2 py-0.5 text-[11px]"
+                      onClick={() => {
+                        setQ(h);
+                        void run(0, h);
+                      }}
+                    >
+                      {h}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
               {(["user", "chat", "group", "channel", "community", "bot", "mini", "business", "live"] as const).map((scope) => {
             const group = hits.filter((h) => h.scope === scope || (scope === "chat" && h.scope === "chatLocal"));
             if (!group.length) return null;

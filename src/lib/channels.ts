@@ -912,6 +912,7 @@ export async function createPost(
       createdAt: now,
       durationMs: kind === "voice" || kind === "audio" ? input.durationMs : undefined,
       sourcePostId: null,
+      fileName: kind === "file" || kind === "audio" || kind === "photo" || kind === "video" || kind === "gif" ? sanitizeFileName(String(input.fileName ?? caption)).slice(0, 120) : undefined,
     };
     data.channelPosts.push(post);
     channel.updatedAt = now;

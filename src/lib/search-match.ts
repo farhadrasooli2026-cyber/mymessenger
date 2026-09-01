@@ -7,9 +7,16 @@ const DIAC = /[\u064B-\u065F\u0670\u06D6-\u06ED]/g;
 export function foldText(raw: string) {
   return raw
     .normalize("NFKC")
+    .replace(/\u0130/g, "i")
+    .replace(/\u0131/g, "i")
     .replace(YE, "ی")
     .replace(KAF, "ک")
     .replace(DIAC, "")
+    .replace(/ş/gi, "s")
+    .replace(/ğ/gi, "g")
+    .replace(/ç/gi, "c")
+    .replace(/ö/gi, "o")
+    .replace(/ü/gi, "u")
     .toLocaleLowerCase("en");
 }
 
@@ -49,6 +56,12 @@ export function matchScore(haystack: string, needle: string) {
 
 export function blobMatches(blob: string, needle: string) {
   return matchScore(blob, needle) >= 48;
+}
+
+export function exactPhraseMatches(blob: string, phrase: string) {
+  const n = foldText(phrase).trim();
+  if (!n) return false;
+  return foldText(blob).includes(n);
 }
 
 export function highlightText(text: string, needle: string) {

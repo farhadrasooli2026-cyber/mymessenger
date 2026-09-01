@@ -2359,6 +2359,7 @@ export function Messenger({
           initialQuery={searchSeed}
           onClose={() => setSearchOpen(false)}
           onOpen={openSearchHit}
+          chatId={activeId}
         />
       )}
       {storyComposer && (
