@@ -496,6 +496,12 @@ describe("NIXO search and saved messages", () => {
     expect(tooComplex.ok).toBe(false);
     const ops = await activeUser("nixo_ops");
     await rebuildSearchIndex(ops);
+    await mutateStore((data) => {
+      const pubDoc = data.searchDocs.find((d) => d.entityId === pub.channel.id && d.kind === "channel");
+      expect(pubDoc && (pubDoc.tokens?.length ?? 0) > 0).toBe(true);
+      expect(data.searchDocs.every((d) => d.public === true)).toBe(true);
+      expect(data.searchDocs.every((d) => d.entityId !== priv.channel.id)).toBe(true);
+    });
     const { tombstoneSearchDoc, searchHealth, evaluateSearchQuality } = await import("./search");
     const stone = await tombstoneSearchDoc(ops, `channel:${pub.channel.id}`, "test");
     expect(stone.ok).toBe(true);
@@ -510,6 +516,7 @@ describe("NIXO search and saved messages", () => {
     expect(stillGone.ok && stillGone.hits.every((h) => h.target.id !== pub.channel.id)).toBe(true);
     const ev = await evaluateSearchQuality(ops);
     expect(ev.ok && ev.leaked === 0).toBe(true);
+    if (ev.ok) expect(ev.suggest.recall).toBeGreaterThan(0);
     const deniedEval = await evaluateSearchQuality(stranger);
     expect(deniedEval.ok).toBe(false);
     const health = await searchHealth();

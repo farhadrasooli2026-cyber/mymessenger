@@ -2,7 +2,7 @@
 
 import { loadLocalMessages, loadOrCreateThreadKey } from "@/lib/e2ee";
 import type { SearchHit, SearchKind } from "@/lib/search-types";
-import { blobMatches, exactPhraseMatches } from "@/lib/search-match";
+import { blobMatches, booleanMatches, exactPhraseMatches } from "@/lib/search-match";
 import { parseSearchQuery } from "@/lib/search-query";
 
 export type LocalThreadHint = {
@@ -72,9 +72,11 @@ export async function searchLocalChats(
         const itemKind = kindOfText(msg.text);
         if (!matchesKind(kind, itemKind) && kind !== "all") continue;
         const phrase = opts?.exact || parsed.exact;
-        const ok = phrase
-          ? exactPhraseMatches(msg.text, typeof phrase === "string" ? phrase : needle)
-          : msg.text.toLowerCase().includes(needle) || blobMatches(msg.text, needle);
+        const ok = parsed.bool
+          ? booleanMatches(msg.text, parsed.bool)
+          : phrase
+            ? exactPhraseMatches(msg.text, typeof phrase === "string" ? phrase : needle)
+            : msg.text.toLowerCase().includes(needle) || blobMatches(msg.text, needle);
         if (!ok) continue;
         hits.push({
           id: `local:${thread.id}:${msg.id}`,

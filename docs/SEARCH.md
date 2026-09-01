@@ -8,7 +8,8 @@
 - پیام خصوصی E2EE، گروه دعوت‌محور، کانال خصوصی و فایل غیرعمومی وارد ایندکس عمومی نمی‌شوند.
 - همگام‌سازی افزایشی از صف `searchIndexJobs`. Rebuild کامل از Store منبع.
 - Tombstone مانع بازگشت سند حذف‌شده پس از Reindex می‌شود.
-- نسخهٔ اسکیما: `SEARCH_INDEX_VERSION`. Reindex بدون قطع سرویس در یک Swap اتمی Store.
+- Embedding عمومی فقط از عنوان/پیش‌نمایش اسناد Public (`tokens` روی `searchDocs`). Vector/Hybrid بعد از ACL.
+- ارزیابی Suggestion جدا از Query خصوصی.
 
 ## Query
 

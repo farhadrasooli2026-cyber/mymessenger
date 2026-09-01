@@ -2304,7 +2304,7 @@ const EMPTY: StoreData = {
   lives: [],
   liveRecordings: [],
   livePrefs: [],
-  searchIndex: { gen: 0, rebuiltAt: null, version: 3 },
+  searchIndex: { gen: 0, rebuiltAt: null, version: 4 },
   searchDocs: [],
   searchIndexJobs: [],
   searchQueryCache: [],
@@ -2648,7 +2648,7 @@ export function bumpDiscoveryCaches(data: StoreData) {
   data.searchIndex = {
     gen: (data.searchIndex?.gen ?? 0) + 1,
     rebuiltAt: Date.now(),
-    version: data.searchIndex?.version ?? 3,
+    version: data.searchIndex?.version ?? 4,
   };
   data.searchQueryCache = [];
 }
@@ -2949,7 +2949,7 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.searchIndex = {
     gen: (data.searchIndex?.gen ?? 0) + 1,
     rebuiltAt: now,
-    version: data.searchIndex?.version ?? 3,
+    version: data.searchIndex?.version ?? 4,
   };
   data.consentEvents = (data.consentEvents ?? []).filter((e) => e.userId !== uid);
   data.privacyExports = (data.privacyExports ?? []).filter((e) => e.ownerUserId !== uid);

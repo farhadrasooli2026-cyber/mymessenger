@@ -316,7 +316,7 @@ export async function sendAiMessage(userId: string, input: z.infer<typeof aiSend
     const ask = /^(search|جستجو|ara|bul)(\s|:|$)/i.test(clean.text.trim()) || intent === "search";
     if (ask && policy.features.search) {
       const q = clean.text.replace(/^(search|جستجو|ara|bul)[:\s]*/i, "").trim() || clean.text;
-      const hits = collectSearchHits(data, userId, { q, kind: "all" }).slice(0, 6);
+      const hits = collectSearchHits(data, userId, { q, kind: "all", semantic: true }).slice(0, 6);
       searchNote = hits.map((h) => `${h.title} — ${h.preview}`).join("\n");
       const toks = embeddingTokens(q);
       if (toks.length && data.aiSys.vectors.filter((v) => v.userId === userId).length < 80) {

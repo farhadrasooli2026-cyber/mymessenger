@@ -4,7 +4,7 @@ import { mutateStore, readStoreSnapshot, type StoreData } from "@/lib/store";
 import type { ChannelPost, CommunityRecord, GroupRecord, PubChannelRecord, UserStory } from "@/lib/store";
 import { publicProfile } from "@/lib/profile";
 import { hmacIdentifier, randomId } from "@/lib/crypto-utils";
-import { SYNONYM_VERSION, blobMatches, booleanMatches, exactPhraseMatches, foldText, highlightText, hybridOverlap, matchScore, recencyBoost, sanitizeSearchSnippet, suggestTerms } from "@/lib/search-match";
+import { SYNONYM_VERSION, blobMatches, booleanMatches, exactPhraseMatches, foldText, highlightText, hybridOverlap, matchScore, recencyBoost, sanitizeSearchSnippet, stemTokens, suggestTerms } from "@/lib/search-match";
 import {
   SEARCH_CACHE_TTL_MS,
   SEARCH_FLOOD_MAX,
@@ -20,7 +20,7 @@ import {
 } from "@/lib/search-types";
 import { percentile } from "@/lib/edge-policy";
 import { experimentBucket } from "@/lib/ai-privacy";
-import { SEARCH_EVAL_CASES, SEARCH_EVAL_VERSION, scoreEvalHits } from "@/lib/search-eval";
+import { SEARCH_EVAL_CASES, SEARCH_EVAL_VERSION, scoreEvalHits, scoreSuggestEval } from "@/lib/search-eval";
 import { normalizeEmail, normalizePhone } from "@/lib/identifiers";
 import { audienceAllows, canFindByUsername, pairBlocked } from "@/lib/privacy";
 import { canSeePack, ensureOfficialPacks } from "@/lib/stickers";
@@ -146,9 +146,17 @@ export function enqueueSearchTombstone(data: StoreData, docId: string, reason: s
 
 function publicIndexFingerprint(docs: SearchDoc[]) {
   return docs
-    .map((d) => `${d.id}:${d.updatedAt}:${d.title}:${d.preview}`)
+    .map((d) => `${d.id}:${d.updatedAt}:${d.title}:${d.preview}:${(d.tokens ?? []).join(",")}`)
     .sort()
     .join("|");
+}
+
+function publicDoc(doc: SearchDoc): SearchDoc {
+  return {
+    ...doc,
+    public: true,
+    tokens: stemTokens(`${doc.title} ${doc.preview} ${doc.tags.join(" ")}`).slice(0, 24),
+  };
 }
 
 export function syncPublicSearchIndex(data: StoreData) {
@@ -254,7 +262,7 @@ export function syncPublicSearchIndex(data: StoreData) {
     });
   }
   const dead = new Set((data.searchTombstones ?? []).map((t) => t.docId));
-  const next = docs.filter((d) => !dead.has(d.id));
+  const next = docs.filter((d) => !dead.has(d.id)).map(publicDoc);
   const fp = publicIndexFingerprint(next);
   const prev = (data.searchDocs ?? []).length ? publicIndexFingerprint(data.searchDocs) : "";
   data.searchDocs = next;
@@ -1594,7 +1602,15 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
     if (ranking === "freshness") hit.score = (hit.score ?? 0) + recencyBoost(hit.date) * 2;
     if (ranking === "popularity") hit.score = (hit.score ?? 0) + (hit.members ?? 0) / 3;
     if (input.semantic) {
-      hit.score = (hit.score ?? 0) + hybridOverlap(`${hit.title} ${hit.preview}`, input.q) * 18;
+      const docs = data.searchDocs ?? [];
+      const byHit = new Map(docs.map((d) => [d.id, d]));
+      for (const hit of hits) {
+        const doc =
+          byHit.get(hit.id) ||
+          docs.find((d) => d.entityId === hit.target.id || d.id.endsWith(`:${hit.target.id}`));
+        const bag = doc?.tokens?.length ? doc.tokens.join(" ") : `${hit.title} ${hit.preview}`;
+        hit.score = (hit.score ?? 0) + hybridOverlap(bag, input.q) * 18;
+      }
     }
   }
   const hidden = new Set(me.searchHideIds ?? []);
@@ -1841,7 +1857,8 @@ export async function evaluateSearchQuality(userId: string) {
     });
     const leaked = cases.reduce((n, c) => n + c.leaked, 0);
     const avgPrecision = cases.reduce((n, c) => n + c.precision, 0) / Math.max(1, cases.length);
-    return { ok: true as const, version: SEARCH_EVAL_VERSION, leaked, avgPrecision, cases };
+    const suggest = scoreSuggestEval();
+    return { ok: true as const, version: SEARCH_EVAL_VERSION, leaked, avgPrecision, suggest, cases };
   });
 }
 

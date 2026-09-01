@@ -5,7 +5,7 @@ export const SEARCH_HISTORY_MAX = 20;
 export const SEARCH_INDEX_RETRY_MAX = 5;
 export const SEARCH_CACHE_TTL_MS = 15_000;
 /** Bump on schema change; jobs migrate by rebuilding from source. */
-export const SEARCH_INDEX_VERSION = 3;
+export const SEARCH_INDEX_VERSION = 4;
 
 export const SEARCH_KINDS = [
   "all",
@@ -124,6 +124,8 @@ export type SearchDoc = {
   preview: string;
   tags: string[];
   public: true;
+  /** Bag-of-words embedding for public docs only. Never ciphertext. */
+  tokens?: string[];
   updatedAt: number;
 };
 
