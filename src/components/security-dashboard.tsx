@@ -29,6 +29,7 @@ type Dash = {
   passkeys: { id: string; name: string; createdAt: number }[];
   backupSet: boolean;
   hasPassword: boolean;
+  incidentPlaybook?: { phase: string; title: string; steps: readonly string[] }[];
 };
 
 function when(ts: number) {
@@ -187,6 +188,30 @@ export function SecurityDashboard() {
               </p>
             ))}
           </div>
+          {dash.checkup.suspiciousDevices.length > 0 && (
+            <p className="mt-2 text-xs text-amber-200">ورود مشکوک ثبت شده — دستگاه را بررسی کنید.</p>
+          )}
+        </section>
+
+        <section className="rounded-2xl bg-white/5 p-4 text-sm">
+          <h2 className="font-medium">پاسخ به حادثه امنیتی</h2>
+          <p className="mt-1 text-[11px] leading-5 text-emerald-100/60">
+            نیکسو ادعا نمی‌کند نفوذناپذیر است. مسیر مشخص: شناسایی → مهار → بازیابی → حسابرسی. نشست، مجوز و مالکیت همیشه روی سرور دوباره چک می‌شود.
+          </p>
+          <ol className="mt-3 space-y-3 text-xs leading-6">
+            {(dash.incidentPlaybook ?? []).map((phase) => (
+              <li key={phase.phase}>
+                <p className="font-medium text-amber-100">
+                  {phase.title} · {phase.phase}
+                </p>
+                <ul className="mt-1 list-disc pr-4 opacity-80">
+                  {phase.steps.map((s) => (
+                    <li key={s}>{s}</li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ol>
         </section>
 
         <section className="rounded-2xl bg-white/5 p-4 text-sm">

@@ -16,6 +16,7 @@ import {
   downloadPrivacyExport,
   enableTwoStep,
   generateRecoveryCodes,
+  getSecurityDashboard,
   isDeviceActive,
   passwordMatches,
   requestOriginAllowed,
@@ -229,5 +230,26 @@ describe("NIXO security", () => {
     expect(requestOriginAllowed(ok)).toBe(true);
     expect(requestOriginAllowed(bad)).toBe(false);
     expect(requestOriginAllowed(none)).toBe(true);
+  });
+
+  it("flags impossible travel between country hints", async () => {
+    const id = await activeUser("sec_travel");
+    await createDeviceSessionForUser({
+      userId: id,
+      ip: "203.0.113.10",
+      userAgent: "Mozilla/5.0 (Macintosh) Safari/17",
+      approx: "کشور تقریبی: US — بدون GPS",
+    });
+    await createDeviceSessionForUser({
+      userId: id,
+      ip: "198.51.100.4",
+      userAgent: "Mozilla/5.0 (Linux) Chrome/122",
+      approx: "کشور تقریبی: IR — بدون GPS",
+    });
+    const snap = await readStoreSnapshot();
+    expect(snap.audit.some((e) => e.userId === id && e.kind === "suspicious" && e.detail?.includes("مکان"))).toBe(true);
+    expect(snap.audit.every((e) => !e.chainHash || e.chainHash.length > 8)).toBe(true);
+    const dash = await getSecurityDashboard(id);
+    expect(dash?.incidentPlaybook?.length).toBe(4);
   });
 });

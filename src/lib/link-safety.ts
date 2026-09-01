@@ -1,5 +1,7 @@
 /** Client-side link heuristics. Server never fetches the target. */
 
+import { isPrivateHost } from "@/lib/safe-web";
+
 const SHORTENERS = new Set([
   "bit.ly",
   "tinyurl.com",
@@ -22,8 +24,14 @@ export function inspectLink(raw: string): { warn: boolean; reason?: string } {
     return { warn: false };
   }
   const host = url.hostname.toLowerCase();
+  if (isPrivateHost(host) || host === "localhost") {
+    return { warn: true, reason: "لینک به شبکهٔ داخلی اشاره دارد." };
+  }
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
     return { warn: true, reason: "لینک به آدرس IP خام اشاره دارد." };
+  }
+  if (/^(file|ftp|ws):/i.test(url.protocol)) {
+    return { warn: true, reason: "این لینک از پروتکل خطرناک استفاده می‌کند." };
   }
   if (host.includes("xn--")) {
     return { warn: true, reason: "دامنهٔ Punycode ممکن است جعلی باشد." };

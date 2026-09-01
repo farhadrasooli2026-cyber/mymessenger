@@ -758,6 +758,7 @@ export type AuditEvent = {
   userAgent?: string;
   deviceSessionId?: string;
   detail?: string;
+  chainHash?: string;
 };
 
 export type PasskeyChallenge = {

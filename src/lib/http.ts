@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { API_VERSION, statusToCode } from "@/lib/api-types";
+import { stripSensitive } from "@/lib/safe-web";
 
 export const SECURITY_HEADERS: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
@@ -8,7 +9,8 @@ export const SECURITY_HEADERS: Record<string, string> = {
   "X-API-Version": API_VERSION,
   "Cache-Control": "private, no-store",
   "Permissions-Policy": "camera=(self), microphone=(self), geolocation=(), payment=()",
-  "Cross-Origin-Opener-Policy": "same-origin",
+  "Cross-Origin-Resource-Policy": "same-origin",
+  "X-DNS-Prefetch-Control": "off",
   "Content-Security-Policy":
     "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
 };
@@ -23,13 +25,27 @@ export function mergeHeaders(extra?: HeadersInit, correlationId?: string): Heade
   return h;
 }
 
+const MAX_JSON_RESPONSE_CHARS = 4_000_000;
+
 export function json(data: unknown, status = 200, extraHeaders?: HeadersInit) {
-  return NextResponse.json(data, { status, headers: mergeHeaders(extraHeaders) });
+  const body = stripSensitive(data);
+  try {
+    const encoded = JSON.stringify(body);
+    if (encoded.length > MAX_JSON_RESPONSE_CHARS) {
+      return jsonError("پاسخ بیش از حد بزرگ است.", 413, { code: "response_too_large" });
+    }
+  } catch {
+    return jsonError("پاسخ قابل ارسال نیست.", 500);
+  }
+  return NextResponse.json(body, { status, headers: mergeHeaders(extraHeaders) });
 }
 
 export function jsonError(error: string, status = 400, extra?: Record<string, unknown>) {
   const rest = { ...(extra ?? {}) };
   const code = typeof rest.code === "string" ? rest.code : statusToCode(status);
   delete rest.code;
-  return NextResponse.json({ ok: false, error, code, ...rest }, { status, headers: mergeHeaders() });
+  delete rest.stack;
+  delete rest.password;
+  const message = error.replace(/\n[\s\S]*$/g, "").slice(0, 280);
+  return NextResponse.json(stripSensitive({ ok: false, error: message, code, ...rest }), { status, headers: mergeHeaders() });
 }

@@ -7,6 +7,8 @@ import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { AuditEvent, DeviceSession, SecurityEventKind, StoreData, UserRecord } from "@/lib/store";
 import { emitNotification } from "@/lib/notify";
 import { otpauthUrl, randomTotpSecret, totpValid } from "@/lib/totp";
+import { INCIDENT_PLAYBOOK, nextAuditChainHash } from "@/lib/anti-abuse";
+import { countryFromApprox, impossibleTravel } from "@/lib/safe-web";
 
 export const PASSWORD_MIN = 10;
 
@@ -41,6 +43,8 @@ export function appendAudit(
     deviceSessionId: opts.deviceSessionId,
     detail: opts.detail?.slice(0, 280),
   };
+  const prev = (data.audit ?? [])[0]?.chainHash ?? "genesis";
+  event.chainHash = nextAuditChainHash(prev, event);
   data.audit = [event, ...(data.audit ?? [])].slice(0, 400);
   const skip: SecurityEventKind[] = ["logout", "backup", "vuln_report", "privacy"];
   if (!skip.includes(kind)) {
@@ -224,6 +228,13 @@ export async function createDeviceSessionForUser(input: {
       refreshRotatedAt: Date.now(),
     };
     data.devices.unshift(device);
+    const lastOther = live.sort((a, b) => b.lastSeenAt - a.lastSeenAt)[0];
+    const travel =
+      lastOther &&
+      impossibleTravel(
+        { country: countryFromApprox(lastOther.approx), at: lastOther.lastSeenAt },
+        { country: countryFromApprox(input.approx), at: Date.now() },
+      );
     if (input.recovery) {
       appendAudit(data, input.userId, "recovery", {
         ip: input.ip,
@@ -240,12 +251,12 @@ export async function createDeviceSessionForUser(input: {
         ? "New login detected from a new device — در انتظار تأیید دستگاه مورد اعتماد"
         : device.name,
     });
-    if (suspicious) {
+    if (suspicious || travel) {
       appendAudit(data, input.userId, "suspicious", {
         ip: input.ip,
         userAgent: ua,
         deviceSessionId: device.id,
-        detail: "ورود مشکوک: دستگاه جدید یا ناشناس",
+        detail: travel ? "ورود مشکوک: مکان ناسازگار در زمان کوتاه" : "ورود مشکوک: دستگاه جدید یا ناشناس",
       });
     }
     return { device, isNewDevice, suspicious, pending, refreshToken: refreshPlain };
@@ -440,6 +451,7 @@ export async function getSecurityDashboard(userId: string, currentSid?: string) 
     restrictedCount: (user.restrictedPeerKeys ?? []).length,
     consents: user.prefs?.consents ?? { analytics: false, contactSync: false, location: false, marketing: false },
     screenshotProtect: Boolean(user.prefs?.screenshotProtect),
+    incidentPlaybook: INCIDENT_PLAYBOOK,
     score,
     metrics: {
       activeSessions: devices.filter((d) => !d.revokedAt).length,

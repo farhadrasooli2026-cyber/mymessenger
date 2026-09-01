@@ -24,6 +24,12 @@ export function publishChatLive(userId: string, threadId: string, type: ChatLive
 }
 
 export function subscribeChatLive(userId: string, threadId: string, send: (line: string) => void): () => void {
+  let n = 0;
+  for (const s of subs) if (s.userId === userId) n += 1;
+  if (n >= 8) {
+    send(`data: ${JSON.stringify({ type: "error", error: "connection-limit", at: Date.now() })}\n\n`);
+    return () => undefined;
+  }
   const sub: Sub = { userId, threadId, send };
   subs.add(sub);
   return () => {
