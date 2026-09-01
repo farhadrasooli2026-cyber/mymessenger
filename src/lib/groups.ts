@@ -7,6 +7,7 @@ import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { GroupMember, GroupMessage, GroupRecord, StoreData } from "@/lib/store";
 import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf, canUseSticker } from "@/lib/stickers";
 import { validateVoiceDuration, VOICE_SEND_PER_MIN } from "@/lib/voice";
+import { declaredExtAllowed, scanNamedFile } from "@/lib/files";
 import { emitNotification } from "@/lib/notify";
 import {
   DEFAULT_GROUP_ADMIN_PERMS,
@@ -710,6 +711,7 @@ export async function sendGroupMessage(
     blobId?: string;
     chunkCount?: number;
     byteLength?: number;
+    fileExt?: string;
     poll?: { question: string; options: string[]; anonymous?: boolean; multiple?: boolean; closesAt?: number | null };
     stickerId?: string;
     durationMs?: number;
@@ -832,6 +834,14 @@ export async function sendGroupMessage(
       const cap = group.fileMaxBytes && group.fileMaxBytes > 0 ? Math.min(group.fileMaxBytes, 28 * 1024 * 1024) : 28 * 1024 * 1024;
       if (typeof payload.byteLength === "number" && payload.byteLength > cap) {
         return { ok: false as const, error: "حجم فایل از سقف این گروه بیشتر است.", status: 413 };
+      }
+      if (kind === "file") {
+        const ext = typeof payload.fileExt === "string" ? payload.fileExt.replace(/^\./, "").toLowerCase().slice(0, 8) : "";
+        const named = scanNamedFile(ext ? `file.${ext}` : "file.bin", "application/octet-stream", payload.byteLength ?? 0);
+        if (!named.ok) return { ok: false as const, error: named.warning ?? "نوع فایل مجاز نیست.", status: 400 };
+        if (!declaredExtAllowed(group.allowedFileExts, ext)) {
+          return { ok: false as const, error: "این فرمت در قوانین این گروه مجاز نیست.", status: 403 };
+        }
       }
       const blobId = typeof payload.blobId === "string" ? payload.blobId : "";
       if (!/^[a-f0-9]{8,64}$/i.test(blobId)) return { ok: false as const, error: "شناسه فایل نامعتبر است.", status: 400 };

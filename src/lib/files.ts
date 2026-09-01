@@ -129,6 +129,13 @@ function u32(b: Uint8Array, o: number) {
   return ((b[o] ?? 0) | ((b[o + 1] ?? 0) << 8) | ((b[o + 2] ?? 0) << 16) | ((b[o + 3] ?? 0) << 24)) >>> 0;
 }
 
+/** Admin allow-list is declared extension only — E2EE payloads are opaque to the server. */
+export function declaredExtAllowed(allowed: string[] | null | undefined, nameOrExt: string): boolean {
+  if (!allowed || allowed.length === 0) return true;
+  const ext = nameOrExt.includes(".") || nameOrExt.includes("/") ? extOf(nameOrExt) : nameOrExt.replace(/^\./, "").toLowerCase();
+  return allowed.includes(ext);
+}
+
 export function scanNamedFile(name: string, declaredMime: string, size: number): { ok: boolean; warning?: string } {
   const ext = extOf(name);
   if (size > FILE_MAX_BYTES) return { ok: false, warning: "حجم فایل از سقف سرور بیشتر است." };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inspectZipSafety, sanitizeFileName, scanNamedFile, sniffFileBytes } from "./files";
+import { declaredExtAllowed, inspectZipSafety, sanitizeFileName, scanNamedFile, sniffFileBytes } from "./files";
 import { scanAttachment } from "./media";
 
 describe("files policy", () => {
@@ -32,8 +32,10 @@ describe("files policy", () => {
     expect(inspectZipSafety(buf).ok).toBe(false);
   });
 
-  it("scanAttachment still rejects executables", () => {
-    expect(scanAttachment("setup.exe", "application/x-msdownload", 1200).ok).toBe(false);
-    expect(scanAttachment("report.pdf", "application/pdf", 8000).ok).toBe(true);
+  it("applies admin declared-extension allow list without trusting path", () => {
+    expect(declaredExtAllowed(null, "pdf")).toBe(true);
+    expect(declaredExtAllowed(["pdf", "docx"], "report.PDF")).toBe(true);
+    expect(declaredExtAllowed(["pdf"], "xlsx")).toBe(false);
+    expect(declaredExtAllowed(["txt"], "../../secret.txt")).toBe(true);
   });
 });

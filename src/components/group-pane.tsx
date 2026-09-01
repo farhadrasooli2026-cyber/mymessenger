@@ -50,6 +50,7 @@ type GInfo = {
   reactionsEnabled?: boolean;
   allowedReactions?: string[] | null;
   fileMaxBytes?: number | null;
+  allowedFileExts?: string[] | null;
   myRole: GroupRole | null;
   notifyMutedUntil: number | null;
   members: GMember[];
@@ -744,6 +745,24 @@ export function GroupPane({
                         body: JSON.stringify({ fileMaxBytes: Number(e.target.value) }),
                       }).then(load)
                     }
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span>فرمت‌های مجاز فایل (خالی = همهٔ فهرست نیکسو)</span>
+                  <input
+                    defaultValue={(group.allowedFileExts ?? []).join(",")}
+                    placeholder="pdf,docx,xlsx,zip"
+                    className="h-8 w-full rounded bg-black/30 px-2"
+                    onBlur={(e) => {
+                      const raw = e.target.value.trim();
+                      void fetch(`/api/groups/${groupId}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          allowedFileExts: raw ? raw.split(/[,\s]+/).filter(Boolean) : null,
+                        }),
+                      }).then(load);
+                    }}
                   />
                 </label>
                 <Textarea

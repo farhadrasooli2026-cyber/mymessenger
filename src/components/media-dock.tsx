@@ -19,7 +19,7 @@ import {
   type MediaMeta,
   type Quality,
 } from "@/lib/media";
-import { sanitizeFileName, sniffFileBytes } from "@/lib/files";
+import { extOf, sanitizeFileName, sniffFileBytes } from "@/lib/files";
 import { DisappearPicker, msFromChoice, type TimerChoice } from "@/components/disappear-picker";
 
 type Draft = {
@@ -205,8 +205,9 @@ export function MediaDock({
       blobId,
       chunkCount: chunks,
       byteLength: bytes.length,
-      mimeClass: draft.kind === "photo" ? "image" : draft.kind === "video" ? "video" : "file",
-      viewOnce: viewOnce && draft.kind !== "file",
+        mimeClass: draft.kind === "photo" ? "image" : draft.kind === "video" ? "video" : "file",
+        fileExt: draft.kind === "file" ? extOf(draft.file.name) : undefined,
+        viewOnce: viewOnce && draft.kind !== "file",
       durationMs: draft.kind === "video" ? Math.max(0, (trimEnd || 0) * 1000) : undefined,
     };
     if (disappearAfterMs !== undefined) body.disappearAfterMs = disappearAfterMs;

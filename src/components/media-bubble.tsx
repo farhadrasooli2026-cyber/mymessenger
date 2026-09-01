@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, Forward, Maximize2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -37,19 +37,25 @@ function newBlobId() {
 async function loadBlob(
   threadId: string,
   msg: MediaMsg,
-  chunkBase?: string,
+  opts: {
+    chunkBase?: string;
+    signal?: { cancelled: boolean };
+    onProgress?: (pct: number) => void;
+  } = {},
 ): Promise<{ blob: Blob; meta: MediaMeta } | null> {
   if (!msg.blobId || !msg.chunkCount || msg.enc !== "e2ee-v1") return null;
   const key = await loadOrCreateThreadKey(threadId);
   const metaRaw = await decryptText(key, { enc: "e2ee-v1", ciphertext: msg.ciphertext, nonce: msg.nonce });
   const meta = JSON.parse(metaRaw) as MediaMeta;
-  const base = chunkBase ?? `/api/chats/${threadId}`;
+  const base = opts.chunkBase ?? `/api/chats/${threadId}`;
   const parts: Uint8Array[] = [];
   for (let i = 0; i < msg.chunkCount; i += 1) {
+    if (opts.signal?.cancelled) throw new Error("cancel");
     const res = await fetch(`${base}/blobs/${msg.blobId}/chunks/${i}`);
     if (!res.ok) return null;
     const data = (await res.json()) as { chunk: CipherEnvelope };
     parts.push(await decryptBytes(key, data.chunk));
+    opts.onProgress?.(Math.round(((i + 1) / msg.chunkCount) * 100));
   }
   const total = parts.reduce((n, p) => n + p.length, 0);
   const bytes = new Uint8Array(total);
@@ -59,6 +65,19 @@ async function loadBlob(
     o += p.length;
   });
   return { blob: new Blob([new Uint8Array(bytes)], { type: meta.mime || "application/octet-stream" }), meta };
+}
+
+function shouldAutoDownload(kind: MediaMsg["kind"], dataSaver: boolean, autoFiles: "wifi" | "mobile" | "never"): boolean {
+  if (dataSaver && kind === "file") return false;
+  if (autoFiles === "never" && kind === "file") return false;
+  if (typeof navigator !== "undefined") {
+    const conn = (navigator as Navigator & { connection?: { saveData?: boolean; type?: string; effectiveType?: string } }).connection;
+    if (conn?.saveData && kind === "file") return false;
+    if (autoFiles === "wifi" && kind === "file" && (conn?.type === "cellular" || conn?.effectiveType === "slow-2g" || conn?.effectiveType === "2g")) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function MediaBubble({
@@ -81,32 +100,64 @@ export function MediaBubble({
   const [url, setUrl] = useState<string | null>(null);
   const [meta, setMeta] = useState<MediaMeta | null>(null);
   const [progress, setProgress] = useState(0);
+  const [xfer, setXfer] = useState<"idle" | "downloading" | "downloaded" | "failed" | "cancelled">("idle");
   const [spent, setSpent] = useState(Boolean(msg.expired));
   const [forwardOpen, setForwardOpen] = useState(false);
   const [unlocked, setUnlocked] = useState(!msg.viewOnce);
   const [replayOff, setReplayOff] = useState(false);
+  const [tick, setTick] = useState(0);
+  const abortRef = useRef({ cancelled: false });
   const locked = Boolean(msg.viewOnce) && !unlocked && !spent;
 
   useEffect(() => {
     let revoke: string | null = null;
-    let cancelled = false;
+    abortRef.current = { cancelled: false };
+    const signal = abortRef.current;
     if (msg.expired || !msg.blobId || msg.enc !== "e2ee-v1" || (msg.viewOnce && !unlocked)) return;
-    loadBlob(threadId, msg, chunkBase).then((loaded) => {
-      if (cancelled) return;
-      if (!loaded) {
-        setSpent(true);
-        return;
-      }
-      revoke = URL.createObjectURL(loaded.blob);
-      setMeta(loaded.meta);
-      setUrl(revoke);
-      setProgress(100);
-    });
+    let skip = false;
+    void fetch("/api/gallery", { cache: "no-store" })
+      .then((r) => r.json())
+      .catch(() => ({}))
+      .then((data: { prefs?: { dataSaver?: boolean; autoFiles?: "wifi" | "mobile" | "never" } }) => {
+        const auto = shouldAutoDownload(msg.kind, Boolean(data.prefs?.dataSaver), data.prefs?.autoFiles ?? "wifi");
+        if (!auto && tick === 0) {
+          setXfer("idle");
+          skip = true;
+          return;
+        }
+        setXfer("downloading");
+        setProgress(0);
+        return loadBlob(threadId, msg, {
+          chunkBase,
+          signal,
+          onProgress: (pct) => setProgress(pct),
+        });
+      })
+      .then((loaded) => {
+        if (signal.cancelled || skip) return;
+        if (!loaded) {
+          setXfer("failed");
+          if (msg.viewOnce) setSpent(true);
+          return;
+        }
+        revoke = URL.createObjectURL(loaded.blob);
+        setMeta(loaded.meta);
+        setUrl(revoke);
+        setProgress(100);
+        setXfer("downloaded");
+      })
+      .catch((err: unknown) => {
+        if (String(err).includes("cancel")) {
+          setXfer("cancelled");
+          return;
+        }
+        setXfer("failed");
+      });
     return () => {
-      cancelled = true;
+      signal.cancelled = true;
       if (revoke) URL.revokeObjectURL(revoke);
     };
-  }, [msg, threadId, unlocked, chunkBase]);
+  }, [msg, threadId, unlocked, chunkBase, tick]);
 
   async function markViewed(mode: "open" | "play") {
     await fetch(`/api/chats/${threadId}/messages/${msg.id}/played`, { method: "POST" });
@@ -203,7 +254,37 @@ export function MediaBubble({
         viewedAt={msg.viewedAt}
         viewOnce={msg.viewOnce}
       />
-      {progress < 100 && !url && <p className="text-[11px]">دانلود {progress}%</p>}
+      {(xfer === "downloading" || (progress > 0 && progress < 100 && !url)) && (
+        <div className="px-2 text-[11px]">
+          <p>دانلود {progress}% · Downloading</p>
+          <div className="mt-1 h-1 overflow-hidden rounded-full bg-white/10">
+            <div className="h-full bg-amber-300" style={{ width: `${progress}%` }} />
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="mt-1 h-6 px-1 text-[10px]"
+            onClick={() => {
+              abortRef.current.cancelled = true;
+              setXfer("cancelled");
+            }}
+          >
+            لغو دانلود
+          </Button>
+        </div>
+      )}
+      {(xfer === "idle" || xfer === "cancelled" || xfer === "failed") && !url && (
+        <div className="px-2 py-1 text-[11px]">
+          <p>
+            {xfer === "failed" ? "دانلود ناموفق" : xfer === "cancelled" ? "دانلود لغو شد" : "آمادهٔ دانلود"}
+            {msg.byteLength ? ` · ${formatBytes(msg.byteLength)}` : ""}
+          </p>
+          <Button type="button" size="sm" variant="secondary" className="mt-1 h-7 text-[11px]" onClick={() => setTick((n) => n + 1)}>
+            {xfer === "failed" || xfer === "cancelled" ? "تلاش دوباره" : "دانلود / پیش‌نمایش"}
+          </Button>
+        </div>
+      )}
       {msg.kind === "photo" && url && (
         <button
           type="button"

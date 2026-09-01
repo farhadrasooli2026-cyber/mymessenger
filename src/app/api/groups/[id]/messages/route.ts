@@ -38,6 +38,7 @@ export async function POST(request: Request, ctx: Ctx) {
     blobId: typeof body.blobId === "string" ? body.blobId : undefined,
     chunkCount: typeof body.chunkCount === "number" ? body.chunkCount : undefined,
     byteLength: typeof body.byteLength === "number" ? body.byteLength : undefined,
+    fileExt: typeof body.fileExt === "string" ? body.fileExt : undefined,
     durationMs: typeof body.durationMs === "number" ? body.durationMs : undefined,
     poll:
       body.poll && typeof body.poll === "object"
