@@ -3,12 +3,17 @@ import { requireActiveUser } from "@/lib/auth";
 import { requestOriginAllowed } from "@/lib/security";
 import {
   beginVaultUpload,
+  cancelVaultUpload,
   completeVaultUpload,
+  createVaultLink,
+  forwardVaultFile,
   listVault,
   processVaultJobs,
   putVaultChunk,
   restoreVault,
+  revokeVaultLink,
   setVaultPrivacy,
+  shareVaultFile,
   storageDashboard,
   sweepVault,
   trashVault,
@@ -77,6 +82,31 @@ export async function POST(request: Request) {
     const ids = Array.isArray(body.ids) ? body.ids.map(String) : [];
     const privacy: VaultPrivacy = body.privacy === "public" ? "public" : "private";
     return json(await setVaultPrivacy(user.id, ids, privacy));
+  }
+  if (action === "cancel") {
+    const result = await cancelVaultUpload(user.id, String(body.sessionId ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (action === "share") {
+    const result = await shareVaultFile(user.id, String(body.id ?? ""), String(body.toUserId ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (action === "forward") {
+    const result = await forwardVaultFile(user.id, String(body.id ?? ""), String(body.toUserId ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (action === "link") {
+    const result = await createVaultLink(user.id, String(body.id ?? ""), body.preview ? "preview" : "download");
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (action === "revoke") {
+    const result = await revokeVaultLink(user.id, String(body.linkId ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
   }
   if (action === "process") {
     return json(await processVaultJobs(user.id));

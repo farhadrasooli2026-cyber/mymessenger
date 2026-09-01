@@ -84,7 +84,8 @@ export type SearchHit = {
     | "subscriber"
     | "friend"
     | "story"
-    | "post";
+    | "post"
+    | "vault";
   title: string;
   preview: string;
   sender: string;
@@ -105,7 +106,7 @@ export type SearchHit = {
   username?: string | null;
   highlight?: { t: string; hit: boolean }[];
   target: {
-    type: "user" | "group" | "channel" | "community" | "chat" | "saved" | "bot" | "business" | "mini" | "product" | "live" | "hashtag" | "sticker" | "highlight" | "story";
+    type: "user" | "group" | "channel" | "community" | "chat" | "saved" | "bot" | "business" | "mini" | "product" | "live" | "hashtag" | "sticker" | "highlight" | "story" | "file";
     id: string;
     messageId?: string;
     businessId?: string;
@@ -114,7 +115,7 @@ export type SearchHit = {
 
 export type SearchDoc = {
   id: string;
-  kind: "user" | "group" | "channel" | "post" | "sticker" | "story";
+  kind: "user" | "group" | "channel" | "post" | "sticker" | "story" | "file";
   entityId: string;
   parentId?: string;
   title: string;

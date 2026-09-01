@@ -2055,6 +2055,7 @@ export type StoreData = {
   vaultObjects: VaultObject[];
   vaultSessions: VaultSession[];
   vaultJobs: VaultJob[];
+  vaultLinks: import("@/lib/storage-types").VaultLink[];
   storageMetrics: StorageMetrics;
   lives: LiveStream[];
   liveRecordings: LiveRecordingMeta[];
@@ -2191,6 +2192,7 @@ const EMPTY: StoreData = {
   vaultObjects: [],
   vaultSessions: [],
   vaultJobs: [],
+  vaultLinks: [],
   storageMetrics: {
     uploads: 0,
     uploadFail: 0,
@@ -2437,6 +2439,7 @@ async function readStore(): Promise<StoreData> {
       vaultObjects: Array.isArray(parsed.vaultObjects) ? parsed.vaultObjects : [],
       vaultSessions: Array.isArray(parsed.vaultSessions) ? parsed.vaultSessions : [],
       vaultJobs: Array.isArray(parsed.vaultJobs) ? parsed.vaultJobs : [],
+      vaultLinks: Array.isArray(parsed.vaultLinks) ? parsed.vaultLinks : [],
       storageMetrics: parsed.storageMetrics ?? {
         uploads: 0,
         uploadFail: 0,
@@ -2552,6 +2555,7 @@ function prune(data: StoreData, now: number): void {
   data.vaultSessions = (data.vaultSessions ?? []).filter((s) => s.expiresAt > now);
   data.vaultObjects = (data.vaultObjects ?? []).filter((o) => !o.deletedAt || now - o.deletedAt < 30 * 24 * 60 * 60 * 1000);
   data.vaultJobs = (data.vaultJobs ?? []).filter((j) => now - j.createdAt < 7 * 24 * 60 * 60 * 1000);
+  data.vaultLinks = (data.vaultLinks ?? []).filter((l) => !l.revokedAt && l.expiresAt > now - 24 * 60 * 60 * 1000);
   data.dbJobs = (data.dbJobs ?? []).filter((j) => now - j.createdAt < 30 * 24 * 60 * 60 * 1000);
   data.dbAudit = (data.dbAudit ?? []).filter((j) => now - j.at < 30 * 24 * 60 * 60 * 1000);
   data.callEvents = (data.callEvents ?? []).filter((e) => now - e.at < 7 * 24 * 60 * 60 * 1000).slice(-4000);
@@ -2687,6 +2691,7 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.vaultObjects = (data.vaultObjects ?? []).filter((o) => o.ownerUserId !== uid);
   data.vaultSessions = (data.vaultSessions ?? []).filter((s) => s.ownerUserId !== uid);
   data.vaultJobs = (data.vaultJobs ?? []).filter((j) => j.ownerUserId !== uid);
+  data.vaultLinks = (data.vaultLinks ?? []).filter((l) => l.ownerUserId !== uid);
   data.dbJobs = (data.dbJobs ?? []).filter((j) => j.actorUserId !== uid);
   data.dbAudit = (data.dbAudit ?? []).filter((j) => j.actorUserId !== uid);
   data.lives = (data.lives ?? []).map((l) => {

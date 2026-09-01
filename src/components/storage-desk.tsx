@@ -47,6 +47,8 @@ export function StorageDesk() {
   const [trash, setTrash] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const sessionRef = useRef<string | null>(null);
+  const abortRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -92,7 +94,14 @@ export function StorageDesk() {
         clientNonce: `${file.name}:${file.size}:${file.lastModified}`,
       });
       if (!begin?.sessionId) return;
+      sessionRef.current = begin.sessionId;
+      abortRef.current = false;
       for (let i = 0; i < chunks; i += 1) {
+        if (abortRef.current) {
+          await act({ action: "cancel", sessionId: begin.sessionId });
+          toast.message("آپلود لغو شد.");
+          return;
+        }
         const part = buf.subarray(i * CHUNK, Math.min(buf.length, (i + 1) * CHUNK));
         let binary = "";
         part.forEach((b) => {
@@ -131,7 +140,7 @@ export function StorageDesk() {
           </div>
         </div>
         <p className="text-xs leading-6 text-emerald-100/65">
-          فایل با شناسه تصادفی در فضای خصوصی ذخیره می‌شود. تغییر File ID یا URL فایل کس دیگری را باز نمی‌کند. HTML، SVG و اجرایی رد می‌شوند. EXIF موقعیت از JPEG پاک می‌شود.
+          فایل با شناسه تصادفی در فضای خصوصی ذخیره می‌شود. تغییر File ID یا URL فایل کس دیگری را باز نمی‌کند. HTML، SVG و اجرایی رد می‌شوند. EXIF موقعیت از JPEG پاک می‌شود. روی دیسک AES-GCM است. لینک اشتراک Permission را دور نمی‌زند.
         </p>
         {dash && (
           <section className="rounded-2xl bg-white/5 p-4 text-sm">
@@ -163,6 +172,19 @@ export function StorageDesk() {
           <Button type="button" disabled={busy} onClick={() => fileRef.current?.click()}>
             انتخاب فایل
           </Button>
+          {busy && (
+            <Button
+              type="button"
+              variant="secondary"
+              className="ms-2"
+              onClick={() => {
+                abortRef.current = true;
+                if (sessionRef.current) void act({ action: "cancel", sessionId: sessionRef.current });
+              }}
+            >
+              لغو آپلود
+            </Button>
+          )}
           {progress !== null && (
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-black/40">
               <div className="h-full bg-amber-300" style={{ width: `${progress}%` }} />
@@ -209,6 +231,19 @@ export function StorageDesk() {
                     </button>
                     <button type="button" className="text-amber-200" onClick={() => void act({ action: "trash", ids: [it.id], permanent: false })}>
                       حذف نرم
+                    </button>
+                    <button
+                      type="button"
+                      className="text-amber-200"
+                      onClick={async () => {
+                        const data = await act({ action: "link", id: it.id });
+                        if (data?.href) {
+                          await navigator.clipboard.writeText(`${window.location.origin}${data.href}`);
+                          toast.success("لینک کوتاه‌عمر کپی شد. گیرنده باید مجاز باشد.");
+                        }
+                      }}
+                    >
+                      لینک امن
                     </button>
                   </div>
                 )}

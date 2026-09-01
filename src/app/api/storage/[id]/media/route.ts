@@ -14,6 +14,7 @@ export async function GET(request: Request, ctx: Ctx) {
   const result = await getVaultMedia(user.id, id, token, {
     thumb: url.searchParams.get("thumb") === "1",
     range: request.headers.get("range"),
+    link: url.searchParams.get("k") ?? undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   const headers = mergeHeaders({

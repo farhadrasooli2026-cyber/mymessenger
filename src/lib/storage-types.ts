@@ -8,6 +8,7 @@ export const VAULT_CHUNK_MAX = 280_000;
 export const VAULT_MAX_CHUNKS = 200;
 export const VAULT_RETRY_MAX = 3;
 export const VAULT_ALERT_RATIO = 0.85;
+export const VAULT_LINK_TTL_MS = 15 * 60 * 1000;
 
 export type VaultScope = "user" | "group" | "channel";
 export type VaultStatus = "uploading" | "processing" | "ready" | "failed" | "deleted" | "quarantined";
@@ -40,6 +41,10 @@ export type VaultObject = {
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
+  allowIds: string[];
+  downloads: number;
+  waveform?: number[];
+  keyId?: string;
 };
 
 export type VaultSession = {
@@ -70,6 +75,17 @@ export type VaultJob = {
   idempotencyKey: string;
   createdAt: number;
   updatedAt: number;
+};
+
+export type VaultLink = {
+  id: string;
+  objectId: string;
+  ownerUserId: string;
+  tokenHash: string;
+  action: "download" | "preview";
+  expiresAt: number;
+  revokedAt: number | null;
+  createdAt: number;
 };
 
 export type StorageMetrics = {

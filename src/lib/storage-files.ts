@@ -1,6 +1,7 @@
 import "server-only";
-import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat, writeFile, copyFile } from "node:fs/promises";
 import path from "node:path";
+import { unwrapVaultBytes, wrapVaultBytes } from "@/lib/storage-crypto";
 
 function root() {
   const name = process.env.VITEST ? `vault.test.${process.env.VITEST_WORKER_ID ?? "0"}` : "vault";
@@ -27,7 +28,7 @@ export async function writeVaultBlob(ownerUserId: string, storageKey: string, by
   const p = vaultObjectPath(ownerUserId, storageKey);
   if (!p) return { ok: false as const, error: "شناسه ذخیره‌سازی نامعتبر است." };
   await mkdir(path.dirname(p), { recursive: true });
-  await writeFile(p, bytes);
+  await writeFile(p, wrapVaultBytes(bytes));
   return { ok: true as const };
 }
 
@@ -35,9 +36,31 @@ export async function readVaultBlob(ownerUserId: string, storageKey: string): Pr
   const p = vaultObjectPath(ownerUserId, storageKey);
   if (!p) return null;
   try {
-    return await readFile(p);
+    const raw = await readFile(p);
+    return unwrapVaultBytes(raw);
   } catch {
     return null;
+  }
+}
+
+function backupRoot() {
+  const name = process.env.VITEST ? `vault-backup.test.${process.env.VITEST_WORKER_ID ?? "0"}` : "vault-backup";
+  return path.join(process.cwd(), ".data", name);
+}
+
+/** Isolated encrypted replica. Never served by public media APIs. */
+export async function copyVaultBackup(ownerUserId: string, storageKey: string) {
+  const src = vaultObjectPath(ownerUserId, storageKey);
+  const a = safeSeg(ownerUserId);
+  const b = safeSeg(storageKey);
+  if (!src || !a || !b) return { ok: false as const };
+  const dest = path.join(backupRoot(), a, b);
+  await mkdir(path.dirname(dest), { recursive: true });
+  try {
+    await copyFile(src, dest);
+    return { ok: true as const };
+  } catch {
+    return { ok: false as const };
   }
 }
 

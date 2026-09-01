@@ -19,11 +19,15 @@ import {
   type FileSort,
 } from "@/lib/files";
 import { logFileAccess } from "@/lib/file-access";
+import { pairBlocked } from "@/lib/privacy";
+import { enqueueSearchIndexSync } from "@/lib/search";
+import { VAULT_KEY_ID } from "@/lib/storage-crypto";
 import {
   VAULT_ALERT_RATIO,
   VAULT_CHANNEL_QUOTA,
   VAULT_CHUNK_MAX,
   VAULT_GROUP_QUOTA,
+  VAULT_LINK_TTL_MS,
   VAULT_MAX_CHUNKS,
   VAULT_RETRY_MAX,
   VAULT_SESSION_TTL_MS,
@@ -32,6 +36,7 @@ import {
   VAULT_USER_QUOTA,
   type VaultJob,
   type VaultKind,
+  type VaultLink,
   type VaultObject,
   type VaultPrivacy,
   type VaultScope,
@@ -39,6 +44,7 @@ import {
   type StorageMetrics,
 } from "@/lib/storage-types";
 import {
+  copyVaultBackup,
   deleteSessionDir,
   deleteVaultBlob,
   listSessionIndexes,
@@ -108,6 +114,8 @@ function canReadObject(data: StoreData, userId: string, obj: VaultObject) {
   if (obj.status === "deleted" || obj.deletedAt) return false;
   if (obj.ownerUserId === userId) return true;
   if (obj.status !== "ready" || obj.scan !== "clean") return false;
+  if (pairBlocked(data, userId, obj.ownerUserId)) return false;
+  if ((obj.allowIds ?? []).includes(userId)) return true;
   if (obj.privacy === "public") return true;
   if (obj.scope === "group") {
     const group = data.groups.find((g) => g.id === obj.scopeId && !g.deletedAt);
@@ -155,6 +163,29 @@ export function parseByteRange(header: string | null, size: number): { start: nu
   return { start, end };
 }
 
+function hashLinkToken(token: string) {
+  return createHash("sha256").update(`vault-link:${token}`).digest("hex");
+}
+
+function audioWaveform(bytes: Buffer): number[] {
+  const bins = 32;
+  const step = Math.max(1, Math.floor(bytes.length / bins));
+  const out: number[] = [];
+  for (let i = 0; i < bins; i += 1) {
+    let peak = 0;
+    const start = i * step;
+    for (let j = 0; j < Math.min(64, step); j += 1) {
+      peak = Math.max(peak, bytes[start + j] ?? 0);
+    }
+    out.push(Math.round((peak / 255) * 100));
+  }
+  return out;
+}
+
+function bumpVaultIndex(data: StoreData) {
+  enqueueSearchIndexSync(data, "vault");
+}
+
 function publicObject(obj: VaultObject, viewerId: string) {
   const token = obj.status === "ready" && !obj.deletedAt ? signVaultMedia(obj.id, viewerId, obj.generation) : "";
   return {
@@ -177,6 +208,9 @@ function publicObject(obj: VaultObject, viewerId: string) {
     owner: obj.ownerUserId === viewerId,
     mediaUrl: token ? `/api/storage/${obj.id}/media?t=${token}` : "",
     thumbUrl: token && obj.thumbKey ? `/api/storage/${obj.id}/media?t=${token}&thumb=1` : "",
+    downloads: obj.downloads ?? 0,
+    waveform: obj.waveform,
+    allowCount: (obj.allowIds ?? []).length,
   };
 }
 
@@ -267,6 +301,9 @@ export async function beginVaultUpload(
   const originalName = sanitizeFileName(input.name);
   const named = scanNamedFile(originalName, input.mime ?? "", input.size);
   if (!named.ok) return { ok: false as const, error: named.warning ?? "فایل رد شد.", status: 400 };
+  if (/nixo-call|call-recording/i.test(originalName) || /nixo-call/i.test(input.mime ?? "")) {
+    return { ok: false as const, error: "رسانه تماس در فضای فایل عمومی ذخیره نمی‌شود.", status: 403 };
+  }
   const chunks = Math.floor(input.chunks);
   if (chunks < 1 || chunks > VAULT_MAX_CHUNKS) return { ok: false as const, error: "تعداد تکه نامعتبر است.", status: 400 };
   if (input.size < 1) return { ok: false as const, error: "حجم نامعتبر است.", status: 400 };
@@ -312,6 +349,9 @@ export async function beginVaultUpload(
       duplicateOf: null,
       generation: 1,
       retries: 0,
+      allowIds: [],
+      downloads: 0,
+      keyId: VAULT_KEY_ID.trim(),
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
@@ -410,6 +450,7 @@ export async function completeVaultUpload(userId: string, sessionId: string) {
   if (!dup) {
     const written = await writeVaultBlob(userId, objSnap.storageKey, bytes);
     if (!written.ok) return { ok: false as const, error: written.error, status: 400 };
+    await copyVaultBackup(userId, objSnap.storageKey);
   }
   await deleteSessionDir(sessionId);
   const result = await mutateStore((store) => {
@@ -424,6 +465,8 @@ export async function completeVaultUpload(userId: string, sessionId: string) {
     obj.scan = "clean";
     obj.status = "processing";
     obj.updatedAt = Date.now();
+    obj.keyId = VAULT_KEY_ID.trim();
+    if (sniffed.kind === "audio") obj.waveform = audioWaveform(bytes);
     if (dup) {
       obj.duplicateOf = dup.id;
       obj.storageKey = dup.storageKey;
@@ -453,6 +496,7 @@ export async function completeVaultUpload(userId: string, sessionId: string) {
       m.alertAt = Date.now();
     }
     logFileAccess(store, userId, "vault-complete", obj.id);
+    if (obj.privacy === "public") bumpVaultIndex(store);
     return { ok: true as const, objectId: obj.id };
   });
   if (!result.ok) return result;
@@ -568,7 +612,7 @@ export async function getVaultMedia(
   userId: string,
   objectId: string,
   token: string,
-  opts?: { thumb?: boolean; range?: string | null },
+  opts?: { thumb?: boolean; range?: string | null; link?: string },
 ) {
   const started = Date.now();
   const data = await readStoreSnapshot();
@@ -581,7 +625,9 @@ export async function getVaultMedia(
     await bumpDownloadFail(userId);
     return { ok: false as const, error: "اجازه نداری.", status: 403 };
   }
-  if (!verifyVaultMedia(objectId, userId, obj.generation, token)) {
+  const signedOk = token ? verifyVaultMedia(objectId, userId, obj.generation, token) : false;
+  const linkOk = opts?.link ? verifyShareLink(data, obj, opts.link, opts.thumb ? "preview" : "download") && canReadObject(data, userId, obj) : false;
+  if (!signedOk && !linkOk) {
     await bumpDownloadFail(userId);
     return { ok: false as const, error: "لینک منقضی یا نامعتبر است.", status: 403 };
   }
@@ -593,6 +639,8 @@ export async function getVaultMedia(
     if (!gate.allowed) return { ok: false as const, error: "دانلود پیاپی محدود شد.", status: 429 };
     metricsOf(store).downloads += 1;
     metricsOf(store).lastDownloadMs = Date.now() - started;
+    const live = store.vaultObjects.find((o) => o.id === objectId);
+    if (live) live.downloads = (live.downloads ?? 0) + 1;
     logFileAccess(store, userId, opts?.range ? "vault-range" : "vault-download", objectId);
     return { ok: true as const };
   });
@@ -605,7 +653,12 @@ export async function getVaultMedia(
     ? await readVaultRange(obj.ownerUserId, key, range.start, range.end)
     : await readVaultBlob(obj.ownerUserId, key);
   if (!bytes) return { ok: false as const, error: "فایل نیست.", status: 404 };
-  const inline = obj.kind === "image" || obj.kind === "video" || obj.kind === "audio" || Boolean(opts?.thumb);
+  const inline =
+    obj.kind === "image" ||
+    obj.kind === "video" ||
+    obj.kind === "audio" ||
+    Boolean(opts?.thumb) ||
+    (obj.kind === "document" && obj.mime.includes("pdf"));
   const safe = sanitizeFileName(obj.originalName).replace(/"/g, "");
   return {
     ok: true as const,
@@ -626,25 +679,56 @@ async function bumpDownloadFail(userId: string) {
   });
 }
 
+function verifyShareLink(data: StoreData, obj: VaultObject, raw: string, action: "download" | "preview") {
+  const hash = hashLinkToken(raw);
+  const link = (data.vaultLinks ?? []).find((l) => l.objectId === obj.id && l.tokenHash === hash);
+  if (!link || link.revokedAt) return false;
+  if (link.expiresAt < Date.now()) return false;
+  if (link.action === "preview" && action === "download") return false;
+  return true;
+}
+
+export async function cancelVaultUpload(userId: string, sessionId: string) {
+  const session = await mutateStore((data) => {
+    const s = (data.vaultSessions ?? []).find((x) => x.id === sessionId && x.ownerUserId === userId);
+    if (!s) return null;
+    data.vaultSessions = (data.vaultSessions ?? []).filter((x) => x.id !== sessionId);
+    const obj = data.vaultObjects.find((o) => o.id === s.objectId && o.ownerUserId === userId);
+    if (obj && obj.status === "uploading") {
+      obj.status = "deleted";
+      obj.deletedAt = Date.now();
+      obj.generation += 1;
+    }
+    logFileAccess(data, userId, "vault-cancel", sessionId);
+    return s;
+  });
+  if (!session) return { ok: false as const, error: "نشست یافت نشد.", status: 404 };
+  await deleteSessionDir(sessionId);
+  return { ok: true as const };
+}
+
 export async function trashVault(userId: string, ids: string[], permanent: boolean) {
   return mutateStore(async (data) => {
     let n = 0;
+    const now = Date.now();
     for (const id of ids.slice(0, 40)) {
       const obj = data.vaultObjects.find((o) => o.id === id && o.ownerUserId === userId);
       if (!obj) continue;
       obj.generation += 1;
+      data.vaultLinks = (data.vaultLinks ?? []).map((l) => (l.objectId === id ? { ...l, revokedAt: now } : l));
       if (permanent) {
         obj.status = "deleted";
-        obj.deletedAt = Date.now();
+        obj.deletedAt = now;
         if (!obj.duplicateOf) await deleteVaultBlob(userId, obj.storageKey);
         if (obj.thumbKey) await deleteVaultBlob(userId, obj.thumbKey);
       } else {
-        obj.deletedAt = Date.now();
+        obj.deletedAt = now;
         obj.status = "deleted";
       }
       logFileAccess(data, userId, permanent ? "vault-purge" : "vault-trash", id);
       n += 1;
     }
+    bumpVaultIndex(data);
     return { ok: true as const, count: n };
   });
 }
@@ -660,6 +744,7 @@ export async function restoreVault(userId: string, ids: string[]) {
       obj.generation += 1;
       n += 1;
     }
+    bumpVaultIndex(data);
     return { ok: true as const, count: n };
   });
 }
@@ -675,7 +760,86 @@ export async function setVaultPrivacy(userId: string, ids: string[], privacy: Va
       n += 1;
     }
     logFileAccess(data, userId, "vault-privacy", privacy);
+    bumpVaultIndex(data);
     return { ok: true as const, count: n };
+  });
+}
+
+export async function shareVaultFile(userId: string, objectId: string, toUserId: string) {
+  return mutateStore((data) => {
+    const obj = data.vaultObjects.find((o) => o.id === objectId && o.ownerUserId === userId);
+    if (!obj || obj.deletedAt) return { ok: false as const, error: "فایل یافت نشد.", status: 404 };
+    if (toUserId === userId) return { ok: false as const, error: "نمی‌توانی با خودت به اشتراک بگذاری.", status: 400 };
+    const peer = data.users.find((u) => u.id === toUserId && u.status === "active");
+    if (!peer) return { ok: false as const, error: "کاربر یافت نشد.", status: 404 };
+    if (pairBlocked(data, userId, toUserId)) return { ok: false as const, error: "مسدود است.", status: 403 };
+    obj.allowIds = [toUserId, ...(obj.allowIds ?? []).filter((id) => id !== toUserId)].slice(0, 40);
+    obj.updatedAt = Date.now();
+    logFileAccess(data, userId, "vault-share", objectId);
+    return { ok: true as const, allowIds: obj.allowIds.length };
+  });
+}
+
+export async function forwardVaultFile(userId: string, objectId: string, toUserId: string) {
+  return mutateStore((data) => {
+    const obj = data.vaultObjects.find((o) => o.id === objectId);
+    if (!obj || obj.deletedAt) return { ok: false as const, error: "فایل یافت نشد.", status: 404 };
+    if (!canReadObject(data, userId, obj)) return { ok: false as const, error: "اجازه نداری.", status: 403 };
+    if (obj.privacy !== "public" && obj.ownerUserId !== userId) {
+      return { ok: false as const, error: "فایل خصوصی را نمی‌توان به دیگری Forward کرد.", status: 403 };
+    }
+    if (pairBlocked(data, userId, toUserId) || pairBlocked(data, obj.ownerUserId, toUserId)) {
+      return { ok: false as const, error: "مسدود است.", status: 403 };
+    }
+    const peer = data.users.find((u) => u.id === toUserId && u.status === "active");
+    if (!peer) return { ok: false as const, error: "کاربر یافت نشد.", status: 404 };
+    if (obj.ownerUserId === userId) {
+      obj.allowIds = [toUserId, ...(obj.allowIds ?? []).filter((id) => id !== toUserId)].slice(0, 40);
+    } else if (obj.privacy === "public") {
+      obj.allowIds = [toUserId, ...(obj.allowIds ?? []).filter((id) => id !== toUserId)].slice(0, 40);
+    }
+    logFileAccess(data, userId, "vault-forward", objectId);
+    return { ok: true as const };
+  });
+}
+
+export async function createVaultLink(userId: string, objectId: string, action: "download" | "preview" = "download") {
+  return mutateStore((data) => {
+    const obj = data.vaultObjects.find((o) => o.id === objectId && o.ownerUserId === userId);
+    if (!obj || obj.deletedAt || obj.status !== "ready") return { ok: false as const, error: "فایل آماده نیست.", status: 404 };
+    const flood = hitRateLimit(data, `vault:link:${userId}`, 60_000, 20);
+    if (!flood.allowed) return { ok: false as const, error: "ساخت لینک محدود شد.", status: 429 };
+    const raw = randomId() + randomId();
+    const link: VaultLink = {
+      id: randomId(),
+      objectId,
+      ownerUserId: userId,
+      tokenHash: hashLinkToken(raw),
+      action,
+      expiresAt: Date.now() + VAULT_LINK_TTL_MS,
+      revokedAt: null,
+      createdAt: Date.now(),
+    };
+    data.vaultLinks = [link, ...(data.vaultLinks ?? [])].slice(0, 400);
+    logFileAccess(data, userId, "vault-link", objectId);
+    return {
+      ok: true as const,
+      linkId: link.id,
+      expiresAt: link.expiresAt,
+      href: `/api/storage/${objectId}/media?k=${raw}${action === "preview" ? "&thumb=1" : ""}`,
+    };
+  });
+}
+
+export async function revokeVaultLink(userId: string, linkId: string) {
+  return mutateStore((data) => {
+    const link = (data.vaultLinks ?? []).find((l) => l.id === linkId && l.ownerUserId === userId);
+    if (!link) return { ok: false as const, error: "لینک یافت نشد.", status: 404 };
+    link.revokedAt = Date.now();
+    const obj = data.vaultObjects.find((o) => o.id === link.objectId && o.ownerUserId === userId);
+    if (obj) obj.generation += 1;
+    logFileAccess(data, userId, "vault-revoke", linkId);
+    return { ok: true as const };
   });
 }
 

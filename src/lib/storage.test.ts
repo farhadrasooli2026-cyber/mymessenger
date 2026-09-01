@@ -132,4 +132,56 @@ describe("NIXO media vault", () => {
     expect(again.sessionId).toBe(first.sessionId);
     expect(again.resume).toBe(true);
   });
+
+  it("encrypts at rest, shares only to allowed users, and blocks stolen share links", async () => {
+    const { wrapVaultBytes, unwrapVaultBytes, isWrappedVaultBlob } = await import("./storage-crypto");
+    const { cancelVaultUpload, createVaultLink, shareVaultFile, forwardVaultFile, restoreVault, listVault, beginVaultUpload } = await import("./storage");
+    const { globalSearch } = await import("./search");
+    const plain = Buffer.from("hello-nixo-vault");
+    const wrapped = wrapVaultBytes(plain);
+    expect(isWrappedVaultBlob(wrapped)).toBe(true);
+    expect(unwrapVaultBytes(wrapped).equals(plain)).toBe(true);
+
+    const a = await activeUser("st_share_a");
+    const b = await activeUser("st_share_b");
+    const c = await activeUser("st_share_c");
+    const { done } = await upload(a, "secret.pdf", pdfBytes());
+    expect(done.ok).toBe(true);
+    if (!done.ok) return;
+    const searchC = await globalSearch(c, { q: "secret.pdf", kind: "files" });
+    expect(searchC.ok && searchC.hits.every((h) => h.target.id !== done.item.id)).toBe(true);
+    const searchA = await globalSearch(a, { q: "secret.pdf", kind: "files" });
+    expect(searchA.ok && searchA.hits.some((h) => h.target.id === done.item.id)).toBe(true);
+
+    const fwd = await forwardVaultFile(b, done.item.id, c);
+    expect(fwd.ok).toBe(false);
+    const shared = await shareVaultFile(a, done.item.id, b);
+    expect(shared.ok).toBe(true);
+    const listed = await listVault(b, {});
+    const hit = listed.items.find((i) => i.id === done.item.id);
+    expect(hit).toBeTruthy();
+    const tokenB = hit ? new URL(hit.mediaUrl, "http://nixo.local").searchParams.get("t") ?? "" : "";
+    const asB = await getVaultMedia(b, done.item.id, tokenB);
+    expect(asB.ok).toBe(true);
+    const link = await createVaultLink(a, done.item.id, "download");
+    expect(link.ok).toBe(true);
+    if (link.ok) {
+      const k = new URL(link.href, "http://nixo.local").searchParams.get("k") ?? "";
+      const steal = await getVaultMedia(c, done.item.id, "", { link: k });
+      expect(steal.ok).toBe(false);
+    }
+    await trashVault(a, [done.item.id], false);
+    const restored = await restoreVault(a, [done.item.id]);
+    expect(restored.ok && restored.count).toBe(1);
+
+    const rec = await beginVaultUpload(a, { name: "nixo-call-recording.webm", size: 12, mime: "video/webm", chunks: 1 });
+    expect(rec.ok).toBe(false);
+
+    const begin = await beginVaultUpload(a, { name: "draft.pdf", size: pdfBytes().length, mime: "application/pdf", chunks: 1 });
+    expect(begin.ok).toBe(true);
+    if (begin.ok) {
+      const cancelled = await cancelVaultUpload(a, begin.sessionId);
+      expect(cancelled.ok).toBe(true);
+    }
+  });
 });

@@ -67,6 +67,25 @@ function canSeeChannel(channel: PubChannelRecord, userId: string) {
   return channel.visibility === "public" && channel.status !== "restricted";
 }
 
+function canReadVaultInSearch(data: StoreData, userId: string, obj: StoreData["vaultObjects"][number]) {
+  if (obj.status === "deleted" || obj.deletedAt) return false;
+  if (obj.ownerUserId === userId) return true;
+  if (obj.status !== "ready" || obj.scan !== "clean") return false;
+  if (pairBlocked(data, userId, obj.ownerUserId)) return false;
+  if ((obj.allowIds ?? []).includes(userId)) return true;
+  if (obj.privacy === "public") return true;
+  if (obj.scope === "group") {
+    const group = data.groups.find((g) => g.id === obj.scopeId && !g.deletedAt);
+    return Boolean(group?.members.some((m) => liveMember(m, userId)));
+  }
+  if (obj.scope === "channel") {
+    const channel = data.pubChannels.find((c) => c.id === obj.scopeId && !c.deletedAt);
+    if (!channel) return false;
+    return channel.staff.some((s) => s.userId === userId) || channel.subscribers.some((s) => s.userId === userId && liveSub(s));
+  }
+  return false;
+}
+
 function isPublicLiveStory(story: UserStory, now: number) {
   return !story.deletedAt && !story.draft && story.visibility === "everyone" && now <= story.expiresAt;
 }
@@ -194,6 +213,19 @@ export function syncPublicSearchIndex(data: StoreData) {
       tags: extractHashtags(storySearchBlob(s)),
       public: true,
       updatedAt: s.createdAt,
+    });
+  }
+  for (const o of data.vaultObjects ?? []) {
+    if (o.deletedAt || o.status !== "ready" || o.scan !== "clean" || o.privacy !== "public") continue;
+    docs.push({
+      id: `vault:${o.id}`,
+      kind: "file",
+      entityId: o.id,
+      title: o.originalName,
+      preview: o.kind,
+      tags: [o.kind, o.mime],
+      public: true,
+      updatedAt: o.updatedAt,
     });
   }
   const fp = publicIndexFingerprint(docs);
@@ -521,6 +553,22 @@ function resolveAuthorizedEntity(data: StoreData, userId: string, id: string, hi
       target: { type: "story", id: story.id },
     };
   }
+  const vault = (data.vaultObjects ?? []).find((o) => o.id === id);
+  if (vault && (hint === "file" || hint === "vault" || hint === "unknown")) {
+    if (!canReadVaultInSearch(data, userId, vault)) return null;
+    return {
+      id: `vault:${vault.id}`,
+      scope: "vault",
+      title: vault.originalName,
+      preview: vault.kind,
+      sender: "",
+      chatName: "فایل",
+      date: vault.updatedAt,
+      kind: vault.kind,
+      fileName: vault.originalName,
+      target: { type: "file", id: vault.id },
+    };
+  }
   const hl = (data.storyHighlights ?? []).find((h) => h.id === id);
   if (hl && highlightVisible(data, hl, userId)) {
     return {
@@ -814,6 +862,7 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
   const wantEmoji = kind === "emoji" || kind === "all";
   const wantHighlights = !scoped && (kind === "all" || kind === "highlights");
   const wantStories = !scoped && (kind === "all" || kind === "stories");
+  const wantVault = !scoped && (kind === "all" || kind === "files" || kind === "media");
   const wantMembers = kind === "members" || Boolean(groupId && kind === "all");
   const wantSubscribers = kind === "subscribers";
   const wantContent =
@@ -1395,6 +1444,30 @@ export function collectSearchHits(data: StoreData, userId: string, input: Search
     }
   }
 
+  if (wantVault) {
+    for (const o of data.vaultObjects ?? []) {
+      if (!canReadVaultInSearch(data, userId, o)) continue;
+      const blob = `${o.originalName} ${o.kind} ${o.mime}`;
+      if (q.length >= SEARCH_QUERY_MIN && !blobMatches(blob, q)) continue;
+      pushHit(
+        {
+          id: `vault:${o.id}`,
+          scope: "vault",
+          title: o.originalName,
+          preview: o.kind,
+          sender: "",
+          chatName: "فایل‌ها",
+          date: o.updatedAt,
+          kind: o.kind,
+          fileName: o.originalName,
+          fileKind: o.kind,
+          target: { type: "file", id: o.id },
+        },
+        o.ownerUserId === userId ? 8 : 0,
+      );
+    }
+  }
+
   if (wantHighlights) {
     for (const hl of data.storyHighlights ?? []) {
       if (!highlightVisible(data, hl, userId)) continue;
@@ -1708,8 +1781,14 @@ export async function openSearchResult(userId: string, hitId: string) {
       scope === "community" ||
       scope === "chat" ||
       scope === "live" ||
-      scope === "story"
-        ? scope
+      scope === "story" ||
+      scope === "vault" ||
+      scope === "file"
+        ? scope === "file"
+          ? "file"
+          : scope === "vault"
+            ? "file"
+            : scope
         : scope === "cpost" || scope === "post"
           ? "channel"
           : "unknown";
@@ -1732,6 +1811,8 @@ export async function openSearchResult(userId: string, hitId: string) {
         ? "/app/stickers"
         : hit.target.type === "highlight" || hit.target.type === "story"
           ? "/app/stories"
+        : hit.target.type === "file"
+          ? "/app/storage"
           : "/app";
     return { ok: true as const, href, target: hit.target };
   });
