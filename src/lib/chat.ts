@@ -294,7 +294,7 @@ export async function listMessages(
   opts?: { cursor?: string | null; limit?: number; since?: number },
 ) {
   const blobs: string[] = [];
-  const result = await mutateStore((data) => {
+  const result = await readStoreSnapshot().then((data) => {
     const thread = data.threads.find((t) => t.id === threadId && t.ownerUserId === userId);
     if (!thread) return null;
     const now = Date.now();

@@ -14,6 +14,7 @@ import { claimSpaceHandle } from "@/lib/space-handles";
 import { insertLive } from "@/lib/live";
 import { inspectTextLinks } from "@/lib/link-safety";
 import { publishChannelLive } from "@/lib/channel-live";
+import { cacheInvalidate, invalidatePermCache } from "@/lib/perf";
 import {
   CHANNEL_BROADCAST_RETRY_MAX,
   CHANNEL_CREATE_MAX,
@@ -996,6 +997,8 @@ export async function setStaff(
     }
     channel.updatedAt = Date.now();
     if (me) pushAudit(channel, me, "staff", `${targetId} → ${role}`);
+    invalidatePermCache(targetId);
+    cacheInvalidate(`pub:channel:${channel.id}`);
     return { ok: true as const, channel: publicChannel(channel, userId, data) };
   });
 }

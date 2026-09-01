@@ -420,6 +420,8 @@ export async function flushMonitor() {
   live.lastFlush = Date.now();
   const { maybeAutoDrBackup } = await import("@/lib/dr");
   await maybeAutoDrBackup().catch(() => nixoLog("warn", "backup", "auto backup skipped"));
+  const { maybeDrainPerf } = await import("@/lib/perf");
+  await maybeDrainPerf().catch(() => nixoLog("warn", "queue", "worker drain skipped"));
 }
 
 export async function maybeFlush() {

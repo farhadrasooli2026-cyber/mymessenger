@@ -13,6 +13,7 @@ import { emitNotification } from "@/lib/notify";
 import { enqueueSearchIndexSync } from "@/lib/search";
 import { claimSpaceHandle } from "@/lib/space-handles";
 import { decodeDataUrl, validateAvatarBuffer } from "@/lib/photo-files";
+import { cacheInvalidate, invalidatePermCache } from "@/lib/perf";
 import {
   DEFAULT_GROUP_ADMIN_PERMS,
   DEFAULT_GROUP_PERMS,
@@ -1009,6 +1010,9 @@ export async function moderateMember(
       group.ownerUserId = target.key;
       pushSystem(data, group, `مالکیت به ${target.name} منتقل شد.`, now);
       pushAudit(group, me, "owner", `مالکیت به ${target.name}`);
+      invalidatePermCache(me.key);
+      invalidatePermCache(target.key);
+      cacheInvalidate(`pub:group:${group.id}`);
       return { ok: true as const, group: publicGroup(group, userId) };
     }
     if (!target || !liveMember(target)) return { ok: false as const, error: "عضو یافت نشد.", status: 404 };
@@ -1104,6 +1108,8 @@ export async function moderateMember(
         target: { type: "group", id: group.id },
       });
     }
+    invalidatePermCache(target.key);
+    cacheInvalidate(`pub:group:${group.id}`);
     return { ok: true as const, group: publicGroup(group, userId) };
   });
 }

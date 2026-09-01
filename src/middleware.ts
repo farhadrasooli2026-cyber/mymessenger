@@ -10,12 +10,13 @@ import {
   originOkForMutation,
   sameOrigin,
 } from "@/lib/safe-web";
+import { adaptiveIpMax, shouldShedRequest } from "@/lib/perf-mode";
 
 const hits = new Map<string, number[]>();
 
 function ipFlooded(ip: string, now = Date.now()): boolean {
   const prev = (hits.get(ip) ?? []).filter((t) => now - t < IP_WINDOW_MS);
-  if (prev.length >= IP_MAX_HITS) {
+  if (prev.length >= adaptiveIpMax(IP_MAX_HITS)) {
     hits.set(ip, prev);
     return true;
   }
@@ -94,6 +95,17 @@ export function middleware(request: NextRequest) {
       status: 429,
       headers: { ...cors, "Content-Type": "application/json", "Retry-After": "60" },
     });
+  }
+
+  const shed = shouldShedRequest(request.nextUrl.pathname);
+  if (shed) {
+    return new NextResponse(
+      JSON.stringify({ ok: false, error: "سامانه تحت بار است؛ قابلیت‌های اصلی فعال می‌مانند.", code: "shed", shed }),
+      {
+        status: 503,
+        headers: { ...cors, "Content-Type": "application/json", "Retry-After": shed === "hard" ? "15" : "5" },
+      },
+    );
   }
 
   const requestHeaders = new Headers(request.headers);

@@ -1,6 +1,7 @@
 import "server-only";
 import { config } from "@/lib/config";
 import type { RateBucket, StoreData } from "@/lib/store";
+import { adaptiveRateFactor } from "@/lib/perf-mode";
 
 export function hitRateLimit(
   data: StoreData,
@@ -9,6 +10,8 @@ export function hitRateLimit(
   maxHits: number,
   now = Date.now(),
 ): { allowed: boolean; retryAfterSec: number; remaining: number } {
+  const protect = key.startsWith("send:") || key.startsWith("verify:") || key.startsWith("admin-login") || key.startsWith("human:");
+  const cap = protect ? maxHits : Math.max(2, Math.floor(maxHits * adaptiveRateFactor()));
   let bucket = data.rateBuckets.find((b) => b.key === key);
   if (!bucket) {
     bucket = { key, hits: [], blockedUntil: null };
@@ -24,7 +27,7 @@ export function hitRateLimit(
   }
 
   bucket.hits = bucket.hits.filter((t) => now - t < windowMs);
-  if (bucket.hits.length >= maxHits) {
+  if (bucket.hits.length >= cap) {
     bucket.blockedUntil = now + windowMs;
     return {
       allowed: false,
@@ -37,7 +40,7 @@ export function hitRateLimit(
   return {
     allowed: true,
     retryAfterSec: 0,
-    remaining: Math.max(0, maxHits - bucket.hits.length),
+    remaining: Math.max(0, cap - bucket.hits.length),
   };
 }
 
