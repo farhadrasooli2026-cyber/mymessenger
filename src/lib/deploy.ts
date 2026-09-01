@@ -11,6 +11,7 @@ import { currentDeployEnv, startupGate, validateRuntimeConfig, configInventory }
 import { bumpPatch, APP_VERSION } from "@/lib/release";
 import { isShuttingDown, drainNote } from "@/lib/lifecycle";
 import { flagAllows, publicFlagView } from "@/lib/flags";
+import { productionReleaseBlocked } from "@/lib/prod";
 import {
   DEPLOY_CONFIRM,
   DEPLOY_RUNBOOK,
@@ -241,6 +242,11 @@ export async function promoteProduction(input: {
     const held = lockActive(data);
     if (held) return { ok: false as const, status: 409 as const, error: "قفل انتشار فعال است." };
     data.deploy.lock = { holder: ctx.user.id, kind: "release", until: now() + 30_000 };
+    const gate = productionReleaseBlocked(data, Boolean(input.emergency), input.confirm);
+    if (gate.blocked) {
+      data.deploy.lock = null;
+      return { ok: false as const, status: 423 as const, error: gate.reason ?? "انتشار مسدود است." };
+    }
     const src = input.deploymentId
       ? data.deploy.deployments.find((d) => d.id === input.deploymentId)
       : data.deploy.deployments.find((d) => d.env === "staging" && d.status === "completed");

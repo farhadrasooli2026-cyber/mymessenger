@@ -148,6 +148,7 @@ export const CORE_API_PREFIXES = [
   "/api/monitor",
   "/api/admin",
   "/api/deploy",
+  "/api/prod",
 ] as const;
 
 export const SOFT_SHED_PREFIXES = [

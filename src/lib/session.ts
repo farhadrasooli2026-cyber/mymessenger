@@ -48,6 +48,13 @@ export async function readSession(): Promise<RegisterSession | null> {
   return payload;
 }
 
+export const SESSION_COOKIE_POLICY = {
+  httpOnly: true as const,
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
+  path: "/",
+};
+
 export async function writeSession(session: Omit<RegisterSession, "v" | "exp">): Promise<void> {
   const jar = await cookies();
   const payload: RegisterSession = {
@@ -56,10 +63,7 @@ export async function writeSession(session: Omit<RegisterSession, "v" | "exp">):
     exp: Date.now() + config.cookieMaxAgeSec * 1000,
   };
   jar.set(config.cookieName, signPayload(payload), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
+    ...SESSION_COOKIE_POLICY,
     maxAge: config.cookieMaxAgeSec,
   });
 }

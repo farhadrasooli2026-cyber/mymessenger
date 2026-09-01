@@ -73,6 +73,7 @@ import { emptyI18nPersist, hydrateI18nPersist, type I18nPersist } from "@/lib/i1
 import { emptyBiPersist, hydrateBiPersist, purgeBiSubjectFromPersist, type BiPersist } from "@/lib/bi-persist";
 import { emptyBillingPersist, hydrateBillingPersist, type BillingPersist } from "@/lib/billing-persist";
 import { anonymizeBilling, syncBillingLifecycle } from "@/lib/billing-access";
+import { emptyProdPersist, hydrateProdPersist, type ProdPersist } from "@/lib/prod-persist";
 import { currentDeployEnv } from "@/lib/env-config";
 import type {
   AdminAlert,
@@ -2154,6 +2155,7 @@ export type StoreData = {
   i18n: I18nPersist;
   bi: BiPersist;
   billing: BillingPersist;
+  prod: ProdPersist;
   schemaMeta: import("@/lib/db/migrate").SchemaMeta;
   dbJobs: DbJob[];
   dbAudit: DbAudit[];
@@ -2318,6 +2320,7 @@ const EMPTY: StoreData = {
   i18n: emptyI18nPersist(),
   bi: emptyBiPersist(),
   billing: emptyBillingPersist(),
+  prod: emptyProdPersist(),
   schemaMeta: { version: 0, migratedAt: 0, env: process.env.VITEST ? "test" : "development" },
   dbJobs: [],
   dbAudit: [],
@@ -2586,6 +2589,7 @@ async function readStore(): Promise<StoreData> {
       i18n: hydrateI18nPersist(parsed.i18n),
       bi: hydrateBiPersist(parsed.bi),
       billing: hydrateBillingPersist(parsed.billing),
+      prod: hydrateProdPersist(parsed.prod),
       schemaMeta: hydrateSchemaMeta(parsed.schemaMeta),
       dbJobs: Array.isArray(parsed.dbJobs) ? parsed.dbJobs : [],
       dbAudit: Array.isArray(parsed.dbAudit) ? parsed.dbAudit : [],
@@ -2708,6 +2712,7 @@ function prune(data: StoreData, now: number): void {
   data.i18n = hydrateI18nPersist(data.i18n);
   data.bi = hydrateBiPersist(data.bi);
   data.billing = hydrateBillingPersist(data.billing);
+  data.prod = hydrateProdPersist(data.prod);
   syncBillingLifecycle(data, now);
   for (const user of data.users) expireStaleRestriction(user, now);
   data.callEvents = (data.callEvents ?? []).filter((e) => now - e.at < 7 * 24 * 60 * 60 * 1000).slice(-4000);

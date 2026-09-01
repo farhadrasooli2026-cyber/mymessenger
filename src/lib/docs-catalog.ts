@@ -75,6 +75,7 @@ export const DOC_API_PATHS = [
   "/api/a11y",
   "/api/bi",
   "/api/billing",
+  "/api/prod",
 ] as const;
 
 function page(p: Omit<DocPage, "headings">): DocPage {
@@ -258,6 +259,9 @@ POST /api/chats/:id  body: { ciphertext, nonce, enc, clientNonce }
 ## اشتراک و پرداخت پلتفرم
 \`GET /api/billing?view=plans|me|finance\` · \`POST /api/billing\` · Webhook \`POST /api/billing/webhook\` با \`x-nixo-billing-signature\` = HMAC(pepper, \`"billing:" + raw\`). موفق بودن پرداخت فقط با تأیید سرور/Webhook است نه پاسخ کلاینت. PAN در body رد می‌شود.
 
+## آمادگی Production
+\`GET/POST /api/prod\` با \`prod.view\` / \`prod.manage\`. امتیاز، Smoke داخلی، یخ‌زدگی انتشار، تأیید Release. Secret در پاسخ نیست.
+
 ## Deprecation
 فعلاً Breaking Change عمومی اعلام‌شده نیست. حذف فیلد فقط با bump API_VERSION و یادداشت در CHANGELOG.md.
 
@@ -440,9 +444,10 @@ Semver در \`package.json\` / \`APP_VERSION\`. کاتالوگ: Staging سپس P
 1. CI سبز
 2. Backup DR برای تغییر حساس
 3. Staging smoke: login + پیام
-4. Approval Production
+4. Approval Production (زبانهٔ آمادگی + \`DEPLOY_PRODUCTION\`)
 5. Health ready روی instance جدید
 6. اگر error rate بالا: Rollback یا Kill Switch پرچم
+7. یخ‌زدگی \`PROD_FREEZE\` انتشار را تا رفع حادثه قفل می‌کند.
 
 ## بازیابی داده
 زبانهٔ بازیابی \`/api/dr\`. Restore Production: رمز + \`RESTORE_PRODUCTION\`.
@@ -644,6 +649,27 @@ DAU/WAU/MAU، Retention، Cohort، Churn، قیف ثبت‌نام، پیام (ف
 
 ## تحلیل
 متریک درآمد اشتراک در \`/api/bi\` فقط تجمیعی است.`,
+  }),
+  page({
+    slug: "production",
+    title: "آمادگی Production",
+    group: "عملیات",
+    owner: DOCS_OWNERS.platform,
+    summary: "امتیاز یکپارچگی، Smoke، یخ‌زدگی انتشار، مسدودکننده‌های امنیتی و تأیید Release.",
+    tags: ["production", "readiness", "smoke", "freeze", "security"],
+    body: `مرکز: \`/app/admin\` زبانهٔ آمادگی. فایل: \`docs/PRODUCTION.md\`. API \`/api/prod\`.
+
+## امتیاز
+از Health، پیکربندی Secret، Smoke داخلی و یکپارچگی Store محاسبه می‌شود. امتیاز بالا به‌معنای «روی localhost اجرا شد» نیست.
+
+## مسدودکننده
+امنیت بحرانی، از دست رفتن داده، یکپارچگی پرداخت، Bypass احراز/مجوز، Crash حیاتی، فساد پایگاه. هر کدام انتشار Production را متوقف می‌کند.
+
+## یخ‌زدگی
+\`PROD_FREEZE\` انتشار را قفل می‌کند تا حادثه بسته شود.
+
+## Smoke
+ثبت‌نام تا استرداد روی Store و ماژول‌های موجود بررسی می‌شود؛ جایگزین E2E مرورگر کامل نیست.`,
   }),
   page({
     slug: "changelog",

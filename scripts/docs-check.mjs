@@ -17,6 +17,7 @@ const requiredMd = [
   "docs/I18N.md",
   "docs/ANALYTICS.md",
   "docs/BILLING.md",
+  "docs/PRODUCTION.md",
   "docs/adr/0001-json-store.md",
   "CHANGELOG.md",
   "CONTRIBUTING.md",

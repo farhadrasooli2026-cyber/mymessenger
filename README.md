@@ -48,6 +48,7 @@
 92. Accessibility: Skip link، Keyboard، Focus، Screen Reader Live Region، Contrast، Reduced Motion، اهداف لمسی، میانبر مستند، Preference در Settings → دسترسی‌پذیری و `/api/a11y`. هیچ کنترل تعاملی بدون نام. Authentication را دور نمی‌زند.
 93. Analytics & Business Intelligence: رویداد نسخه‌دار با اعتبارسنجی و Dedup، صف ناهمگام، Raw+Aggregate و Retention/حذف، Privacy by Design، رضایت و Opt-out جدا از تحلیل ضروری، رشد DAU/WAU/MAU، قیف، محصول، داشبوردهای RBAC در زبانهٔ تحلیل (`/api/bi`)، آزمایش A/B با Rollback، درآمد/هزینهٔ تجمیعی سندباکس. متن پیام و Secret وارد تحلیل نمی‌شود. شکست لوله قابلیت اصلی را قطع نمی‌کند. جزئیات [`docs/ANALYTICS.md`](docs/ANALYTICS.md).
 94. Monetization & Subscription: پلن Free/Plus/Premium/Team، ماهانه/سالانه/سفارشی، Trial یک‌بارمصرف، چرخهٔ اشتراک، تمدید و مهلت، لغو در پایان دوره یا فوری، ارتقا/تنزل با تناسب، Entitlement سمت سرور (استوری، Vault، AI، Live HD)، درگاه انتزاعی سندباکس، توکن به‌جای PAN، Intent و Webhook HMAC، فاکتور/رسید، استرداد کامل/جزئی با نقش Finance، کوپن/معرف/هدیه/صندلی تیمی، مالیات منطقه‌ای، Ledger اعتبار جدا از کیف پول فروشگاه، Chargeback و بررسی دستی، Rate Limit تسویه، اعلان پرداخت. جزئیات [`docs/BILLING.md`](docs/BILLING.md).
+95. Final Integration & Production Readiness: امتیاز آمادگی از Health/Secret/Smoke/یکپارچگی، چک‌لیست Production، یخ‌زدگی انتشار که Promote را مسدود می‌کند، تأیید Release جدا از Deploy، Circuit برای وابستگی اختیاری، RTO/RPO مستند، حسابرسی امنیت/حریم/عملکرد بدون افشای Secret. جزئیات [`docs/PRODUCTION.md`](docs/PRODUCTION.md).
 
 
 

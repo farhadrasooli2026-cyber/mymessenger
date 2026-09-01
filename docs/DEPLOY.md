@@ -10,7 +10,7 @@ Local: `npm run ci`
 
 ## Release catalog
 
-Staff → `/app/admin` → انتشار (`/api/deploy`, perms `deploy.view` / `deploy.manage` / `deploy.approve`).
+Staff → `/app/admin` → انتشار (`/api/deploy`) و آمادگی (`/api/prod`). یخ‌زدگی `PROD_FREEZE` Promote Production را رد می‌کند.
 
 1. Staging release (rolling / blue-green / canary) records artifact checksum.
 2. Production needs password + `DEPLOY_PRODUCTION`. Emergency uses `EMERGENCY_DEPLOY` but still requires secret scan.
