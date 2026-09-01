@@ -64,6 +64,8 @@ import type { SecurityMetrics } from "@/lib/security-core";
 import { emptySecurityMetrics } from "@/lib/security-core";
 import { emptyAdminMetrics } from "@/lib/admin-types";
 import { emptyMonitorPersist, hydrateMonitorPersist, type MonitorPersist } from "@/lib/monitor-types";
+import { emptyDrPersist, hydrateDrPersist, type DrPersist } from "@/lib/dr-types";
+import { rememberPlatformMode } from "@/lib/dr-mode";
 import type {
   AdminAlert,
   AdminAuditRow,
@@ -2138,6 +2140,7 @@ export type StoreData = {
   contentTombstones: ContentTombstone[];
   adminMetrics: AdminMetrics;
   monitor: MonitorPersist;
+  dr: DrPersist;
   schemaMeta: import("@/lib/db/migrate").SchemaMeta;
   dbJobs: DbJob[];
   dbAudit: DbAudit[];
@@ -2296,6 +2299,7 @@ const EMPTY: StoreData = {
   contentTombstones: [],
   adminMetrics: emptyAdminMetrics(),
   monitor: emptyMonitorPersist(),
+  dr: emptyDrPersist(),
   schemaMeta: { version: 0, migratedAt: 0, env: process.env.VITEST ? "test" : "development" },
   dbJobs: [],
   dbAudit: [],
@@ -2558,6 +2562,7 @@ async function readStore(): Promise<StoreData> {
       contentTombstones: Array.isArray(parsed.contentTombstones) ? parsed.contentTombstones : [],
       adminMetrics: parsed.adminMetrics ?? emptyAdminMetrics(),
       monitor: hydrateMonitorPersist(parsed.monitor),
+      dr: hydrateDrPersist(parsed.dr),
       schemaMeta: hydrateSchemaMeta(parsed.schemaMeta),
       dbJobs: Array.isArray(parsed.dbJobs) ? parsed.dbJobs : [],
       dbAudit: Array.isArray(parsed.dbAudit) ? parsed.dbAudit : [],
@@ -2663,6 +2668,10 @@ function prune(data: StoreData, now: number): void {
   data.monitor.alerts = data.monitor.alerts.filter((a) => now - a.at < 90 * 24 * 60 * 60 * 1000).slice(0, 120);
   data.monitor.incidents = data.monitor.incidents.filter((i) => now - i.createdAt < 180 * 24 * 60 * 60 * 1000).slice(0, 80);
   data.monitor.errors = data.monitor.errors.slice(0, 80);
+  data.dr = hydrateDrPersist(data.dr);
+  data.dr.jobs = data.dr.jobs.filter((j) => now - j.createdAt < 90 * 24 * 60 * 60 * 1000).slice(0, 200);
+  data.dr.audits = data.dr.audits.filter((a) => now - a.at < 180 * 24 * 60 * 60 * 1000).slice(0, 400);
+  rememberPlatformMode(data.dr.mode);
   for (const user of data.users) expireStaleRestriction(user, now);
   data.callEvents = (data.callEvents ?? []).filter((e) => now - e.at < 7 * 24 * 60 * 60 * 1000).slice(-4000);
   data.callSignals = (data.callSignals ?? []).filter((s) => now - s.createdAt < 10 * 60 * 1000).slice(-800);

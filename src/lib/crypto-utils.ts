@@ -76,6 +76,47 @@ export function decryptText(payload: string): string {
   ]).toString("utf8");
 }
 
+function backupKey(): Buffer {
+  const hex = config.backupKeyHex;
+  if (hex && hex.length >= 64) {
+    const key = Buffer.from(hex, "hex");
+    if (key.length >= 32) return key.subarray(0, 32);
+  }
+  return createHmac("sha256", dataKey()).update("nixo-backup-wrapping-v1").digest();
+}
+
+export function encryptBackupBytes(plain: Buffer): Buffer {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", backupKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(plain), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([Buffer.from("B1"), iv, tag, encrypted]);
+}
+
+export function decryptBackupBytes(payload: Buffer): Buffer {
+  if (payload.length >= 2 + 12 + 16 && payload.subarray(0, 2).toString() === "B1") {
+    const iv = payload.subarray(2, 14);
+    const tag = payload.subarray(14, 30);
+    const data = payload.subarray(30);
+    const decipher = createDecipheriv("aes-256-gcm", backupKey(), iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(data), decipher.final()]);
+  }
+  return decryptBytes(payload);
+}
+
+export function signBackupBlob(id: string, sha256: string): string {
+  return createHmac("sha256", backupKey()).update(`nixo-dr:${id}:${sha256}`).digest("hex");
+}
+
+export function backupSignatureOk(id: string, sha256: string, signature: string): boolean {
+  const expected = signBackupBlob(id, sha256);
+  const a = Buffer.from(signature);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || a.length === 0) return false;
+  return timingSafeEqual(a, b);
+}
+
 export function encryptBytes(plain: Buffer): Buffer {
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", dataKey(), iv);

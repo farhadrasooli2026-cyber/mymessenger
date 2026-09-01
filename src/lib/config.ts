@@ -45,6 +45,10 @@ export const config = {
   adminCookie: "nixo_admin",
   staffCookie: "nixo_staff",
   adminKey: process.env.NIXO_ADMIN_KEY || "nixo-admin-dev",
+  backupKeyHex: requiredFallback(
+    "NIXO_BACKUP_KEY",
+    "",
+  ),
   cookieMaxAgeSec: 7 * 24 * 60 * 60,
   deletionGraceMs: 14 * 24 * 60 * 60 * 1000,
   maxBackupBytes: 2_500_000,

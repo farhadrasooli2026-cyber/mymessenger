@@ -418,6 +418,8 @@ export async function flushMonitor() {
   });
   for (const f of [...flags, ...extra]) raiseAlert(f.key, f.severity, f.title);
   live.lastFlush = Date.now();
+  const { maybeAutoDrBackup } = await import("@/lib/dr");
+  await maybeAutoDrBackup().catch(() => nixoLog("warn", "backup", "auto backup skipped"));
 }
 
 export async function maybeFlush() {

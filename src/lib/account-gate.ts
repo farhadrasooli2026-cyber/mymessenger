@@ -1,5 +1,7 @@
 /** Account enforcement for bans/suspensions. Safe to import from messaging services. */
 
+import { currentPlatformMode } from "./dr-mode";
+
 export type EnforcementStatus = "active" | "pending_deletion" | "closed" | "deactivated" | "restricted" | "suspended" | "banned";
 
 export type AccountGateUser = {
@@ -30,6 +32,13 @@ export function loginBlocked(user: AccountGateUser | null | undefined, now = Dat
 }
 
 export function postingBlocked(user: AccountGateUser | null | undefined, now = Date.now()) {
+  const mode = currentPlatformMode();
+  if (mode === "maintenance") {
+    return { blocked: true as const, error: "نیکسو در حالت نگهداری است. کمی بعد دوباره تلاش کن.", code: "maintenance" };
+  }
+  if (mode === "read_only") {
+    return { blocked: true as const, error: "سامانه موقتاً فقط خواندنی است.", code: "read_only" };
+  }
   const login = loginBlocked(user, now);
   if (login.blocked) return login;
   const st = effectiveEnforcement(user, now);
