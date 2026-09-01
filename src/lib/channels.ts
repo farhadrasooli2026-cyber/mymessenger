@@ -39,7 +39,7 @@ import {
 } from "@/lib/channel-types";
 
 const COLORS = ["#fbbf24", "#34d399", "#7dd3fc", "#c4b5fd", "#fda4af", "#67e8f9"];
-import { inspectTextLinks } from "@/lib/link-safety";const BROADCAST_BATCH = 40;
+const BROADCAST_BATCH = 40;
 const POST_KINDS: ChannelPostKind[] = ["text", "photo", "video", "voice", "audio", "file", "link", "poll", "album", "gif", "quiz"];
 
 function liveSub(s: PubChannelRecord["subscribers"][number]) {
