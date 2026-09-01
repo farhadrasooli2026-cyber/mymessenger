@@ -22,7 +22,9 @@ type Dash = {
   checkup: { items: CheckItem[]; suspiciousDevices: { id: string; at: number; detail?: string; label?: string }[] };
   devices: Device[];
   events: EventRow[];
+  loginHistory?: { id: string; kind: string; title: string; createdAt: number; detail?: string }[];
   twoStepEnabled: boolean;
+  totpEnabled?: boolean;
   recoveryLeft: number;
   passkeys: { id: string; name: string; createdAt: number }[];
   backupSet: boolean;
@@ -45,6 +47,10 @@ async function bufToB64url(buf: ArrayBuffer) {
 export function SecurityDashboard() {
   const [dash, setDash] = useState<Dash | null>(null);
   const [password, setPassword] = useState("");
+  const [currentPw, setCurrentPw] = useState("");
+  const [nextPw, setNextPw] = useState("");
+  const [totpCode, setTotpCode] = useState("");
+  const [totpSecret, setTotpSecret] = useState("");
   const [codes, setCodes] = useState<string[] | null>(null);
   const [backup, setBackup] = useState("");
   const [vuln, setVuln] = useState("");
@@ -148,6 +154,10 @@ export function SecurityDashboard() {
           نیکسو ادعا نمی‌کند ۱۰۰٪ غیرقابل نفوذ است. هدف: حداکثر امنیت عملی، Defense in Depth، E2EE روی دستگاه، احراز هویت سخت، مجوز سمت سرور، و آزمون مداوم. هیچ برنامه‌ای عکس گرفتن از صفحه با دستگاه دیگر را کامل متوقف نمی‌کند.
         </p>
         <p className="text-xs">
+          <Link href="/app/settings/privacy-center" className="text-amber-200">
+            مرکز حریم خصوصی و امنیت
+          </Link>
+          {" · "}
           <Link href="/app/settings/privacy" className="text-amber-200">
             داشبورد حریم خصوصی
           </Link>
@@ -217,6 +227,58 @@ export function SecurityDashboard() {
           >
             خروج از دستگاه‌های دیگر
           </Button>
+        </section>
+
+        <section className="rounded-2xl bg-white/5 p-4 text-sm">
+          <h2 className="font-medium">تغییر رمز عبور</h2>
+          <Input type="password" className="mt-2" placeholder="رمز فعلی" value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} />
+          <Input type="password" className="mt-2" placeholder="رمز جدید (حداقل ۱۰ نویسه)" value={nextPw} onChange={(e) => setNextPw(e.target.value)} />
+          <Button
+            type="button"
+            className="mt-2"
+            disabled={busy}
+            onClick={() =>
+              void act({ action: "password-change", current: currentPw, next: nextPw }).then((d) => {
+                if (d?.ok) toast.success("رمز ذخیره شد (فقط هش).");
+              })
+            }
+          >
+            تغییر رمز
+          </Button>
+        </section>
+
+        <section className="rounded-2xl bg-white/5 p-4 text-sm">
+          <h2 className="font-medium">Authenticator App</h2>
+          <p className="mt-1 text-[11px] opacity-70">{dash.totpEnabled ? "فعال است." : "غیرفعال."}</p>
+          {!dash.totpEnabled && (
+            <Button
+              type="button"
+              className="mt-2"
+              disabled={busy}
+              onClick={() =>
+                void act({ action: "totp-begin" }).then((d) => {
+                  if (d?.secret) setTotpSecret(d.secret);
+                })
+              }
+            >
+              شروع
+            </Button>
+          )}
+          {totpSecret && (
+            <p className="mt-2 break-all font-mono text-[11px]" dir="ltr">
+              {totpSecret}
+            </p>
+          )}
+          <Input className="mt-2" placeholder="کد ۶ رقمی" value={totpCode} onChange={(e) => setTotpCode(e.target.value)} />
+          {dash.totpEnabled ? (
+            <Button type="button" variant="secondary" className="mt-2" disabled={busy} onClick={() => void act({ action: "totp-disable", password, code: totpCode })}>
+              خاموش کردن
+            </Button>
+          ) : (
+            <Button type="button" className="mt-2" disabled={busy} onClick={() => void act({ action: "totp-confirm", code: totpCode })}>
+              تأیید
+            </Button>
+          )}
         </section>
 
         <section className="rounded-2xl bg-white/5 p-4 text-sm">
@@ -295,6 +357,17 @@ export function SecurityDashboard() {
             </Button>
           </div>
           <p className="mt-2 text-[11px]">{dash.backupSet ? "تأییدگر روی سرور هست." : "تأییدگر تنظیم نشده."}</p>
+        </section>
+
+        <section className="rounded-2xl bg-white/5 p-4 text-sm">
+          <h2 className="font-medium">تاریخچه ورود</h2>
+          <ul className="mt-2 max-h-40 space-y-2 overflow-auto text-xs">
+            {(dash.loginHistory ?? []).map((e) => (
+              <li key={e.id}>
+                {e.title} · {when(e.createdAt)}
+              </li>
+            ))}
+          </ul>
         </section>
 
         <section className="rounded-2xl bg-white/5 p-4 text-sm">

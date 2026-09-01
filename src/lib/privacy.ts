@@ -1,5 +1,5 @@
 import "server-only";
-import { hmacIdentifier } from "@/lib/crypto-utils";
+import { hmacIdentifier, randomId } from "@/lib/crypto-utils";
 import { normalizeEmail, normalizePhone } from "@/lib/identifiers";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { bumpDiscoveryCaches, mutateStore, readStoreSnapshot } from "@/lib/store";
@@ -171,6 +171,8 @@ export async function getPrivacy(userId: string) {
       checkup: privacyCheckup(me),
       people,
       blocked: me.blockedPeerKeys,
+      muted: me.mutedPeerKeys ?? [],
+      restricted: me.restrictedPeerKeys ?? [],
     };
   });
 }
@@ -280,7 +282,13 @@ export async function updatePrivacy(userId: string, patch: Record<string, unknow
     me.lastSeenAt = Date.now();
     bumpDiscoveryCaches(data);
     data.audit = [
-      { id: `priv-${Date.now()}`, userId, kind: "suspicious" as const, createdAt: Date.now(), detail: "privacy-update" },
+      {
+        id: randomId(),
+        userId,
+        kind: "privacy" as const,
+        createdAt: Date.now(),
+        detail: "تغییر تنظیمات حریم خصوصی",
+      },
       ...(data.audit ?? []),
     ].slice(0, 400);
     return { ok: true as const, settings: snapshotPrivacy(me), checkup: privacyCheckup(me) };
@@ -508,5 +516,47 @@ export async function setBlockedPeer(userId: string, peerKey: string, blocked: b
       ...(data.audit ?? []),
     ].slice(0, 400);
     return { ok: true as const, blockedPeerKeys: me.blockedPeerKeys };
+  });
+}
+
+export async function setMutedPeer(userId: string, peerKey: string, muted: boolean) {
+  return mutateStore((data) => {
+    const me = data.users.find((u) => u.id === userId);
+    if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    const key = peerKey.trim();
+    if (!key || key === userId) return { ok: false as const, error: "کاربر نامعتبر است.", status: 400 };
+    me.mutedPeerKeys = me.mutedPeerKeys ?? [];
+    if (muted) {
+      if (!me.mutedPeerKeys.includes(key)) me.mutedPeerKeys.push(key);
+    } else {
+      me.mutedPeerKeys = me.mutedPeerKeys.filter((id) => id !== key);
+    }
+    bumpDiscoveryCaches(data);
+    data.audit = [
+      { id: randomId(), userId, kind: "privacy" as const, createdAt: Date.now(), detail: muted ? "mute" : "unmute" },
+      ...(data.audit ?? []),
+    ].slice(0, 400);
+    return { ok: true as const, muted: me.mutedPeerKeys };
+  });
+}
+
+export async function setRestrictedPeer(userId: string, peerKey: string, restricted: boolean) {
+  return mutateStore((data) => {
+    const me = data.users.find((u) => u.id === userId);
+    if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    const key = peerKey.trim();
+    if (!key || key === userId) return { ok: false as const, error: "کاربر نامعتبر است.", status: 400 };
+    me.restrictedPeerKeys = me.restrictedPeerKeys ?? [];
+    if (restricted) {
+      if (!me.restrictedPeerKeys.includes(key)) me.restrictedPeerKeys.push(key);
+    } else {
+      me.restrictedPeerKeys = me.restrictedPeerKeys.filter((id) => id !== key);
+    }
+    bumpDiscoveryCaches(data);
+    data.audit = [
+      { id: randomId(), userId, kind: "privacy" as const, createdAt: Date.now(), detail: restricted ? "restrict" : "unrestrict" },
+      ...(data.audit ?? []),
+    ].slice(0, 400);
+    return { ok: true as const, restricted: me.restrictedPeerKeys };
   });
 }

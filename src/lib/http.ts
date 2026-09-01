@@ -7,6 +7,10 @@ export const SECURITY_HEADERS: Record<string, string> = {
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "X-API-Version": API_VERSION,
   "Cache-Control": "private, no-store",
+  "Permissions-Policy": "camera=(self), microphone=(self), geolocation=(), payment=()",
+  "Cross-Origin-Opener-Policy": "same-origin",
+  "Content-Security-Policy":
+    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
 };
 
 export function mergeHeaders(extra?: HeadersInit, correlationId?: string): Headers {

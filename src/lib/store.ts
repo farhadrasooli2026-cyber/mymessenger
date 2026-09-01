@@ -74,6 +74,9 @@ function hydrateDevice(d: DeviceSession): DeviceSession {
     appVersion: d.appVersion || "0.1.0-web",
     pending: Boolean(d.pending),
     trusted: d.pending ? false : d.trusted !== false,
+    refreshHash: d.refreshHash,
+    refreshSalt: d.refreshSalt,
+    refreshRotatedAt: d.refreshRotatedAt,
   };
 }
 
@@ -201,6 +204,8 @@ function hydrateUser(user: UserRecord): UserRecord {
     recoveryCodeHashes: Array.isArray(user.recoveryCodeHashes) ? user.recoveryCodeHashes : [],
     passkeys: Array.isArray(user.passkeys) ? user.passkeys : [],
     e2eeBackupVerifier: user.e2eeBackupVerifier,
+    totpSecretCipher: user.totpSecretCipher,
+    totpPendingCipher: user.totpPendingCipher,
   };
 }
 
@@ -606,6 +611,8 @@ export type UserRecord = {
   recoveryCodeHashes?: string[];
   passkeys?: PasskeyRecord[];
   e2eeBackupVerifier?: string;
+  totpSecretCipher?: string;
+  totpPendingCipher?: string;
 };
 
 export type BackupPrefs = {
@@ -672,6 +679,9 @@ export type DeviceSession = {
   trusted: boolean;
   pending: boolean;
   revokedAt?: number;
+  refreshHash?: string;
+  refreshSalt?: string;
+  refreshRotatedAt?: number;
 };
 
 export type SecurityEventKind =
@@ -692,7 +702,26 @@ export type SecurityEventKind =
   | "identifier_change"
   | "restore"
   | "device_trust"
-  | "device_deny";
+  | "device_deny"
+  | "privacy";
+
+export type ConsentEvent = {
+  id: string;
+  userId: string;
+  key: string;
+  value: boolean;
+  at: number;
+};
+
+export type PrivacyExportJob = {
+  id: string;
+  ownerUserId: string;
+  tokenHash: string;
+  expiresAt: number;
+  createdAt: number;
+  consumedAt?: number | null;
+  cipher: string;
+};
 
 export type AuditEvent = {
   id: string;
@@ -1773,6 +1802,8 @@ export type StoreData = {
   bgItems: CatalogItem[];
   devices: DeviceSession[];
   audit: AuditEvent[];
+  consentEvents: ConsentEvent[];
+  privacyExports: PrivacyExportJob[];
   passkeyChallenges: PasskeyChallenge[];
   vulnReports: VulnReport[];
   backups: EncryptedBackup[];
@@ -1891,6 +1922,8 @@ const EMPTY: StoreData = {
   bgItems: [],
   devices: [],
   audit: [],
+  consentEvents: [],
+  privacyExports: [],
   passkeyChallenges: [],
   vulnReports: [],
   backups: [],
@@ -2066,6 +2099,8 @@ async function readStore(): Promise<StoreData> {
       bgItems: parsed.bgItems ?? [],
       devices: Array.isArray(parsed.devices) ? parsed.devices.map(hydrateDevice) : [],
       audit: Array.isArray(parsed.audit) ? parsed.audit : [],
+      consentEvents: Array.isArray(parsed.consentEvents) ? parsed.consentEvents : [],
+      privacyExports: Array.isArray(parsed.privacyExports) ? parsed.privacyExports : [],
       passkeyChallenges: Array.isArray(parsed.passkeyChallenges) ? parsed.passkeyChallenges : [],
       vulnReports: Array.isArray(parsed.vulnReports) ? parsed.vulnReports : [],
       backups: Array.isArray(parsed.backups) ? parsed.backups : [],
@@ -2402,6 +2437,8 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.searchDocs = (data.searchDocs ?? []).filter((d) => d.entityId !== uid && d.parentId !== uid);
   data.searchQueryCache = [];
   data.searchIndex = { gen: (data.searchIndex?.gen ?? 0) + 1, rebuiltAt: now };
+  data.consentEvents = (data.consentEvents ?? []).filter((e) => e.userId !== uid);
+  data.privacyExports = (data.privacyExports ?? []).filter((e) => e.ownerUserId !== uid);
   data.ledger = (data.ledger ?? []).filter((t) => t.userId !== uid);
   data.shopNotices = (data.shopNotices ?? []).filter((n) => n.userId !== uid);
 }

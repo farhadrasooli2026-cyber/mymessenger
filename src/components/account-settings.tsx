@@ -245,6 +245,10 @@ export function AccountSettings() {
         </div>
         <p className="text-xs leading-6 text-emerald-100/65">{account.persistence}</p>
         <p className="text-xs">
+          <Link href="/app/settings/privacy-center" className="text-amber-200">
+            مرکز حریم خصوصی
+          </Link>
+          {" · "}
           <Link href="/app/settings/security" className="text-amber-200">
             امنیت
           </Link>

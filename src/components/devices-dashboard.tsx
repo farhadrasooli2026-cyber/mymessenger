@@ -82,6 +82,8 @@ export function DevicesDashboard() {
           موقعیت فقط تقریبی و بدون GPS است. دستگاه جدید بدون تأیید، به کلیدهای E2EE دسترسی ندارد. Session منقضی، باطل یا جعلی رد می‌شود.
         </p>
         <p className="text-xs">
+          <Link href="/app/settings/privacy-center" className="text-amber-200">مرکز حریم خصوصی</Link>
+          {" · "}
           <Link href="/app/settings/security" className="text-amber-200">امنیت</Link>
           {" · "}
           <Link href="/app/settings/account" className="text-amber-200">حساب</Link>

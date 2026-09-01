@@ -5,7 +5,7 @@ import { getOutbox } from "./outbox";
 import { ackHumanChallenge, getUserById, issueHumanChallenge, startRegistration, verifyOtp } from "./registration";
 import { resetStoreForTests } from "./store";
 import { createGroup, addMembers } from "./groups";
-import { findByIdentifier, updatePrivacy, requestDeletion } from "./privacy";
+import { findByIdentifier, setMutedPeer, setRestrictedPeer, updatePrivacy, requestDeletion } from "./privacy";
 
 async function activeUser(username: string, channel: "email" | "phone" = "email", identifier?: string) {
   const ip = hashIp(`test-ip:${username}`);
@@ -84,5 +84,21 @@ describe("NIXO privacy", () => {
     const other = await activeUser("pv_del2");
     const viewed = publicProfile((await getUserById(user))!, other);
     expect((viewed as { deletionRequestedAt?: number }).deletionRequestedAt).toBeUndefined();
+  });
+
+  it("keeps mute and restrict lists owner-scoped", async () => {
+    const a = await activeUser("pv_mu");
+    const b = await activeUser("pv_rs");
+    const mute = await setMutedPeer(a, b, true);
+    expect(mute.ok).toBe(true);
+    const restrict = await setRestrictedPeer(a, b, true);
+    expect(restrict.ok).toBe(true);
+    const otherMute = await setMutedPeer(b, a, false);
+    expect(otherMute.ok).toBe(true);
+    const userA = await getUserById(a);
+    const userB = await getUserById(b);
+    expect(userA?.mutedPeerKeys).toContain(b);
+    expect(userA?.restrictedPeerKeys).toContain(b);
+    expect(userB?.mutedPeerKeys ?? []).not.toContain(a);
   });
 });

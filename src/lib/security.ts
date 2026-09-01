@@ -1,11 +1,12 @@
 import "server-only";
 
-import { hashOtp, hmacIdentifier, newSalt, otpHashesEqual, randomId } from "@/lib/crypto-utils";
+import { hashOtp, hmacIdentifier, newSalt, otpHashesEqual, randomId, encryptText, decryptText } from "@/lib/crypto-utils";
 import { APP_VERSION, DEVICE_INACTIVE_MS, deviceKindFa, parseUserAgent } from "@/lib/device-info";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { AuditEvent, DeviceSession, SecurityEventKind, StoreData, UserRecord } from "@/lib/store";
 import { emitNotification } from "@/lib/notify";
+import { otpauthUrl, randomTotpSecret, totpValid } from "@/lib/totp";
 
 export const PASSWORD_MIN = 10;
 
@@ -41,7 +42,7 @@ export function appendAudit(
     detail: opts.detail?.slice(0, 280),
   };
   data.audit = [event, ...(data.audit ?? [])].slice(0, 400);
-  const skip: SecurityEventKind[] = ["logout", "backup", "vuln_report"];
+  const skip: SecurityEventKind[] = ["logout", "backup", "vuln_report", "privacy"];
   if (!skip.includes(kind)) {
     emitNotification(data, {
       userId,
@@ -78,6 +79,7 @@ export function publicAudit(e: AuditEvent) {
     restore: "بازیابی پشتیبان",
     device_trust: "دستگاه مورد اعتماد تأیید شد",
     device_deny: "دستگاه ناشناس رد شد",
+    privacy: "تغییر حریم خصوصی",
   };
   return {
     id: e.id,
@@ -197,6 +199,8 @@ export async function createDeviceSessionForUser(input: {
       trusted = false;
     }
     const suspicious = pending || (isNewDevice && trustedLive.length > 0 && !input.recovery);
+    const refreshPlain = randomId() + randomId();
+    const refreshSalt = newSalt();
     const device: DeviceSession = {
       id: randomId(),
       userId: input.userId,
@@ -212,6 +216,9 @@ export async function createDeviceSessionForUser(input: {
       appVersion: APP_VERSION,
       trusted,
       pending,
+      refreshSalt,
+      refreshHash: hashOtp(refreshPlain, refreshSalt),
+      refreshRotatedAt: Date.now(),
     };
     data.devices.unshift(device);
     if (input.recovery) {
@@ -238,7 +245,7 @@ export async function createDeviceSessionForUser(input: {
         detail: "ورود مشکوک: دستگاه جدید یا ناشناس",
       });
     }
-    return { device, isNewDevice, suspicious, pending };
+    return { device, isNewDevice, suspicious, pending, refreshToken: refreshPlain };
   });
 }
 
@@ -295,6 +302,8 @@ export async function revokeDevice(userId: string, deviceId: string, actorIp?: s
     const d = (data.devices ?? []).find((x) => x.id === deviceId && x.userId === userId);
     if (!d || d.revokedAt) return false;
     d.revokedAt = Date.now();
+    d.refreshHash = undefined;
+    d.refreshSalt = undefined;
     appendAudit(data, userId, "revoke", {
       ip: actorIp,
       deviceSessionId: deviceId,
@@ -322,6 +331,8 @@ export async function revokeAllDevices(userId: string, actorIp?: string) {
     for (const d of data.devices ?? []) {
       if (d.userId === userId && !d.revokedAt) {
         d.revokedAt = Date.now();
+        d.refreshHash = undefined;
+        d.refreshSalt = undefined;
         n += 1;
       }
     }
@@ -347,6 +358,8 @@ export async function revokeAllOtherDevices(userId: string, keepId: string | und
     for (const d of data.devices ?? []) {
       if (d.userId === userId && d.id !== keepId && !d.revokedAt) {
         d.revokedAt = Date.now();
+        d.refreshHash = undefined;
+        d.refreshSalt = undefined;
         n += 1;
       }
     }
@@ -385,7 +398,7 @@ function checkup(user: UserRecord, devices: DeviceSession[], events: AuditEvent[
       { id: "recovery", label: "کدهای بازیابی", ok: (user.recoveryCodeHashes?.length ?? 0) > 0 },
       { id: "passkeys", label: "Passkey", ok: (user.passkeys?.length ?? 0) > 0 },
       { id: "backup", label: "کلید پشتیبان E2EE", ok: Boolean(user.e2eeBackupVerifier) },
-      { id: "suspicious", label: "ورود مشکوک اخیر", ok: suspicious.length === 0, value: String(suspicious.length) },
+      { id: "totp", label: "Authenticator", ok: Boolean(user.totpSecretCipher) },
     ],
     suspiciousDevices: suspicious.map((e) => ({
       id: e.id,
@@ -402,15 +415,34 @@ export async function getSecurityDashboard(userId: string, currentSid?: string) 
   if (!user) return null;
   const devices = (data.devices ?? []).filter((d) => d.userId === userId && !d.revokedAt);
   const events = (data.audit ?? []).filter((e) => e.userId === userId).slice(0, 40);
+  const loginHistory = events
+    .filter((e) => e.kind === "login" || e.kind === "new_device" || e.kind === "suspicious")
+    .slice(0, 20)
+    .map(publicAudit);
+  const scoreItems = checkup(user, devices, events).items;
+  const score = Math.round((scoreItems.filter((i) => i.ok).length / Math.max(1, scoreItems.length)) * 100);
   return {
     checkup: checkup(user, devices, events),
     devices: devices.sort((a, b) => b.lastSeenAt - a.lastSeenAt).map((d) => publicDevice(d, currentSid)),
     events: events.map(publicAudit),
+    loginHistory,
     twoStepEnabled: Boolean(user.twoStepEnabled),
+    totpEnabled: Boolean(user.totpSecretCipher),
     recoveryLeft: user.recoveryCodeHashes?.length ?? 0,
     passkeys: (user.passkeys ?? []).map((p) => ({ id: p.id, name: p.name, createdAt: p.createdAt })),
     backupSet: Boolean(user.e2eeBackupVerifier),
     hasPassword: Boolean(user.passwordHash),
+    mutedCount: (user.mutedPeerKeys ?? []).length,
+    blockedCount: (user.blockedPeerKeys ?? []).length,
+    restrictedCount: (user.restrictedPeerKeys ?? []).length,
+    consents: user.prefs?.consents ?? { analytics: false, contactSync: false, location: false, marketing: false },
+    screenshotProtect: Boolean(user.prefs?.screenshotProtect),
+    score,
+    metrics: {
+      activeSessions: devices.filter((d) => !d.revokedAt).length,
+      suspicious24h: events.filter((e) => e.kind === "suspicious" && Date.now() - e.createdAt < 86_400_000).length,
+      failedLogins: events.filter((e) => e.kind === "suspicious").length,
+    },
   };
 }
 
@@ -420,7 +452,7 @@ export async function recentSecurityNotices(userId: string) {
   return (data.audit ?? [])
     .filter((e) => e.userId === userId && e.createdAt >= since)
     .filter((e) =>
-      ["new_device", "suspicious", "login", "recovery", "identifier_change", "twostep_on", "twostep_off", "password", "device_trust", "device_deny"].includes(
+      ["new_device", "suspicious", "login", "recovery", "identifier_change", "twostep_on", "twostep_off", "password", "device_trust", "device_deny", "privacy"].includes(
         e.kind,
       ),
     )
@@ -597,7 +629,7 @@ export async function deletePasskey(userId: string, passkeyId: string, ip: strin
 export async function verifySecondFactor(
   userId: string,
   ip: string,
-  input: { password?: string; recovery?: string; credentialId?: string; clientDataJSON?: string; challengeId?: string },
+  input: { password?: string; recovery?: string; credentialId?: string; clientDataJSON?: string; challengeId?: string; totp?: string },
 ) {
   return mutateStore((data) => {
     const gate = twoStepGate(data, userId, ip);
@@ -605,7 +637,8 @@ export async function verifySecondFactor(
       return { ok: false as const, error: "تعداد تلاش بیش از حد است.", status: 429, retryAfterSec: gate.retryAfterSec };
     }
     const user = data.users.find((u) => u.id === userId);
-    if (!user?.twoStepEnabled) {
+    if (!user) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    if (!user.twoStepEnabled && !user.totpSecretCipher) {
       return { ok: false as const, error: "رمز دومرحله‌ای برای این حساب فعال نیست.", status: 400 };
     }
     if (input.password) {
@@ -634,6 +667,19 @@ export async function verifySecondFactor(
       ch.exp = 0;
       return { ok: true as const, via: "passkey" as const };
     }
+    if (input.totp) {
+      if (!user.totpSecretCipher) return { ok: false as const, error: "Authenticator فعال نیست.", status: 400 };
+      let secret = "";
+      try {
+        secret = decryptText(user.totpSecretCipher);
+      } catch {
+        return { ok: false as const, error: "Authenticator نامعتبر است.", status: 400 };
+      }
+      if (!totpValid(secret, input.totp)) {
+        return { ok: false as const, error: "کد Authenticator نادرست است.", status: 400 };
+      }
+      return { ok: true as const, via: "totp" as const };
+    }
     return { ok: false as const, error: "عامل دوم لازم است.", status: 400 };
   });
 }
@@ -656,8 +702,216 @@ export async function fileVulnReport(userId: string | null, summary: string, con
   });
 }
 
+export function passwordPolicyOk(password: string, username?: string) {
+  const p = password.trim();
+  if (p.length < PASSWORD_MIN) return { ok: false as const, error: `رمز باید حداقل ${PASSWORD_MIN} نویسه باشد.` };
+  if (username && p.toLowerCase().includes(username.toLowerCase())) {
+    return { ok: false as const, error: "رمز نباید شامل نام کاربری باشد." };
+  }
+  if (/password|123456|nixo/i.test(p) && p.length < 16) {
+    return { ok: false as const, error: "رمز خیلی قابل حدس است." };
+  }
+  return { ok: true as const };
+}
+
+export async function changeAccountPassword(userId: string, current: string, next: string, ip: string) {
+  return mutateStore((data) => {
+    const gate = twoStepGate(data, userId, ip);
+    if (!gate.allowed) return { ok: false as const, error: "تعداد تلاش بیش از حد است.", status: 429 };
+    const user = data.users.find((u) => u.id === userId);
+    if (!user) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    const policy = passwordPolicyOk(next, user.username ?? undefined);
+    if (!policy.ok) return { ok: false as const, error: policy.error, status: 400 };
+    if (user.passwordHash && !passwordMatches(user, current)) {
+      return { ok: false as const, error: "رمز فعلی نادرست است.", status: 400 };
+    }
+    const { salt, hash } = hashPassword(next);
+    user.passwordSalt = salt;
+    user.passwordHash = hash;
+    appendAudit(data, userId, "password", { ip, detail: "تغییر رمز؛ فقط هش ذخیره شد" });
+    return { ok: true as const };
+  });
+}
+
+export async function beginAuthenticator(userId: string, ip: string) {
+  return mutateStore((data) => {
+    const gate = twoStepGate(data, userId, ip);
+    if (!gate.allowed) return { ok: false as const, error: "تعداد تلاش بیش از حد است.", status: 429 };
+    const user = data.users.find((u) => u.id === userId);
+    if (!user) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    const secret = randomTotpSecret();
+    user.totpPendingCipher = encryptText(secret);
+    return {
+      ok: true as const,
+      secret,
+      otpauth: otpauthUrl(secret, user.username || user.id),
+    };
+  });
+}
+
+export async function confirmAuthenticator(userId: string, code: string, ip: string) {
+  return mutateStore((data) => {
+    const user = data.users.find((u) => u.id === userId);
+    if (!user?.totpPendingCipher) return { ok: false as const, error: "Authenticator شروع نشده.", status: 400 };
+    let secret = "";
+    try {
+      secret = decryptText(user.totpPendingCipher);
+    } catch {
+      return { ok: false as const, error: "رمز Authenticator نامعتبر است.", status: 400 };
+    }
+    if (!totpValid(secret, code)) return { ok: false as const, error: "کد تأیید نادرست است.", status: 400 };
+    user.totpSecretCipher = user.totpPendingCipher;
+    user.totpPendingCipher = undefined;
+    appendAudit(data, userId, "twostep_on", { ip, detail: "Authenticator تأیید و فعال شد" });
+    return { ok: true as const };
+  });
+}
+
+export async function disableAuthenticator(userId: string, password: string, ip: string, totpCode?: string) {
+  return mutateStore((data) => {
+    const user = data.users.find((u) => u.id === userId);
+    if (!user) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    if (!user.totpSecretCipher) return { ok: false as const, error: "Authenticator فعال نیست.", status: 400 };
+    if (user.passwordHash) {
+      if (!passwordMatches(user, password)) {
+        return { ok: false as const, error: "رمز عبور نادرست است.", status: 400 };
+      }
+    } else {
+      let secret = "";
+      try {
+        secret = decryptText(user.totpSecretCipher);
+      } catch {
+        return { ok: false as const, error: "Authenticator نامعتبر است.", status: 400 };
+      }
+      if (!totpValid(secret, totpCode ?? "")) {
+        return { ok: false as const, error: "کد تأیید نادرست است.", status: 400 };
+      }
+    }
+    user.totpSecretCipher = undefined;
+    user.totpPendingCipher = undefined;
+    appendAudit(data, userId, "twostep_off", { ip, detail: "Authenticator خاموش شد" });
+    return { ok: true as const };
+  });
+}
+
+export async function rotateDeviceRefresh(userId: string, deviceId: string, presented: string) {
+  return mutateStore((data) => {
+    const d = (data.devices ?? []).find((x) => x.id === deviceId && x.userId === userId && !x.revokedAt);
+    if (!d || !d.refreshHash || !d.refreshSalt) return { ok: false as const, error: "نشست نامعتبر است.", status: 401 };
+    if (!otpHashesEqual(d.refreshHash, hashOtp(presented, d.refreshSalt))) {
+      d.revokedAt = Date.now();
+      d.refreshHash = undefined;
+      appendAudit(data, userId, "suspicious", { deviceSessionId: deviceId, detail: "Refresh Token نامعتبر — نشست باطل شد" });
+      return { ok: false as const, error: "Refresh Token باطل شد.", status: 401 };
+    }
+    const next = randomId() + randomId();
+    d.refreshSalt = newSalt();
+    d.refreshHash = hashOtp(next, d.refreshSalt);
+    d.refreshRotatedAt = Date.now();
+    return { ok: true as const, refreshToken: next };
+  });
+}
+
+export async function createPrivacyExport(userId: string, ip: string) {
+  return mutateStore((data) => {
+    const user = data.users.find((u) => u.id === userId);
+    if (!user) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    const gate = hitRateLimit(data, `export:${userId}`, 60 * 60_000, 4);
+    if (!gate.allowed) return { ok: false as const, error: "خروجی محدود شد.", status: 429 };
+    const token = randomId() + randomId();
+    const payload = {
+      kind: "nixo-privacy-export",
+      exportedAt: Date.now(),
+      userId,
+      username: user.username,
+      displayName: user.displayName,
+      privacy: {
+        photo: user.privacyPhoto,
+        bio: user.privacyBio,
+        phone: user.privacyPhone,
+        email: user.privacyEmail,
+        lastSeen: user.privacyLastSeen,
+        online: user.privacyOnline,
+        messages: user.privacyMessages,
+        findUsername: user.privacyFindUsername,
+      },
+      consents: user.prefs?.consents,
+      blockedCount: user.blockedPeerKeys.length,
+    };
+    const job = {
+      id: randomId(),
+      ownerUserId: userId,
+      tokenHash: hmacIdentifier(token),
+      expiresAt: Date.now() + 15 * 60_000,
+      createdAt: Date.now(),
+      consumedAt: null as number | null,
+      cipher: encryptText(JSON.stringify(payload)),
+    };
+    data.privacyExports = [job, ...(data.privacyExports ?? [])].slice(0, 20);
+    appendAudit(data, userId, "backup", { ip, detail: "خروجی حریم خصوصی با لینک منقضی" });
+    return { ok: true as const, exportId: job.id, token, expiresAt: job.expiresAt };
+  });
+}
+
+export async function downloadPrivacyExport(userId: string, token: string) {
+  return mutateStore((data) => {
+    const hash = hmacIdentifier(token);
+    const job = (data.privacyExports ?? []).find((j) => j.tokenHash === hash);
+    if (!job || job.ownerUserId !== userId) return { ok: false as const, error: "یافت نشد.", status: 404 };
+    if (job.consumedAt || job.expiresAt < Date.now()) return { ok: false as const, error: "لینک منقضی است.", status: 410 };
+    job.consumedAt = Date.now();
+    let json = "";
+    try {
+      json = decryptText(job.cipher);
+    } catch {
+      return { ok: false as const, error: "خروجی خراب است.", status: 500 };
+    }
+    return { ok: true as const, export: JSON.parse(json) as Record<string, unknown> };
+  });
+}
+
+export async function updateConsents(userId: string, patch: Record<string, boolean>, ip: string) {
+  return mutateStore((data) => {
+    const user = data.users.find((u) => u.id === userId);
+    if (!user) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    data.consentEvents ??= [];
+    const keys = ["analytics", "contactSync", "location", "marketing"] as const;
+    for (const key of keys) {
+      if (typeof patch[key] === "boolean" && user.prefs.consents[key] !== patch[key]) {
+        user.prefs.consents[key] = patch[key];
+        data.consentEvents.unshift({ id: randomId(), userId, key, value: patch[key], at: Date.now() });
+      }
+    }
+    data.consentEvents = data.consentEvents.slice(0, 200);
+    appendAudit(data, userId, "privacy", { ip, detail: "به‌روزرسانی رضایت داده" });
+    return { ok: true as const, consents: user.prefs.consents, history: data.consentEvents.filter((e) => e.userId === userId).slice(0, 20) };
+  });
+}
+
+export async function setScreenshotProtect(userId: string, on: boolean, ip: string) {
+  return mutateStore((data) => {
+    const user = data.users.find((u) => u.id === userId);
+    if (!user) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    user.prefs.screenshotProtect = on;
+    appendAudit(data, userId, "privacy", { ip, detail: on ? "سیاست اسکرین‌شات روشن شد" : "سیاست اسکرین‌شات خاموش شد" });
+    return { ok: true as const, screenshotProtect: on };
+  });
+}
+
+export function requestOriginAllowed(request: Request) {
+  const origin = request.headers.get("origin");
+  if (!origin) return true;
+  const host = request.headers.get("host");
+  if (!host) return false;
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
 export function userNeedsTwoStep(user: UserRecord | null | undefined) {
-  return Boolean(user?.status === "active" && user.twoStepEnabled && user.passwordHash);
+  return Boolean(user?.status === "active" && ((user.twoStepEnabled && user.passwordHash) || user.totpSecretCipher));
 }
 
 /** Test helper: never persist plaintext. */

@@ -6,18 +6,26 @@ import { ackHumanChallenge, getUserById, issueHumanChallenge, startRegistration,
 import { mutateStore, readStoreSnapshot, resetStoreForTests } from "./store";
 import {
   backupVerifier,
+  beginAuthenticator,
   challengeMatchesClientData,
+  changeAccountPassword,
+  confirmAuthenticator,
   consumeRecoveryCode,
   createDeviceSessionForUser,
+  createPrivacyExport,
+  downloadPrivacyExport,
   enableTwoStep,
   generateRecoveryCodes,
   isDeviceActive,
   passwordMatches,
+  requestOriginAllowed,
   revokeDevice,
+  rotateDeviceRefresh,
   storeContainsPlainPassword,
   userNeedsTwoStep,
   verifySecondFactor,
 } from "./security";
+import { totpCode } from "./totp";
 import { inspectLink, inspectTextLinks } from "./link-safety";
 
 async function activeUser(username: string) {
@@ -141,5 +149,85 @@ describe("NIXO security", () => {
     expect(second.suspicious).toBe(true);
     const snap = await readStoreSnapshot();
     expect(snap.audit.some((e) => e.kind === "suspicious")).toBe(true);
+  });
+
+  it("changes password only with current password and never stores plaintext", async () => {
+    const id = await activeUser("sec_chg");
+    const current = "correct-horse-battery";
+    await enableTwoStep(id, current, "10.0.0.2");
+    const denied = await changeAccountPassword(id, "wrong-password-xx", "fresh-nixo-passphrase", "10.0.0.2");
+    expect(denied.ok).toBe(false);
+    const ok = await changeAccountPassword(id, current, "fresh-nixo-passphrase", "10.0.0.2");
+    expect(ok.ok).toBe(true);
+    const user = await getUserById(id);
+    expect(passwordMatches(user!, "fresh-nixo-passphrase")).toBe(true);
+    expect(passwordMatches(user!, current)).toBe(false);
+    const snap = await readStoreSnapshot();
+    expect(storeContainsPlainPassword(snap, current)).toBe(false);
+    expect(storeContainsPlainPassword(snap, "fresh-nixo-passphrase")).toBe(false);
+  });
+
+  it("activates TOTP only after a valid authenticator code", async () => {
+    const id = await activeUser("sec_totp");
+    const begin = await beginAuthenticator(id, "10.0.0.3");
+    expect(begin.ok).toBe(true);
+    if (!begin.ok) return;
+    const bad = await confirmAuthenticator(id, "000000", "10.0.0.3");
+    expect(bad.ok).toBe(false);
+    const good = await confirmAuthenticator(id, totpCode(begin.secret), "10.0.0.3");
+    expect(good.ok).toBe(true);
+    const user = await getUserById(id);
+    expect(userNeedsTwoStep(user)).toBe(true);
+    const via = await verifySecondFactor(id, "10.0.0.3", { totp: totpCode(begin.secret) });
+    expect(via.ok).toBe(true);
+  });
+
+  it("rotates refresh tokens and rejects reuse", async () => {
+    const id = await activeUser("sec_ref");
+    const created = await createDeviceSessionForUser({
+      userId: id,
+      ip: "198.51.100.40",
+      userAgent: "Mozilla/5.0 Linux",
+      approx: "شبکه",
+    });
+    const first = await rotateDeviceRefresh(id, created.device.id, created.refreshToken);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const second = await rotateDeviceRefresh(id, created.device.id, first.refreshToken);
+    expect(second.ok).toBe(true);
+    const reuse = await rotateDeviceRefresh(id, created.device.id, created.refreshToken);
+    expect(reuse.ok).toBe(false);
+    expect(await isDeviceActive(created.device.id, id)).toBe(false);
+  });
+
+  it("does not let another account download a privacy export", async () => {
+    const owner = await activeUser("sec_ex1");
+    const other = await activeUser("sec_ex2");
+    const job = await createPrivacyExport(owner, "10.0.0.9");
+    expect(job.ok).toBe(true);
+    if (!job.ok) return;
+    const steal = await downloadPrivacyExport(other, job.token);
+    expect(steal.ok).toBe(false);
+    const own = await downloadPrivacyExport(owner, job.token);
+    expect(own.ok).toBe(true);
+    const again = await downloadPrivacyExport(owner, job.token);
+    expect(again.ok).toBe(false);
+    const snap = await readStoreSnapshot();
+    expect(JSON.stringify(snap.privacyExports)).not.toContain(job.token);
+  });
+
+  it("allows same-host Origin and rejects a foreign Origin", () => {
+    const ok = new Request("http://127.0.0.1:43151/api/security", {
+      method: "POST",
+      headers: { origin: "http://127.0.0.1:43151", host: "127.0.0.1:43151" },
+    });
+    const bad = new Request("http://127.0.0.1:43151/api/security", {
+      method: "POST",
+      headers: { origin: "https://evil.example", host: "127.0.0.1:43151" },
+    });
+    const none = new Request("http://127.0.0.1:43151/api/security", { method: "POST" });
+    expect(requestOriginAllowed(ok)).toBe(true);
+    expect(requestOriginAllowed(bad)).toBe(false);
+    expect(requestOriginAllowed(none)).toBe(true);
   });
 });

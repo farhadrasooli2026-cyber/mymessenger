@@ -2332,6 +2332,9 @@ export function Messenger({
             <Link href="/app/contacts" className="block text-sm text-amber-200">
               مخاطبین و افراد
             </Link>
+            <Link href="/app/settings/privacy-center" className="block text-sm text-amber-200">
+              تنظیمات → مرکز حریم خصوصی و امنیت
+            </Link>
             <Link href="/app/settings/privacy" className="block text-sm text-amber-200">
               تنظیمات → حریم خصوصی
             </Link>

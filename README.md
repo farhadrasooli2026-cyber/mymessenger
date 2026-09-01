@@ -66,6 +66,7 @@
 
 42. جستجو و Discovery: ایندکس فقط محتوای عمومی (User قابل کشف، گروه/کانال Public، پست منتشرشدهٔ کانال عمومی). همگام با صف Idempotent و Retry. Cursor Pagination، Highlight، Debounce، Cache با ابطال نسل ایندکس. Deep Link `GET /api/search/open?id=` پس از Authorization. پیشنهاد Discovery قابل Hide. Query اعتبارسنجی، Rate Limit، Enumeration دو حرفی بسته، XSS روی snippet. فارسی/انگلیسی/ترکی با Normalization و Transliteration ساده. خرابی جستجو بقیهٔ نیکسو را متوقف نمی‌کند.
 43. Contacts & User Management: شناسهٔ غیرقابل حدس، پروفایل، Username یکتا، Avatar، Bio، Last Seen/Online طبق حریم، دفترچه مستقل، Friend/Follow/Block/Mute/Report، Sync با Permission، Matching بدون افشای شماره، Import/Export فقط دادهٔ خود کاربر، Audit روی Block و Privacy.
+44. مرکز حریم خصوصی و امنیت: Settings → Privacy Center (`/app/settings/privacy-center`) با امتیاز امنیت، Checkup حریم، تغییر رمز (هش، تأیید رمز فعلی، سیاست حداقل ۱۰ نویسه)، Authenticator TOTP با تأیید کد، Backup Code یک‌بارمصرف، نشست و Refresh Token هش‌شده با چرخش و ابطال، دستگاه جدید و هشدار، تاریخچه ورود، Mute/Block/Restrict، رضایت داده با تاریخچه، خروجی JSON با توکن HMAC منقضی و یک‌بارمصرف فقط برای صاحب حساب، حذف حساب با OTP و مهلت ۱۴روز. CSP، هدر امنیتی، CORS فقط همان Host، کوکی HttpOnly/SameSite، CSRF Origin روی POST حساس، Rate Limit روی ۲FA/خروجی. رسانه همچنان با نشست و URL امضاشده. Secret فقط از env (`NIXO_PEPPER` / `NIXO_DATA_KEY` / `NIXO_SESSION_SECRET`). تغییر User ID یا Export Token حساب دیگری را باز نمی‌کند.
 
 همگام‌سازی کلید چنددستگاهی در بخش جداگانه کامل می‌شود.
 

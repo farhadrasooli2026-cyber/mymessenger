@@ -70,6 +70,8 @@ export function PrivacyDashboard() {
   const [checkup, setCheckup] = useState<CheckItem[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
   const [blocked, setBlocked] = useState<string[]>([]);
+  const [muted, setMuted] = useState<string[]>([]);
+  const [restricted, setRestricted] = useState<string[]>([]);
   const [blockKey, setBlockKey] = useState("");
   const [findQ, setFindQ] = useState("");
 
@@ -81,6 +83,8 @@ export function PrivacyDashboard() {
         setCheckup(d.checkup ?? []);
         setPeople(d.people ?? []);
         setBlocked(d.blocked ?? []);
+        setMuted(d.muted ?? []);
+        setRestricted(d.restricted ?? []);
       })
       .catch(() => undefined);
   }
@@ -123,6 +127,10 @@ export function PrivacyDashboard() {
         </div>
         <p className="text-xs leading-6 text-emerald-100/65">
           این تنظیمات روی سرور اعمال می‌شوند. دستکاری فرانت‌اند یا API جعلی آن‌ها را دور نمی‌زند. نیکسو ادعا نمی‌کند عکس صفحه با دستگاه دیگر را ۱۰۰٪ متوقف کند. دوربین، میکروفون و گالری فقط با مجوز سیستم‌عامل باز می‌شوند.{" "}
+          <Link href="/app/settings/privacy-center" className="text-amber-200">
+            مرکز حریم خصوصی و امنیت
+          </Link>
+          {" · "}
           <Link href="/app/settings/security" className="text-amber-200">
             داشبورد امنیت
           </Link>
@@ -298,6 +306,56 @@ export function PrivacyDashboard() {
               </button>
             </div>
           ))}
+        </section>
+
+        <section className="rounded-2xl bg-white/5 p-4 text-sm">
+          <h2 className="font-medium">Mute List</h2>
+          <p className="text-[11px] opacity-60">بی‌صدا کردن اعلان است نه Block. پیام و تماس قطع نمی‌شود.</p>
+          {muted.map((id) => (
+            <div key={id} className="mt-1 flex items-center justify-between text-xs">
+              <span dir="ltr">{id.slice(0, 12)}…</span>
+              <button
+                type="button"
+                className="text-amber-200"
+                onClick={async () => {
+                  await fetch("/api/privacy", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "mute", peerKey: id, muted: false }),
+                  });
+                  load();
+                }}
+              >
+                Unmute
+              </button>
+            </div>
+          ))}
+          {muted.length === 0 && <p className="mt-2 text-[11px] opacity-50">فهرست خالی است.</p>}
+        </section>
+
+        <section className="rounded-2xl bg-white/5 p-4 text-sm">
+          <h2 className="font-medium">Restricted Users</h2>
+          <p className="text-[11px] opacity-60">کاربر محدود در فهرست جدا نگه داشته می‌شود؛ مجوز تعامل همچنان سمت سرور است.</p>
+          {restricted.map((id) => (
+            <div key={id} className="mt-1 flex items-center justify-between text-xs">
+              <span dir="ltr">{id.slice(0, 12)}…</span>
+              <button
+                type="button"
+                className="text-amber-200"
+                onClick={async () => {
+                  await fetch("/api/privacy", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "restrict", peerKey: id, restricted: false }),
+                  });
+                  load();
+                }}
+              >
+                برداشتن
+              </button>
+            </div>
+          ))}
+          {restricted.length === 0 && <p className="mt-2 text-[11px] opacity-50">فهرست خالی است.</p>}
         </section>
 
         <section className="rounded-2xl bg-white/5 p-4 text-sm">

@@ -1,12 +1,15 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
+import { requestOriginAllowed } from "@/lib/security";
 import {
   clearSyncedContacts,
   findByIdentifier,
   getPrivacy,
   requestDeletion,
   setBlockedPeer,
+  setMutedPeer,
   setPresence,
+  setRestrictedPeer,
   syncContacts,
   updatePrivacy,
   viewPresence,
@@ -36,6 +39,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await requireActiveUser();
   if (!user) return jsonError("نشست فعال نیست.", 401);
+  if (!requestOriginAllowed(request)) return jsonError("Origin مجاز نیست.", 403, { code: "csrf" });
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return jsonError("درخواست نامعتبر است.");
   if (body.action === "presence") {
@@ -66,6 +70,16 @@ export async function POST(request: Request) {
   }
   if (body.action === "block") {
     const result = await setBlockedPeer(user.id, String(body.peerKey ?? ""), Boolean(body.blocked));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (body.action === "mute") {
+    const result = await setMutedPeer(user.id, String(body.peerKey ?? ""), Boolean(body.muted));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (body.action === "restrict") {
+    const result = await setRestrictedPeer(user.id, String(body.peerKey ?? ""), Boolean(body.restricted));
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
   }
