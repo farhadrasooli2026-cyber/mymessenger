@@ -1,4 +1,5 @@
 export const DELETION_PHRASE = "حذف حساب";
+export const DEACTIVATION_PHRASE = "غیرفعال کردن";
 
 export type BackupInclude = {
   chats: boolean;

@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DELETION_PHRASE } from "@/lib/account-types";
+import { DELETION_PHRASE, DEACTIVATION_PHRASE } from "@/lib/account-types";
 import { wrapBackup, unwrapBackup, generateRecoveryKey } from "@/lib/backup-crypto";
 import { applyDeviceVault, collectDeviceVault } from "@/lib/e2ee";
 import { defaultAppearance } from "@/lib/appearance-types";
@@ -23,6 +23,8 @@ type Account = {
   persistence: string;
   twoStep: boolean;
   devices: number;
+  prefs?: { locale: string; timezone: string; dateFormat: string; timeFormat: string };
+  deactivatedAt: number | null;
 };
 type BackupState = {
   prefs: {
@@ -61,6 +63,7 @@ export function AccountSettings() {
   const [challengeId, setChallengeId] = useState("");
   const [inbox, setInbox] = useState<string | null>(null);
   const [phrase, setPhrase] = useState("");
+  const [deactPhrase, setDeactPhrase] = useState("");
   const [password, setPassword] = useState("");
   const [newId, setNewId] = useState("");
   const [newChannel, setNewChannel] = useState<"phone" | "email">("phone");
@@ -232,6 +235,7 @@ export function AccountSettings() {
   if (!account || !backup) return <p className="p-6 text-sm">بارگذاری…</p>;
 
   const pending = account.accountStatus === "pending_deletion";
+  const deactivated = account.accountStatus === "deactivated";
 
   return (
     <main className="min-h-dvh bg-[#071614] p-5 text-emerald-50">
@@ -472,6 +476,45 @@ export function AccountSettings() {
             ))}
           </div>
         </section>
+
+        {deactivated && (
+          <section className="rounded-2xl border border-amber-300/40 bg-amber-300/10 p-4 text-sm">
+            <p className="font-medium">حساب موقتاً غیرفعال است</p>
+            <p className="mt-1 text-xs">از Discovery و جستجو پنهان است. پیام و تماس طبق سیاست قبلی محدود می‌شود تا دوباره فعال شود.</p>
+            <Button
+              type="button"
+              className="mt-3"
+              disabled={busy}
+              onClick={() => void postAccount({ action: "reactivate" }).then((d) => d && (toast.success("حساب فعال شد."), load()))}
+            >
+              فعال‌سازی مجدد
+            </Button>
+          </section>
+        )}
+
+        {!pending && !deactivated && (
+          <section className="rounded-2xl bg-white/5 p-4 text-sm">
+            <h2 className="font-medium">غیرفعال‌سازی موقت</h2>
+            <p className="mt-1 text-[11px] leading-5 opacity-70">پروفایل از جستجو و Discovery برداشته می‌شود. برای تأیید بنویسید: {DEACTIVATION_PHRASE}</p>
+            <Input className="mt-2" value={deactPhrase} onChange={(e) => setDeactPhrase(e.target.value)} />
+            <Button
+              type="button"
+              variant="secondary"
+              className="mt-2"
+              disabled={busy}
+              onClick={() =>
+                void postAccount({ action: "deactivate", phrase: deactPhrase }).then((d) => {
+                  if (d) {
+                    toast.success("حساب غیرفعال شد.");
+                    load();
+                  }
+                })
+              }
+            >
+              Deactivate
+            </Button>
+          </section>
+        )}
 
         {!pending && (
           <section className="rounded-2xl bg-white/5 p-4 text-sm">

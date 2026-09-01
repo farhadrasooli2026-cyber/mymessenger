@@ -1,5 +1,6 @@
 export const APP_VERSION = "0.1.0-web";
 export const DEVICE_INACTIVE_MS = 72 * 60 * 60 * 1000;
+export const SESSION_EXPIRE_INACTIVE_MS = 90 * 24 * 60 * 60 * 1000;
 
 export type DeviceKind = "phone" | "tablet" | "desktop" | "unknown";
 

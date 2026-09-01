@@ -2,6 +2,12 @@ import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
 import { profileInputSchema, updateProfile } from "@/lib/profile";
 
+export async function GET() {
+  const me = await requireActiveUser();
+  if (!me) return jsonError("نشست فعال نیست.", 401);
+  return json({ ok: true, user: me, preview: true });
+}
+
 export async function PATCH(request: Request) {
   const me = await requireActiveUser();
   if (!me) return jsonError("نشست فعال نیست.", 401);

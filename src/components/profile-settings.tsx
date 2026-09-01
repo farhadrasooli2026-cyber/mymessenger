@@ -109,6 +109,17 @@ export function ProfileSettings({ initial }: { initial: User }) {
           <Button type="button" className="bg-amber-300 text-[#102824] hover:bg-amber-200" disabled={busy} onClick={() => save()}>
             ذخیره عکس
           </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={busy}
+            onClick={() => {
+              setPhoto({ kind: "default" });
+              void save({ photo: { kind: "default" } });
+            }}
+          >
+            حذف آواتار
+          </Button>
         </section>
 
         <section className="space-y-3">

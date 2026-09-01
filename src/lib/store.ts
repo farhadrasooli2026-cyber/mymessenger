@@ -191,7 +191,11 @@ function hydrateUser(user: UserRecord): UserRecord {
     relationshipRev: typeof user.relationshipRev === "number" ? user.relationshipRev : 0,
     statusExpiresAt: typeof user.statusExpiresAt === "number" ? user.statusExpiresAt : null,
     statusHistory: Array.isArray(user.statusHistory) ? user.statusHistory.slice(-20) : [],
-    accountStatus: user.accountStatus === "pending_deletion" || user.accountStatus === "closed" ? user.accountStatus : "active",
+    accountStatus:
+      user.accountStatus === "pending_deletion" || user.accountStatus === "closed" || user.accountStatus === "deactivated"
+        ? user.accountStatus
+        : "active",
+    deactivatedAt: typeof user.deactivatedAt === "number" ? user.deactivatedAt : null,
     deletionFinalizeAt: user.deletionFinalizeAt ?? null,
     backupPrefs: user.backupPrefs ?? {
       auto: false,
@@ -616,7 +620,8 @@ export type UserRecord = {
   relationshipRev: number;
   statusExpiresAt: number | null;
   statusHistory: { at: number; preset: string; text: string }[];
-  accountStatus?: "active" | "pending_deletion" | "closed";
+  accountStatus?: "active" | "pending_deletion" | "closed" | "deactivated";
+  deactivatedAt?: number | null;
   deletionFinalizeAt?: number | null;
   backupPrefs?: BackupPrefs;
   backupPasswordSalt?: string;

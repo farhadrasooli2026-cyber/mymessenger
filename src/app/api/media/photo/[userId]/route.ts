@@ -7,8 +7,9 @@ import { DEFAULT_AVATAR_SVG } from "@/lib/default-avatar";
 
 type Ctx = { params: Promise<{ userId: string }> };
 
-export async function GET(_request: Request, ctx: Ctx) {
+export async function GET(request: Request, ctx: Ctx) {
   const { userId } = await ctx.params;
+  const thumb = new URL(request.url).searchParams.get("thumb") === "1";
   const viewer = await requireActiveUser();
   const { readStoreSnapshot } = await import("@/lib/store");
   const snap = await readStoreSnapshot();
@@ -16,7 +17,7 @@ export async function GET(_request: Request, ctx: Ctx) {
   const asBiz = (snap.businesses ?? []).find((b) => b.id === userId);
   const asProduct = (snap.bizProducts ?? []).find((p) => p.id === userId);
   if (asBot || asBiz || asProduct) {
-    const file = await readUserPhoto(userId);
+    const file = await readUserPhoto(userId, thumb);
     if (!file) {
       return new NextResponse(DEFAULT_AVATAR_SVG, {
         headers: { "Content-Type": "image/svg+xml; charset=utf-8" },
@@ -34,7 +35,7 @@ export async function GET(_request: Request, ctx: Ctx) {
       headers: { "Content-Type": "image/svg+xml; charset=utf-8" },
     });
   }
-  const file = await readUserPhoto(userId);
+  const file = await readUserPhoto(userId, thumb);
   if (!file) {
     return new NextResponse(DEFAULT_AVATAR_SVG, {
       headers: { "Content-Type": "image/svg+xml; charset=utf-8" },

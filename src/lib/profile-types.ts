@@ -113,6 +113,7 @@ export function defaultUserFields(): {
   typingThreadId: string;
   recordingUntil: number;
   deletionRequestedAt: number | null;
+  deactivatedAt: number | null;
   prefs: import("@/lib/prefs-types").UserPrefs;
   restrictedPeerKeys: string[];
   privacyMentions: Visibility;
@@ -212,6 +213,7 @@ export function defaultUserFields(): {
     typingThreadId: "",
     recordingUntil: 0,
     deletionRequestedAt: null,
+    deactivatedAt: null,
     prefs: defaultUserPrefs(),
     restrictedPeerKeys: [],
     privacyMentions: "everyone",

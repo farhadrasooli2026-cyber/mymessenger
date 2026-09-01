@@ -17,7 +17,8 @@ import { buildOtpMessage, putOutbox } from "@/lib/outbox";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { appendAudit, passwordMatches } from "@/lib/security";
 import { mutateStore, readStoreSnapshot, finalizeDueAccounts, type StoreData } from "@/lib/store";
-import { DELETION_PHRASE } from "@/lib/account-types";
+import { DELETION_PHRASE, DEACTIVATION_PHRASE } from "@/lib/account-types";
+import { NIXO_LOCALES, TIMEZONES, defaultUserPrefs, type UserPrefs } from "@/lib/prefs-types";
 
 export const ACCOUNT_POLICY = {
   persistence:
@@ -40,6 +41,8 @@ export async function getAccount(userId: string) {
     twoStep: Boolean(user.twoStepEnabled),
     pendingIdentifier: user.pendingIdentifier ?? null,
     devices: (data.devices ?? []).filter((d) => d.userId === userId && !d.revokedAt).length,
+    prefs: user.prefs ?? defaultUserPrefs(),
+    deactivatedAt: user.deactivatedAt ?? null,
   };
 }
 
@@ -226,5 +229,70 @@ export async function runDueFinalizations() {
   return mutateStore((data) => {
     finalizeDueAccounts(data, Date.now());
     return { ok: true as const };
+  });
+}
+
+export async function deactivateAccount(userId: string, phrase: string, ip: string) {
+  if (phrase.trim() !== DEACTIVATION_PHRASE) {
+    return { ok: false as const, error: "عبارت تأیید را دقیقاً بنویسید: غیرفعال کردن", status: 400 };
+  }
+  return mutateStore((data) => {
+    const user = data.users.find((u) => u.id === userId);
+    if (!user) return { ok: false as const, error: "حساب یافت نشد.", status: 404 };
+    if ((user.accountStatus ?? "active") === "pending_deletion") {
+      return { ok: false as const, error: "ابتدا حذف معلق را لغو کنید.", status: 400 };
+    }
+    const gate = hitRateLimit(data, `deact:${userId}`, 60 * 60_000, 6);
+    if (!gate.allowed) return { ok: false as const, error: "غیرفعال‌سازی محدود شد.", status: 429 };
+    user.accountStatus = "deactivated";
+    user.deactivatedAt = Date.now();
+    appendAudit(data, userId, "privacy", { ip, detail: "حساب موقتاً غیرفعال شد" });
+    return { ok: true as const, accountStatus: user.accountStatus };
+  });
+}
+
+export async function reactivateAccount(userId: string, ip: string) {
+  return mutateStore((data) => {
+    const user = data.users.find((u) => u.id === userId);
+    if (!user) return { ok: false as const, error: "حساب یافت نشد.", status: 404 };
+    if ((user.accountStatus ?? "active") !== "deactivated") {
+      return { ok: false as const, error: "حساب غیرفعال نیست.", status: 400 };
+    }
+    user.accountStatus = "active";
+    user.deactivatedAt = null;
+    appendAudit(data, userId, "privacy", { ip, detail: "حساب دوباره فعال شد" });
+    return { ok: true as const, accountStatus: user.accountStatus };
+  });
+}
+
+export async function updateAccountPrefs(userId: string, patch: Record<string, unknown>) {
+  return mutateStore((data) => {
+    const user = data.users.find((u) => u.id === userId);
+    if (!user) return { ok: false as const, error: "حساب یافت نشد.", status: 404 };
+    const gate = hitRateLimit(data, `prefs:${userId}`, 60_000, 30);
+    if (!gate.allowed) return { ok: false as const, error: "تنظیمات محدود شد.", status: 429 };
+    user.prefs ??= defaultUserPrefs();
+    const loc = patch.locale;
+    if (typeof loc === "string" && (NIXO_LOCALES as readonly string[]).includes(loc)) user.prefs.locale = loc as UserPrefs["locale"];
+    const tz = patch.timezone;
+    if (typeof tz === "string" && (TIMEZONES as readonly string[]).includes(tz)) user.prefs.timezone = tz as UserPrefs["timezone"];
+    if (patch.dateFormat === "system" || patch.dateFormat === "jalali" || patch.dateFormat === "gregorian") {
+      user.prefs.dateFormat = patch.dateFormat;
+    }
+    if (patch.timeFormat === "system" || patch.timeFormat === "12" || patch.timeFormat === "24") {
+      user.prefs.timeFormat = patch.timeFormat;
+    }
+    if (patch.uiFont === "vazir" || patch.uiFont === "system") user.prefs.uiFont = patch.uiFont;
+    if (typeof patch.reducedMotion === "boolean") user.prefs.reducedMotion = patch.reducedMotion;
+    if (typeof patch.highContrast === "boolean") user.prefs.highContrast = patch.highContrast;
+    if (typeof patch.screenReaderHints === "boolean") user.prefs.screenReaderHints = patch.screenReaderHints;
+    if (typeof patch.autoplayVideo === "boolean") user.prefs.autoplayVideo = patch.autoplayVideo;
+    if (typeof patch.autoplayGif === "boolean") user.prefs.autoplayGif = patch.autoplayGif;
+    if (typeof patch.appLockEnabled === "boolean") user.prefs.appLockEnabled = patch.appLockEnabled;
+    if (typeof patch.appLockBiometric === "boolean") user.prefs.appLockBiometric = patch.appLockBiometric;
+    if (patch.autoLockSec === 0 || patch.autoLockSec === 30 || patch.autoLockSec === 60 || patch.autoLockSec === 300 || patch.autoLockSec === 600) {
+      user.prefs.autoLockSec = patch.autoLockSec;
+    }
+    return { ok: true as const, prefs: user.prefs };
   });
 }

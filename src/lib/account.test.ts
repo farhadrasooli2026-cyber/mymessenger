@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { hashIp } from "./crypto-utils";
-import { completeProfile } from "./profile";
+import { completeProfile, searchUsers, updateProfile } from "./profile";
 import { getOutbox } from "./outbox";
 import { ackHumanChallenge, getUserById, issueHumanChallenge, startRegistration, verifyOtp } from "./registration";
 import { mutateStore, readStoreSnapshot, resetStoreForTests } from "./store";
 import { wrapBackup, unwrapBackup, generateRecoveryKey } from "./backup-crypto";
-import { cancelDeletion, scheduleDeletion, startDeletionChallenge } from "./account";
-import { DELETION_PHRASE } from "./account-types";
+import { cancelDeletion, deactivateAccount, reactivateAccount, scheduleDeletion, startDeletionChallenge, updateAccountPrefs } from "./account";
+import { DELETION_PHRASE, DEACTIVATION_PHRASE } from "./account-types";
+import { inspectImageBuffer, validateAvatarBuffer } from "./photo-files";
 import { enableBackupSecrets, storeEncryptedBackup, loadBackupForRestore, nextAutoDue } from "./backup";
 
 async function activeUser(username: string) {
@@ -66,6 +67,44 @@ describe("NIXO account persistence", () => {
     const cancel = await cancelDeletion(id, "10.0.0.9");
     expect(cancel.ok).toBe(true);
     expect((await getUserById(id))?.accountStatus).toBe("active");
+  });
+
+  it("deactivates discovery without deleting the account, and prefs stay owner-scoped", async () => {
+    const a = await activeUser("acct_hide_a");
+    const b = await activeUser("acct_hide_b");
+    const found = await searchUsers("acct_hide_a", b);
+    expect(found.some((u) => u.id === a)).toBe(true);
+    const bad = await deactivateAccount(a, "deactivate", "10.0.0.4");
+    expect(bad.ok).toBe(false);
+    const off = await deactivateAccount(a, DEACTIVATION_PHRASE, "10.0.0.4");
+    expect(off.ok).toBe(true);
+    const hidden = await searchUsers("acct_hide_a", b);
+    expect(hidden.some((u) => u.id === a)).toBe(false);
+    expect((await getUserById(a))?.accountStatus).toBe("deactivated");
+    const stolenPrefs = await updateAccountPrefs(b, { locale: "en" });
+    expect(stolenPrefs.ok && stolenPrefs.prefs.locale === "en").toBe(true);
+    const aPrefs = await updateAccountPrefs(a, { locale: "tr", timeFormat: "12" });
+    expect(aPrefs.ok && aPrefs.prefs.locale === "tr" && aPrefs.prefs.timeFormat === "12").toBe(true);
+    const snap = await readStoreSnapshot();
+    expect(snap.users.find((u) => u.id === b)?.prefs.locale).toBe("en");
+    expect(snap.users.find((u) => u.id === a)?.prefs.locale).toBe("tr");
+    const on = await reactivateAccount(a, "10.0.0.4");
+    expect(on.ok).toBe(true);
+    const visible = await searchUsers("acct_hide_a", b);
+    expect(visible.some((u) => u.id === a)).toBe(true);
+    const banned = await updateProfile(a, { bio: "visit https://spam.example" });
+    expect(banned.ok).toBe(false);
+    const png = Buffer.alloc(40);
+    png[0] = 0x89;
+    png[1] = 0x50;
+    png[2] = 0x4e;
+    png[3] = 0x47;
+    png.writeUInt32BE(32, 16);
+    png.writeUInt32BE(32, 20);
+    expect(validateAvatarBuffer(png).ok).toBe(false);
+    png.writeUInt32BE(64, 16);
+    png.writeUInt32BE(64, 20);
+    expect(inspectImageBuffer(png)?.width).toBe(64);
   });
 
   it("purges user data after grace period, not before", async () => {

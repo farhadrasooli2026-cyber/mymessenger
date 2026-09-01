@@ -1,7 +1,7 @@
 import "server-only";
 
 import { hashOtp, hmacIdentifier, newSalt, otpHashesEqual, randomId, encryptText, decryptText } from "@/lib/crypto-utils";
-import { APP_VERSION, DEVICE_INACTIVE_MS, deviceKindFa, parseUserAgent } from "@/lib/device-info";
+import { APP_VERSION, DEVICE_INACTIVE_MS, SESSION_EXPIRE_INACTIVE_MS, deviceKindFa, parseUserAgent } from "@/lib/device-info";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { AuditEvent, DeviceSession, SecurityEventKind, StoreData, UserRecord } from "@/lib/store";
@@ -155,6 +155,9 @@ export async function sessionDeviceStatus(sessionId: string | undefined, userId:
   const d = (data.devices ?? []).find((x) => x.id === sessionId);
   if (!d || d.userId !== userId) return { ok: false as const, reason: "invalid" as const, pending: false, trusted: false };
   if (d.revokedAt) return { ok: false as const, reason: "revoked" as const, pending: false, trusted: false };
+  if (Date.now() - d.lastSeenAt > SESSION_EXPIRE_INACTIVE_MS) {
+    return { ok: false as const, reason: "expired" as const, pending: false, trusted: false };
+  }
   return {
     ok: true as const,
     reason: "ok" as const,
@@ -825,6 +828,9 @@ export async function createPrivacyExport(userId: string, ip: string) {
       userId,
       username: user.username,
       displayName: user.displayName,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      bio: user.bio,
       privacy: {
         photo: user.privacyPhoto,
         bio: user.privacyBio,
@@ -835,6 +841,13 @@ export async function createPrivacyExport(userId: string, ip: string) {
         messages: user.privacyMessages,
         findUsername: user.privacyFindUsername,
       },
+      friendCount: (user.friendIds ?? []).length,
+      hideFollowers: user.hideFollowers,
+      hideFollowing: user.hideFollowing,
+      locale: user.prefs?.locale,
+      timezone: user.prefs?.timezone,
+      accountStatus: user.accountStatus ?? "active",
+      twoStep: Boolean(user.twoStepEnabled),
       consents: user.prefs?.consents,
       blockedCount: user.blockedPeerKeys.length,
     };

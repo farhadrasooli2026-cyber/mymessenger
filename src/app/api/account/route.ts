@@ -3,10 +3,13 @@ import { requireActiveSession } from "@/lib/auth";
 import {
   cancelDeletion,
   confirmIdentifierChange,
+  deactivateAccount,
   getAccount,
+  reactivateAccount,
   scheduleDeletion,
   startDeletionChallenge,
   startIdentifierChange,
+  updateAccountPrefs,
 } from "@/lib/account";
 import { RETENTION_POLICY } from "@/lib/account-types";
 import { config } from "@/lib/config";
@@ -75,6 +78,21 @@ export async function POST(request: Request) {
     await revokeAllDevices(userId, ip);
     await clearSession();
     return json({ ok: true, next: "/" });
+  }
+  if (body.action === "deactivate") {
+    const result = await deactivateAccount(userId, String(body.phrase ?? ""), ip);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (body.action === "reactivate") {
+    const result = await reactivateAccount(userId, ip);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
+  }
+  if (body.action === "prefs") {
+    const result = await updateAccountPrefs(userId, body);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json(result);
   }
   return jsonError("عملیات ناشناخته است.");
 }

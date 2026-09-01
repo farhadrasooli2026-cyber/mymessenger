@@ -3,19 +3,31 @@ import { z } from "zod";
 import { config } from "@/lib/config";
 import { randomId } from "@/lib/crypto-utils";
 import { DEFAULT_AVATAR_SVG, svgDataUri } from "@/lib/default-avatar";
-import { deleteUserPhoto, decodeDataUrl, saveUserPhoto } from "@/lib/photo-files";
+import { deleteUserPhoto, decodeDataUrl, saveUserPhoto, validateAvatarBuffer } from "@/lib/photo-files";
 import { seedInbox } from "@/lib/chat";
 import { bumpDiscoveryCaches, mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { UserRecord } from "@/lib/store";
 import { normalizeUsername, usernameIssue } from "@/lib/username";
 import { audienceAllows, canFindByUsername } from "@/lib/privacy";
 import { hitRateLimit } from "@/lib/rate-limit";
+import { appendAudit } from "@/lib/security";
 
 export const visibilitySchema = z.enum(["everyone", "contacts", "friends", "nobody", "selected"]);
 
 export const profileInputSchema = z.object({
-  firstName: z.string().trim().min(1).max(40),
-  lastName: z.string().trim().max(40).optional().default(""),
+  firstName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(40)
+    .refine((s) => !/[\u0000-\u001f]/.test(s), "نام نامعتبر است."),
+  lastName: z
+    .string()
+    .trim()
+    .max(40)
+    .optional()
+    .default("")
+    .refine((s) => !/[\u0000-\u001f]/.test(s), "نام نامعتبر است."),
   username: z.string().min(3).max(24),
   bio: z.string().trim().max(140).optional().default(""),
   photo: z
@@ -68,6 +80,7 @@ export function publicProfile(user: UserRecord, viewerId?: string | null) {
     bio: bioVisible ? (user.bio ?? "") : "",
     bioHidden: !bioVisible,
     photoUrl: photoVisible ? photoUrlFor(user) : svgDataUri(DEFAULT_AVATAR_SVG),
+    photoThumbUrl: photoVisible ? photoThumbUrlFor(user) : svgDataUri(DEFAULT_AVATAR_SVG),
     photoHidden: !photoVisible,
     photoKind: user.photo.kind,
     privacyPhoto: own ? user.privacyPhoto : undefined,
@@ -109,6 +122,27 @@ function photoUrlFor(user: UserRecord): string {
   return svgDataUri(DEFAULT_AVATAR_SVG);
 }
 
+function photoThumbUrlFor(user: UserRecord): string {
+  if (user.photo.kind === "catalog" && user.photo.catalogId) {
+    return `/api/media/catalog/${user.photo.catalogId}`;
+  }
+  if (user.photo.kind === "upload") {
+    return `/api/media/photo/${user.id}?thumb=1`;
+  }
+  return svgDataUri(DEFAULT_AVATAR_SVG);
+}
+
+const PROFILE_FORBIDDEN = ["porn", "nazi", "terror", "http://", "https://"];
+
+function moderateText(raw: string, kind: "name" | "bio") {
+  const t = raw.trim();
+  const lower = t.toLowerCase();
+  if (PROFILE_FORBIDDEN.some((w) => lower.includes(w))) {
+    return { ok: false as const, error: kind === "bio" ? "این بیو مجاز نیست." : "این نام مجاز نیست." };
+  }
+  return { ok: true as const, text: t };
+}
+
 export async function checkUsername(raw: string, selfId?: string) {
   return mutateStore((data) => {
     const now = Date.now();
@@ -147,7 +181,10 @@ export async function completeProfile(userId: string, input: ProfileInput) {
   if (input.photo?.kind === "upload" && input.photo.dataUrl) {
     const buf = decodeDataUrl(input.photo.dataUrl);
     if (!buf) return { ok: false as const, status: 400, error: "فایل عکس معتبر نیست." };
-    await saveUserPhoto(userId, buf);
+    const check = validateAvatarBuffer(buf);
+    if (!check.ok) return { ok: false as const, status: 400, error: check.error };
+    const saved = await saveUserPhoto(userId, buf);
+    if (!saved.ok) return { ok: false as const, status: 400, error: saved.error };
   }
   if (input.photo?.kind === "default") {
     await deleteUserPhoto(userId);
@@ -174,7 +211,10 @@ export async function updateProfile(userId: string, input: Partial<ProfileInput>
   if (input.photo?.kind === "upload" && input.photo.dataUrl) {
     const buf = decodeDataUrl(input.photo.dataUrl);
     if (!buf) return { ok: false as const, status: 400, error: "فایل عکس معتبر نیست." };
-    await saveUserPhoto(userId, buf);
+    const check = validateAvatarBuffer(buf);
+    if (!check.ok) return { ok: false as const, status: 400, error: check.error };
+    const saved = await saveUserPhoto(userId, buf);
+    if (!saved.ok) return { ok: false as const, status: 400, error: saved.error };
   }
   if (input.photo?.kind === "default") {
     await deleteUserPhoto(userId);
@@ -184,6 +224,12 @@ export async function updateProfile(userId: string, input: Partial<ProfileInput>
     const user = data.users.find((u) => u.id === userId);
     if (!user || user.status !== "active") {
       return { ok: false as const, status: 401, error: "حساب فعال نیست." };
+    }
+    const flood = hitRateLimit(data, `prof:${userId}`, 60_000, 24, now);
+    if (!flood.allowed) return { ok: false as const, status: 429, error: "ویرایش پروفایل محدود شد." };
+    if (input.photo) {
+      const av = hitRateLimit(data, `avatar:${userId}`, 60 * 60_000, 10, now);
+      if (!av.allowed) return { ok: false as const, status: 429, error: "آپلود عکس محدود شد." };
     }
     if (input.username && input.username !== user.username) {
       const next = normalizeUsername(input.username);
@@ -213,10 +259,23 @@ export async function updateProfile(userId: string, input: Partial<ProfileInput>
       user.usernameHistory.push({ from: user.username ?? "", to: next, at: now });
       user.username = next;
       user.usernameChangedAt = now;
+      appendAudit(data, userId, "privacy", { detail: "تغییر نام کاربری" });
     }
-    if (input.firstName !== undefined) user.firstName = input.firstName.trim();
-    if (input.lastName !== undefined) user.lastName = input.lastName.trim();
-    if (input.bio !== undefined) user.bio = input.bio.trim();
+    if (input.firstName !== undefined) {
+      const name = moderateText(input.firstName, "name");
+      if (!name.ok) return { ok: false as const, status: 400, error: name.error };
+      user.firstName = name.text;
+    }
+    if (input.lastName !== undefined) {
+      const name = moderateText(input.lastName, "name");
+      if (!name.ok) return { ok: false as const, status: 400, error: name.error };
+      user.lastName = name.text;
+    }
+    if (input.bio !== undefined) {
+      const bio = moderateText(input.bio, "bio");
+      if (!bio.ok) return { ok: false as const, status: 400, error: bio.error };
+      user.bio = bio.text;
+    }
     if (input.privacyPhoto) user.privacyPhoto = input.privacyPhoto;
     if (input.privacyBio) user.privacyBio = input.privacyBio;
     if (input.photoAllowIds) user.photoAllowIds = input.photoAllowIds;
@@ -269,6 +328,7 @@ export async function searchUsers(query: string, viewerId: string) {
   return data.users
     .filter((u) => {
       if (u.id === viewerId || !u.username) return false;
+      if ((u.accountStatus ?? "active") !== "active") return false;
       if (!canFindByUsername(data, u, viewerId)) return false;
       return u.username.includes(q) || (u.displayName ?? "").toLowerCase().includes(q);
     })
