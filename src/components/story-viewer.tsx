@@ -9,7 +9,7 @@ import { STORY_FILTERS, STORY_MUSIC } from "@/lib/story-types";
 export type StoryItem = {
   id: string;
   ownerUserId: string;
-  kind: "text" | "photo" | "video" | "gif" | "sticker" | "location";
+  kind: "text" | "photo" | "video" | "audio" | "gif" | "sticker" | "location";
   body: string;
   caption: string;
   bg: string;
@@ -32,6 +32,8 @@ export type StoryItem = {
   linkUrl: string;
   allowShare: boolean;
   allowReplies?: boolean;
+  allowReactions?: boolean;
+  shareUrl?: string;
   createdAt: number;
   expiresAt: number;
   expired?: boolean;
@@ -70,7 +72,7 @@ function StoryProgress({
     if (paused) return;
     let elapsed = 0;
     let last = Date.now();
-    const dur = kind === "video" ? 8000 : 5000;
+    const dur = kind === "video" || kind === "audio" ? 8000 : 5000;
     const t = window.setInterval(() => {
       const now = Date.now();
       if (!hold.current) elapsed += now - last;
@@ -121,15 +123,30 @@ export function StoryViewer({
 }) {
   const [index, setIndex] = useState(startIndex ?? 0);
   const [paused, setPaused] = useState(false);
+  const [mediaMuted, setMediaMuted] = useState(false);
   const [reply, setReply] = useState("");
   const [reportCat, setReportCat] = useState<(typeof REPORTS)[number]["id"]>("spam");
   const [viewers, setViewers] = useState<{ viewerName: string; viewedAt: number }[]>([]);
-  const [analytics, setAnalytics] = useState<{ views: number; reach: number; reactions: number; replies: number; engagement: number } | null>(null);
+  const [analytics, setAnalytics] = useState<{
+    views: number;
+    reach: number;
+    reactions: number;
+    replies: number;
+    engagement: number;
+    completionRate?: number;
+  } | null>(null);
   const hold = useRef(false);
   const swipe = useRef<number | null>(null);
   const story = items[index];
   const src = story?.mediaUrl || story?.media;
   const advance = useCallback(() => {
+    if (story && !story.ownerUserId.startsWith("channel:")) {
+      void fetch(`/api/stories/${story.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "view", completed: true }),
+      }).catch(() => undefined);
+    }
     setIndex((i) => {
       if (i + 1 >= items.length) {
         onClose();
@@ -137,7 +154,7 @@ export function StoryViewer({
       }
       return i + 1;
     });
-  }, [items.length, onClose]);
+  }, [items.length, onClose, story]);
 
   useEffect(() => {
     if (!story) return;
@@ -177,14 +194,24 @@ export function StoryViewer({
         ids={items.map((it) => it.id)}
         onAdvance={advance}
       />
-      <div className="flex items-center justify-between px-4 py-2 text-sm text-white">
+        <div className="flex items-center justify-between gap-2 px-4 py-2 text-sm text-white">
         <span>
           {ownerName}
           {story.viewed ? " · دیده شده" : " · ندیده"}
         </span>
-        <button type="button" onClick={onClose}>
-          خروج
-        </button>
+        <div className="flex gap-3">
+          {(story.kind === "video" || story.kind === "audio") && (
+            <button type="button" onClick={() => setMediaMuted((m) => !m)}>
+              {mediaMuted ? "صدا روشن" : "بی‌صدا"}
+            </button>
+          )}
+          <button type="button" onClick={() => setPaused((p) => !p)}>
+            {paused ? "ادامه" : "توقف"}
+          </button>
+          <button type="button" onClick={onClose}>
+            خروج
+          </button>
+        </div>
       </div>
       <div
         className="relative min-h-0 flex-1"
@@ -234,10 +261,15 @@ export function StoryViewer({
               src={src}
               className="h-full w-full object-cover"
               autoPlay={!paused}
-              muted={paused}
+              muted={mediaMuted}
               playsInline
               style={{ filter: filterCss }}
             />
+          )}
+          {story.kind === "audio" && src && (
+            <div className="grid h-full place-items-center px-8">
+              <audio src={src} autoPlay={!paused} muted={mediaMuted} controls className="w-full" />
+            </div>
           )}
           {(story.kind === "text" || story.kind === "sticker" || story.kind === "location") && (
             <p
@@ -271,6 +303,7 @@ export function StoryViewer({
             {story.linkUrl}
           </a>
         )}
+        {story.allowReactions !== false && (
         <div className="flex gap-2 text-lg">
           {REACTS.map((e) => (
             <button
@@ -290,6 +323,7 @@ export function StoryViewer({
             </button>
           ))}
         </div>
+        )}
         {!isOwner && story.allowReplies !== false && (
           <form
             className="flex gap-2"
@@ -318,11 +352,14 @@ export function StoryViewer({
             type="button"
             className="text-[11px] text-emerald-100/70"
             onClick={() => {
-              void navigator.clipboard.writeText(`استوری ${ownerName}`);
-              toast.message("اشتراک طبق اجازهٔ صاحب استوری. در این نسخه لینک محلی کپی می‌شود.");
+              const link = story.shareUrl
+                ? `${window.location.origin}${story.shareUrl}`
+                : `${window.location.origin}/app?story=${story.id}`;
+              void navigator.clipboard.writeText(link);
+              toast.message("لینک با توکن امن کپی شد. باز کردن لینک حریم استوری را دور نمی‌زند.");
             }}
           >
-            اشتراک
+            اشتراک لینک
           </button>
         )}
         {!isOwner && authorId && onMute && !authorId.startsWith("channel:") && (
@@ -381,6 +418,7 @@ export function StoryViewer({
             {analytics && (
               <p className="text-[11px] text-emerald-100/70">
                 آمار: {analytics.views} بازدید · {analytics.reach} reach · {analytics.reactions} واکنش · {analytics.replies} پاسخ · engagement {analytics.engagement}
+                {typeof analytics.completionRate === "number" ? ` · تکمیل ${analytics.completionRate}%` : ""}
               </p>
             )}
             <p className="text-[11px] text-emerald-100/70">
@@ -401,7 +439,27 @@ export function StoryViewer({
             >
               حذف استوری
             </Button>
-            <p className="text-[10px] text-emerald-100/45">استوری منتشرشده ویرایش نمی‌شود. حذف کن و یکی جدید بساز.</p>
+            {story.expired && (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={async () => {
+                  const res = await fetch(`/api/stories/${story.id}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "restore" }),
+                  });
+                  if (res.ok) {
+                    toast.success("استوری از آرشیو بازیابی شد و دوباره ۲۴ ساعت زنده است.");
+                    onDeleted?.();
+                  } else toast.error("بازیابی ممکن نشد.");
+                }}
+              >
+                بازیابی از آرشیو
+              </Button>
+            )}
+            <p className="text-[10px] text-emerald-100/45">تا قبل از انقضا می‌توانی کپشن و حریم را ویرایش کنی. حذف رسانه را باطل می‌کند.</p>
           </>
         )}
         <p className="text-[10px] text-emerald-100/40">

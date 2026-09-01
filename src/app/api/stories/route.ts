@@ -4,11 +4,14 @@ import {
   createStory,
   getStorySettings,
   listArchive,
+  listDiscovery,
   listDrafts,
   listHighlights,
   listStoryFeed,
   muteAuthor,
+  peekStoryShare,
   publishDraft,
+  restoreStory,
   retryStoryProcess,
   updateStorySettings,
   upsertHighlight,
@@ -16,7 +19,7 @@ import {
 } from "@/lib/stories";
 import type { StoryKind } from "@/lib/story-types";
 
-const KINDS: StoryKind[] = ["text", "photo", "video", "gif", "sticker", "location"];
+const KINDS: StoryKind[] = ["text", "photo", "video", "audio", "gif", "sticker", "location"];
 
 export async function GET(request: Request) {
   const user = await requireActiveUser();
@@ -40,8 +43,19 @@ export async function GET(request: Request) {
     const highlights = await listHighlights(user.id, owner);
     return json({ ok: true, highlights });
   }
+  if (url.searchParams.get("discovery") === "1") {
+    const discovery = await listDiscovery(user.id);
+    return json({ ok: true, ...discovery });
+  }
+  const share = url.searchParams.get("share");
+  if (share) {
+    const result = await peekStoryShare(user.id, share);
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true, story: result.story });
+  }
   const cursor = url.searchParams.get("cursor") ?? undefined;
-  const feed = await listStoryFeed(user.id, cursor || undefined);
+  const includeMuted = url.searchParams.get("muted") === "1";
+  const feed = await listStoryFeed(user.id, cursor || undefined, { includeMuted });
   return json({ ok: true, ...feed });
 }
 
@@ -133,6 +147,11 @@ export async function POST(request: Request) {
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
   }
+  if (body.action === "restore") {
+    const result = await restoreStory(user.id, String(body.storyId ?? ""));
+    if (!result.ok) return jsonError(result.error, result.status);
+    return json({ ok: true, story: result.story });
+  }
   const kind = KINDS.includes(body.kind as StoryKind) ? (body.kind as StoryKind) : "text";
   const result = await createStory(user.id, {
     kind,
@@ -158,6 +177,7 @@ export async function POST(request: Request) {
     mentions: Array.isArray(body.mentions) ? body.mentions.map(String) : [],
     allowShare: body.allowShare !== false,
     allowReplies: body.allowReplies !== false,
+    allowReactions: body.allowReactions !== false,
     visibility:
       body.visibility === "contacts" ||
       body.visibility === "friends" ||

@@ -54,6 +54,7 @@ export function StoryComposer({ onClose, onPublished }: { onClose: () => void; o
   const [visibility, setVisibility] = useState("everyone");
   const [allowShare, setAllowShare] = useState(true);
   const [allowReplies, setAllowReplies] = useState(true);
+  const [allowReactions, setAllowReactions] = useState(true);
   const [purpose, setPurpose] = useState<StoryPurpose>("general");
   const [busy, setBusy] = useState(false);
   const [uploadState, setUploadState] = useState<"idle" | "uploading" | "fail">("idle");
@@ -64,6 +65,7 @@ export function StoryComposer({ onClose, onPublished }: { onClose: () => void; o
   const [videoDurationMs, setVideoDurationMs] = useState(0);
   const [lastPayload, setLastPayload] = useState<Record<string, unknown> | null>(null);
   const videoRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
 
@@ -108,6 +110,7 @@ export function StoryComposer({ onClose, onPublished }: { onClose: () => void; o
       mentions,
       allowShare,
       allowReplies,
+      allowReactions,
       visibility,
       allowIds,
       hideFromIds,
@@ -151,7 +154,9 @@ export function StoryComposer({ onClose, onPublished }: { onClose: () => void; o
   function startKind(next: StoryKind) {
     setKind(next);
     if (next === "photo" || next === "video" || next === "gif") setMode("camera");
-    else {
+    else if (next === "audio") {
+      audioRef.current?.click();
+    } else {
       setMode("edit");
       setStep(2);
     }
@@ -165,9 +170,9 @@ export function StoryComposer({ onClose, onPublished }: { onClose: () => void; o
           <>
             <h2 className="mt-1 text-lg font-semibold">Create Story</h2>
             <div className="mt-3 grid grid-cols-3 gap-2">
-              {(["text", "photo", "video", "gif", "sticker", "location"] as StoryKind[]).map((k) => (
+              {(["text", "photo", "video", "audio", "gif", "sticker", "location"] as StoryKind[]).map((k) => (
                 <Button key={k} type="button" variant="secondary" className="h-16 capitalize" onClick={() => { startKind(k); if (k === "text" || k === "sticker" || k === "location") setStep(2); }}>
-                  {k === "text" ? "متن" : k === "photo" ? "عکس" : k === "video" ? "ویدیو" : k === "gif" ? "GIF" : k === "sticker" ? "استیکر" : "موقعیت"}
+                  {k === "text" ? "متن" : k === "photo" ? "عکس" : k === "video" ? "ویدیو" : k === "audio" ? "صوت" : k === "gif" ? "GIF" : k === "sticker" ? "استیکر" : "موقعیت"}
                 </Button>
               ))}
             </div>
@@ -199,6 +204,24 @@ export function StoryComposer({ onClose, onPublished }: { onClose: () => void; o
               el.onloadedmetadata = () => setVideoDurationMs(Math.round((el.duration || 0) * 1000));
               setMedia(url);
               setKind("video");
+              setMode("edit");
+              setStep(2);
+            }} />
+            <input ref={audioRef} type="file" accept="audio/webm,audio/mpeg,audio/mp4,audio/ogg,audio/aac,audio/wav" className="hidden" onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              if (file.size > 280_000) {
+                toast.error("فایل صوتی را کوتاه و کم‌حجم انتخاب کن.");
+                return;
+              }
+              const url = await new Promise<string>((resolve, reject) => {
+                const r = new FileReader();
+                r.onload = () => resolve(String(r.result));
+                r.onerror = () => reject(new Error("read"));
+                r.readAsDataURL(file);
+              });
+              setMedia(url);
+              setKind("audio");
               setMode("edit");
               setStep(2);
             }} />
@@ -253,6 +276,12 @@ export function StoryComposer({ onClose, onPublished }: { onClose: () => void; o
               )}
               {kind === "video" && media && (
                 <video src={media} className="absolute inset-0 h-full w-full object-cover" muted autoPlay loop playsInline style={{ filter: filterCss }} />
+              )}
+              {kind === "audio" && media && (
+                <div className="relative z-10 w-full px-4">
+                  <p className="mb-2 text-center text-amber-200">پیش‌نمایش صوت</p>
+                  <audio src={media} controls className="w-full" />
+                </div>
               )}
               {drawData.split("|").filter(Boolean).map((stroke, i) => (
                 <svg key={i} viewBox="0 0 100 100" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
@@ -358,6 +387,10 @@ export function StoryComposer({ onClose, onPublished }: { onClose: () => void; o
             <label className="mt-1 flex items-center gap-2 text-xs">
               <input type="checkbox" checked={allowReplies} onChange={(e) => setAllowReplies(e.target.checked)} />
               اجازهٔ Reply
+            </label>
+            <label className="mt-1 flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={allowReactions} onChange={(e) => setAllowReactions(e.target.checked)} />
+              اجازهٔ Reaction
             </label>
             <div className="mt-3 flex gap-2">
               <Button type="button" variant="ghost" className="flex-1 text-white" onClick={() => setStep(2)}>قبلی</Button>

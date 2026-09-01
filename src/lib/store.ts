@@ -484,7 +484,7 @@ function hydratePubChannel(channel: PubChannelRecord): PubChannelRecord {
 }
 
 function hydrateUserStory(story: UserStory): UserStory {
-  const kinds = ["text", "photo", "video", "gif", "sticker", "location"] as const;
+  const kinds = ["text", "photo", "video", "audio", "gif", "sticker", "location"] as const;
   return {
     ...story,
     kind: kinds.includes(story.kind as (typeof kinds)[number]) ? story.kind : "text",
@@ -509,6 +509,10 @@ function hydrateUserStory(story: UserStory): UserStory {
     mentions: Array.isArray(story.mentions) ? story.mentions : [],
     allowShare: story.allowShare !== false,
     allowReplies: story.allowReplies !== false,
+    allowReactions: story.allowReactions !== false,
+    shareToken: story.shareToken ?? "",
+    shareExpiresAt: typeof story.shareExpiresAt === "number" ? story.shareExpiresAt : 0,
+    contentHash: story.contentHash ?? "",
     visibility: story.visibility ?? "everyone",
     allowIds: Array.isArray(story.allowIds) ? story.allowIds : [],
     hideFromIds: Array.isArray(story.hideFromIds) ? story.hideFromIds : [],
@@ -1086,6 +1090,10 @@ export type UserStory = {
   mentions: string[];
   allowShare: boolean;
   allowReplies: boolean;
+  allowReactions?: boolean;
+  shareToken?: string;
+  shareExpiresAt?: number;
+  contentHash?: string;
   visibility: import("@/lib/story-types").StoryVisibility;
   allowIds: string[];
   hideFromIds: string[];
@@ -1132,6 +1140,7 @@ export type StoryWatch = {
   viewerId: string;
   viewerName: string;
   viewedAt: number;
+  completed?: boolean;
 };
 
 export type StoryReaction = {
@@ -1943,6 +1952,7 @@ export type StoreData = {
   storyHighlights: StoryHighlight[];
   storyJobs: StoryJob[];
   storyCacheGen: number;
+  storyAudit: { id: string; actorUserId: string; action: string; storyId: string; at: number }[];
   calls: CallRecord[];
   groups: GroupRecord[];
   groupMessages: GroupMessage[];
@@ -2076,6 +2086,7 @@ const EMPTY: StoreData = {
   storyHighlights: [],
   storyJobs: [],
   storyCacheGen: 0,
+  storyAudit: [],
   calls: [],
   groups: [],
   groupMessages: [],
@@ -2240,6 +2251,7 @@ async function readStore(): Promise<StoreData> {
       storyHighlights: Array.isArray(parsed.storyHighlights) ? parsed.storyHighlights : [],
       storyJobs: Array.isArray(parsed.storyJobs) ? parsed.storyJobs : [],
       storyCacheGen: typeof parsed.storyCacheGen === "number" ? parsed.storyCacheGen : 0,
+      storyAudit: Array.isArray(parsed.storyAudit) ? parsed.storyAudit : [],
       calls: Array.isArray(parsed.calls) ? parsed.calls : [],
       groups: Array.isArray(parsed.groups) ? parsed.groups.map(hydrateGroup) : [],
       groupMessages: Array.isArray(parsed.groupMessages) ? parsed.groupMessages : [],
@@ -2587,6 +2599,7 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.storyWatches = (data.storyWatches ?? []).filter((w) => w.viewerId !== uid);
   data.storyReactions = (data.storyReactions ?? []).filter((r) => r.userId !== uid);
   data.storyReplies = (data.storyReplies ?? []).filter((r) => r.fromId !== uid);
+  data.storyAudit = (data.storyAudit ?? []).filter((a) => a.actorUserId !== uid);
   for (const d of data.devices ?? []) {
     if (d.userId === uid && !d.revokedAt) d.revokedAt = now;
   }

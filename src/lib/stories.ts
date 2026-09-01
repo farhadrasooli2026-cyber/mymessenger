@@ -1,5 +1,5 @@
 import "server-only";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { randomId } from "@/lib/crypto-utils";
 import { config } from "@/lib/config";
 import { hitRateLimit } from "@/lib/rate-limit";
@@ -10,8 +10,11 @@ import { inspectLink, inspectTextLinks } from "@/lib/link-safety";
 import { audienceAllows } from "@/lib/privacy";
 import { isLikelyEmoji } from "@/lib/emoji-data";
 import {
+  STORY_CAPTION_MAX,
+  STORY_DUP_WINDOW_MS,
   STORY_MAX_MEDIA,
   STORY_MEDIA_TOKEN_MS,
+  STORY_TEXT_MAX,
   STORY_TTL_MS,
   STORY_VIDEO_MAX_MS,
   type StoryKind,
@@ -81,8 +84,12 @@ function sweepStories(data: StoreData) {
     if (story.deletedAt && now - story.deletedAt > 14 * 24 * 60 * 60_000) {
       story.media = "";
       story.thumbnail = "";
+      story.shareToken = "";
+      story.shareExpiresAt = 0;
     }
     if (!story.deletedAt && now > story.expiresAt) {
+      story.shareToken = "";
+      story.shareExpiresAt = 0;
       const owner = data.users.find((u) => u.id === story.ownerUserId);
       if (owner && owner.storyArchiveEnabled === false) {
         story.deletedAt = now;
@@ -100,7 +107,7 @@ function sweepStories(data: StoreData) {
       job.error = "استوری نیست.";
       continue;
     }
-    if (!story.media && (story.kind === "photo" || story.kind === "video" || story.kind === "gif")) {
+    if (!story.media && (story.kind === "photo" || story.kind === "video" || story.kind === "gif" || story.kind === "audio")) {
       job.retries += 1;
       if (job.retries > 3) {
         job.status = "failed";
@@ -113,8 +120,30 @@ function sweepStories(data: StoreData) {
     story.processStatus = "ready";
     story.processError = "";
     if (story.kind === "photo" || story.kind === "gif") story.thumbnail = story.media;
+    if (story.kind === "video" && story.media && !story.thumbnail) story.thumbnail = "";
     job.status = "done";
   }
+}
+
+function pushStoryAudit(data: StoreData, actorUserId: string, action: string, storyId: string) {
+  data.storyAudit ??= [];
+  data.storyAudit = [{ id: randomId(), actorUserId, action, storyId, at: Date.now() }, ...data.storyAudit].slice(0, 400);
+}
+
+function fingerprintStory(kind: StoryKind, body: string, caption: string, media: string) {
+  return createHash("sha256")
+    .update(`${kind}|${body}|${caption}|${media.length}|${media.slice(0, 96)}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+function mediaMimeOk(kind: StoryKind, media: string) {
+  if (!media) return kind !== "photo" && kind !== "video" && kind !== "audio" && kind !== "gif";
+  if (kind === "photo") return /^data:image\//i.test(media);
+  if (kind === "gif") return /^data:image\/(gif|webp|png|jpeg)/i.test(media);
+  if (kind === "video") return /^data:video\/(mp4|webm|quicktime)/i.test(media);
+  if (kind === "audio") return /^data:audio\/(webm|mp4|mpeg|ogg|aac|wav|x-m4a)/i.test(media);
+  return true;
 }
 
 export function signStoryMedia(storyId: string, viewerId: string, exp = Date.now() + STORY_MEDIA_TOKEN_MS) {
@@ -167,6 +196,7 @@ function publicStory(
     mentions: story.mentions,
     allowShare: story.allowShare,
     allowReplies: story.allowReplies,
+    allowReactions: story.allowReactions !== false,
     purpose: story.purpose,
     source: story.source,
     draft: story.draft,
@@ -177,11 +207,15 @@ function publicStory(
     thumbnailUrl: story.thumbnail && story.media ? `/api/stories/${story.id}/media?t=${token}&thumb=1` : "",
     cropX: story.cropX ?? 50,
     cropY: story.cropY ?? 50,
+    shareUrl:
+      story.ownerUserId === viewerId && story.shareToken && story.allowShare
+        ? `/app?story=${story.id}&st=${story.shareToken}`
+        : "",
     ...extra,
   };
 }
 
-export async function listStoryFeed(userId: string, cursor?: string) {
+export async function listStoryFeed(userId: string, cursor?: string, opts?: { includeMuted?: boolean }) {
   return mutateStore((data) => {
     sweepStories(data);
     const now = Date.now();
@@ -208,6 +242,7 @@ export async function listStoryFeed(userId: string, cursor?: string) {
   }
 
   for (const [ownerId, items] of byOwner) {
+    if (muted.has(ownerId) && ownerId !== userId && !opts?.includeMuted) continue;
     const owner = data.users.find((u) => u.id === ownerId);
     const sorted = items.sort((a, b) => a.createdAt - b.createdAt);
     const viewedAll = sorted.every((s) => data.storyWatches.some((w) => w.storyId === s.id && w.viewerId === userId));
@@ -272,6 +307,7 @@ export async function listStoryFeed(userId: string, cursor?: string) {
         mentions: [] as string[],
         allowShare: false,
         allowReplies: false,
+        allowReactions: false,
         purpose: "announcement" as const,
         source: "channel" as const,
         draft: false,
@@ -282,6 +318,7 @@ export async function listStoryFeed(userId: string, cursor?: string) {
         thumbnailUrl: "",
         cropX: 50,
         cropY: 50,
+        shareUrl: "",
         viewed: s.views.includes(userId),
         reactions: [],
       })),
@@ -374,18 +411,29 @@ export async function createStory(userId: string, input: Partial<UserStory> & { 
     if (!flood.allowed) return { ok: false as const, error: "انتشار استوری محدود شد.", status: 429 };
     const kind = input.kind;
     const media = typeof input.media === "string" ? input.media : "";
-    const needsMedia = kind === "photo" || kind === "video" || kind === "gif";
+    const bodyText = (input.body ?? "").toString();
+    const captionText = (input.caption ?? "").toString();
+    if (bodyText.length > STORY_TEXT_MAX) return { ok: false as const, error: "متن استوری بیش از حد مجاز است.", status: 400 };
+    if (captionText.length > STORY_CAPTION_MAX) return { ok: false as const, error: "کپشن بیش از حد مجاز است.", status: 400 };
+    const needsMedia = kind === "photo" || kind === "video" || kind === "gif" || kind === "audio";
+    if (needsMedia) {
+      const uploads = hitRateLimit(data, `storyupload:${userId}`, 60 * 60_000, 24, now);
+      if (!uploads.allowed) return { ok: false as const, error: "آپلود استوری محدود شد.", status: 429 };
+    }
     if (needsMedia && media.length > STORY_MAX_MEDIA) {
       return { ok: false as const, error: "حجم رسانه برای استوری زیاد است. فشرده کن.", status: 413 };
+    }
+    if (needsMedia && media.length < 20) {
+      return { ok: false as const, error: "رسانه ناقص است.", status: 400 };
+    }
+    if (!mediaMimeOk(kind, media)) {
+      return { ok: false as const, error: "نوع فایل استوری مجاز نیست.", status: 400 };
     }
     if (kind === "video") {
       const dur = Number(input.videoDurationMs) || 0;
       if (dur > STORY_VIDEO_MAX_MS) return { ok: false as const, error: "ویدیو استوری حداکثر ۱۵ ثانیه است.", status: 400 };
-      if (media && !/^data:video\/(mp4|webm|quicktime)/i.test(media)) {
-        return { ok: false as const, error: "فرمت ویدیو پشتیبانی نمی‌شود (mp4/webm).", status: 400 };
-      }
     }
-    if (kind === "text" && !(input.body ?? "").trim() && !(input.overlay ?? "").trim()) {
+    if (kind === "text" && !bodyText.trim() && !(input.overlay ?? "").trim()) {
       return { ok: false as const, error: "متن استوری خالی است.", status: 400 };
     }
     const linkRaw = (input.linkUrl ?? "").trim();
@@ -395,7 +443,7 @@ export async function createStory(userId: string, input: Partial<UserStory> & { 
         return { ok: false as const, error: unsafe.reason ?? "لینک استوری مجاز نیست.", status: 400 };
       }
     }
-    const textUnsafe = inspectTextLinks(`${input.body ?? ""} ${input.caption ?? ""} ${input.overlay ?? ""}`);
+    const textUnsafe = inspectTextLinks(`${bodyText} ${captionText} ${input.overlay ?? ""}`);
     if (textUnsafe.warn) return { ok: false as const, error: textUnsafe.reason ?? "لینک متن ناامن است.", status: 400 };
     const visRaw = input.visibility ?? user.defaultStoryPrivacy ?? "everyone";
     const visibility: StoryVisibility =
@@ -407,25 +455,45 @@ export async function createStory(userId: string, input: Partial<UserStory> & { 
       visRaw === "everyone"
         ? visRaw
         : "everyone";
-    if (kind === "location" && !(input.location ?? input.body ?? "").trim()) {
+    if (kind === "location" && !(input.location ?? bodyText).trim()) {
       return { ok: false as const, error: "موقعیت خالی است.", status: 400 };
     }
     if (kind === "sticker" && !(input.overlay ?? "").trim() && !(input.stickers ?? []).length) {
       return { ok: false as const, error: "استیکر انتخاب نشده.", status: 400 };
     }
-    if (needsMedia && media.length < 20) {
-      return { ok: false as const, error: "رسانه ناقص است.", status: 400 };
+    const hash = fingerprintStory(kind, bodyText, captionText, media);
+    if (!input.draft) {
+      const recentDup = data.userStories.some(
+        (s) =>
+          s.ownerUserId === userId &&
+          !s.deletedAt &&
+          !s.draft &&
+          s.contentHash === hash &&
+          now - s.createdAt < STORY_DUP_WINDOW_MS,
+      );
+      if (recentDup) return { ok: false as const, error: "استوری تکراری در بازهٔ کوتاه رد شد.", status: 429 };
+    }
+    const mentionRaw = [
+      ...(Array.isArray(input.mentions) ? input.mentions.map(String) : []),
+      ...(bodyText.match(/@([A-Za-z0-9_]{3,24})/g) ?? []),
+    ];
+    if (mentionRaw.length > 8) return { ok: false as const, error: "تعداد منشن بیش از حد است.", status: 400 };
+    if (mentionRaw.length) {
+      const mentionFlood = hitRateLimit(data, `storymention:${userId}`, 60 * 60_000, 20, now);
+      if (!mentionFlood.allowed) return { ok: false as const, error: "منشن استوری محدود شد.", status: 429 };
     }
     const hideFrom = [
       ...(Array.isArray(input.hideFromIds) ? input.hideFromIds : []),
       ...(user.defaultHideFromIds ?? []),
     ];
+    const expiresAt = now + STORY_TTL_MS;
+    const allowShare = input.allowShare !== false && user.storyAllowShare !== false;
     const story: UserStory = {
       id: randomId(),
       ownerUserId: userId,
       kind,
-      body: (input.body ?? "").slice(0, 400),
-      caption: (input.caption ?? "").slice(0, 200),
+      body: bodyText.slice(0, STORY_TEXT_MAX),
+      caption: captionText.slice(0, STORY_CAPTION_MAX),
       bg: input.bg || "#102824",
       font: input.font || "vazir",
       align: input.align === "left" || input.align === "center" ? input.align : "right",
@@ -443,12 +511,13 @@ export async function createStory(userId: string, input: Partial<UserStory> & { 
       media,
       musicId: input.musicId ?? null,
       linkUrl: linkRaw.slice(0, 300),
-      mentions: resolveMentions(data, userId, [
-        ...(Array.isArray(input.mentions) ? input.mentions.map(String) : []),
-        ...((input.body ?? "").match(/@([A-Za-z0-9_]{3,24})/g) ?? []),
-      ]),
-      allowShare: input.allowShare !== false && user.storyAllowShare !== false,
+      mentions: [],
+      allowShare,
       allowReplies: input.allowReplies !== false && user.storyAllowReplies !== false,
+      allowReactions: input.allowReactions !== false,
+      shareToken: allowShare ? randomId() : "",
+      shareExpiresAt: allowShare ? expiresAt : 0,
+      contentHash: hash,
       visibility,
       allowIds: Array.isArray(input.allowIds) ? input.allowIds.slice(0, 40) : [],
       hideFromIds: [...new Set(hideFrom)].slice(0, 40),
@@ -458,7 +527,7 @@ export async function createStory(userId: string, input: Partial<UserStory> & { 
       draft: Boolean(input.draft),
       videoDurationMs: Number(input.videoDurationMs) || 0,
       createdAt: now,
-      expiresAt: now + STORY_TTL_MS,
+      expiresAt,
       deletedAt: null,
       processStatus: needsMedia ? "processing" : "ready",
       processError: "",
@@ -466,6 +535,7 @@ export async function createStory(userId: string, input: Partial<UserStory> & { 
       cropX: Math.min(100, Math.max(0, Number(input.cropX) || 50)),
       cropY: Math.min(100, Math.max(0, Number(input.cropY) || 50)),
     };
+    story.mentions = resolveMentions(data, userId, mentionRaw).filter((id) => canViewStory(data, story, id, now));
     data.userStories.push(story);
     if (needsMedia) {
       data.storyJobs ??= [];
@@ -481,6 +551,7 @@ export async function createStory(userId: string, input: Partial<UserStory> & { 
       sweepStories(data);
     }
     bumpStoryCache(data);
+    pushStoryAudit(data, userId, story.draft ? "draft" : "create", story.id);
     if (!story.draft) notifyStory(data, story, userId, now);
     return { ok: true as const, story: publicStory(story, userId) };
   });
@@ -520,7 +591,12 @@ export async function publishDraft(userId: string, storyId: string) {
     story.draft = false;
     story.createdAt = now;
     story.expiresAt = now + STORY_TTL_MS;
+    if (story.allowShare) {
+      story.shareToken = randomId();
+      story.shareExpiresAt = story.expiresAt;
+    }
     bumpStoryCache(data);
+    pushStoryAudit(data, userId, "publish", story.id);
     notifyStory(data, story, userId, now);
     return { ok: true as const, story: publicStory(story, userId) };
   });
@@ -534,12 +610,15 @@ export async function deleteStory(userId: string, storyId: string) {
     story.deletedAt = Date.now();
     story.media = "";
     story.thumbnail = "";
+    story.shareToken = "";
+    story.shareExpiresAt = 0;
     bumpStoryCache(data);
+    pushStoryAudit(data, userId, "delete", story.id);
     return { ok: true as const };
   });
 }
 
-export async function viewUserStory(userId: string, storyId: string) {
+export async function viewUserStory(userId: string, storyId: string, opts?: { completed?: boolean }) {
   return mutateStore((data) => {
     const now = Date.now();
     const flood = hitRateLimit(data, `storyview:${userId}`, 10_000, 40, now);
@@ -549,7 +628,9 @@ export async function viewUserStory(userId: string, storyId: string) {
       return { ok: false as const, error: "استوری در دسترس نیست.", status: 404 };
     }
     if (story.ownerUserId === userId) return { ok: true as const };
-    if (data.storyWatches.some((w) => w.storyId === storyId && w.viewerId === userId)) {
+    const existing = data.storyWatches.find((w) => w.storyId === storyId && w.viewerId === userId);
+    if (existing) {
+      if (opts?.completed) existing.completed = true;
       return { ok: true as const };
     }
     const user = data.users.find((u) => u.id === userId);
@@ -558,6 +639,7 @@ export async function viewUserStory(userId: string, storyId: string) {
       viewerId: userId,
       viewerName: user?.displayName || user?.username || "بیننده",
       viewedAt: now,
+      completed: Boolean(opts?.completed),
     });
     return { ok: true as const };
   });
@@ -584,10 +666,11 @@ export async function listViewers(userId: string, storyId: string) {
   const viewers = data.storyWatches.filter((w) => w.storyId === storyId && w.viewerId !== userId);
   const reactions = data.storyReactions.filter((r) => r.storyId === storyId);
   const replies = data.storyReplies.filter((r) => r.storyId === storyId);
+  const completed = viewers.filter((v) => v.completed).length;
   return {
     ok: true as const,
-    viewers,
-    reactions,
+    viewers: viewers.map((v) => ({ viewerName: v.viewerName, viewedAt: v.viewedAt })),
+    reactions: reactions.map((r) => ({ emoji: r.emoji, at: r.at })),
     replies,
     analytics: {
       views: viewers.length,
@@ -595,6 +678,7 @@ export async function listViewers(userId: string, storyId: string) {
       reactions: reactions.length,
       replies: replies.length,
       engagement: reactions.length + replies.length,
+      completionRate: viewers.length ? Math.round((completed / viewers.length) * 100) : 0,
     },
   };
 }
@@ -609,6 +693,7 @@ export async function reactStory(userId: string, storyId: string, emoji: string)
     if (!story || !canViewStory(data, story, userId, now)) {
       return { ok: false as const, error: "استوری در دسترس نیست.", status: 404 };
     }
+    if (story.allowReactions === false) return { ok: false as const, error: "واکنش برای این استوری بسته است.", status: 403 };
     const existing = data.storyReactions.find((r) => r.storyId === storyId && r.userId === userId);
     if (!safe || existing?.emoji === safe) {
       data.storyReactions = data.storyReactions.filter((r) => !(r.storyId === storyId && r.userId === userId));
@@ -640,6 +725,8 @@ export async function replyStory(userId: string, storyId: string, body: string) 
   if (!text) return { ok: false as const, error: "پاسخ خالی است.", status: 400 };
   return mutateStore((data) => {
     const now = Date.now();
+    const flood = hitRateLimit(data, `storyreply:${userId}`, 60_000, 20, now);
+    if (!flood.allowed) return { ok: false as const, error: "پاسخ استوری محدود شد.", status: 429 };
     const story = data.userStories.find((s) => s.id === storyId);
     if (!story || !canViewStory(data, story, userId, now)) {
       return { ok: false as const, error: "استوری در دسترس نیست.", status: 404 };
@@ -865,5 +952,152 @@ export async function retryStoryProcess(userId: string, storyId: string) {
     story.processError = "";
     sweepStories(data);
     return { ok: true as const, processStatus: story.processStatus, processError: story.processError };
+  });
+}
+
+function parseVisibility(raw: unknown, fallback: StoryVisibility): StoryVisibility {
+  return raw === "contacts" ||
+    raw === "friends" ||
+    raw === "closeFriends" ||
+    raw === "selected" ||
+    raw === "nobody" ||
+    raw === "everyone"
+    ? raw
+    : fallback;
+}
+
+export async function editStory(
+  userId: string,
+  storyId: string,
+  patch: Partial<{
+    caption: string;
+    body: string;
+    visibility: StoryVisibility;
+    allowShare: boolean;
+    allowReplies: boolean;
+    allowReactions: boolean;
+    hideFromIds: string[];
+    allowIds: string[];
+  }>,
+) {
+  return mutateStore((data) => {
+    const now = Date.now();
+    const story = data.userStories.find((s) => s.id === storyId);
+    if (!story || story.deletedAt) return { ok: false as const, error: "استوری یافت نشد.", status: 404 };
+    if (story.ownerUserId !== userId) return { ok: false as const, error: "فقط صاحب می‌تواند ویرایش کند.", status: 403 };
+    if (now > story.expiresAt) return { ok: false as const, error: "استوری منقضی قابل ویرایش نیست.", status: 403 };
+    if (typeof patch.body === "string") {
+      if (patch.body.length > STORY_TEXT_MAX) return { ok: false as const, error: "متن استوری بیش از حد مجاز است.", status: 400 };
+      story.body = patch.body.slice(0, STORY_TEXT_MAX);
+    }
+    if (typeof patch.caption === "string") {
+      if (patch.caption.length > STORY_CAPTION_MAX) return { ok: false as const, error: "کپشن بیش از حد مجاز است.", status: 400 };
+      story.caption = patch.caption.slice(0, STORY_CAPTION_MAX);
+    }
+    if (patch.visibility) story.visibility = parseVisibility(patch.visibility, story.visibility);
+    if (typeof patch.allowShare === "boolean") {
+      story.allowShare = patch.allowShare;
+      if (!patch.allowShare) {
+        story.shareToken = "";
+        story.shareExpiresAt = 0;
+      } else if (!story.shareToken) {
+        story.shareToken = randomId();
+        story.shareExpiresAt = story.expiresAt;
+      }
+    }
+    if (typeof patch.allowReplies === "boolean") story.allowReplies = patch.allowReplies;
+    if (typeof patch.allowReactions === "boolean") story.allowReactions = patch.allowReactions;
+    if (Array.isArray(patch.hideFromIds)) story.hideFromIds = patch.hideFromIds.slice(0, 40);
+    if (Array.isArray(patch.allowIds)) story.allowIds = patch.allowIds.slice(0, 40);
+    bumpStoryCache(data);
+    pushStoryAudit(data, userId, "edit", story.id);
+    return { ok: true as const, story: publicStory(story, userId) };
+  });
+}
+
+export async function restoreStory(userId: string, storyId: string) {
+  return mutateStore((data) => {
+    const now = Date.now();
+    const owner = data.users.find((u) => u.id === userId);
+    if (owner && owner.storyArchiveEnabled === false) {
+      return { ok: false as const, error: "آرشیو استوری خاموش است.", status: 403 };
+    }
+    const story = data.userStories.find((s) => s.id === storyId);
+    if (!story || story.deletedAt) return { ok: false as const, error: "استوری یافت نشد.", status: 404 };
+    if (story.ownerUserId !== userId) return { ok: false as const, error: "فقط صاحب می‌تواند بازیابی کند.", status: 403 };
+    if (now <= story.expiresAt) return { ok: false as const, error: "استوری هنوز زنده است.", status: 400 };
+    story.expiresAt = now + STORY_TTL_MS;
+    if (story.allowShare) {
+      story.shareToken = randomId();
+      story.shareExpiresAt = story.expiresAt;
+    }
+    bumpStoryCache(data);
+    pushStoryAudit(data, userId, "restore", story.id);
+    return { ok: true as const, story: publicStory(story, userId) };
+  });
+}
+
+export async function peekStoryShare(userId: string, token: string) {
+  const data = await readStoreSnapshot();
+  const now = Date.now();
+  const needle = token.trim();
+  if (!needle || needle.length < 16) return { ok: false as const, error: "لینک نامعتبر است.", status: 404 };
+  const story = data.userStories.find((s) => s.shareToken && s.shareToken === needle && !s.deletedAt);
+  if (!story || !story.shareExpiresAt || now > story.shareExpiresAt) {
+    return { ok: false as const, error: "لینک استوری منقضی یا نامعتبر است.", status: 404 };
+  }
+  if (!canViewStory(data, story, userId, now)) {
+    return { ok: false as const, error: "لینک استوری منقضی یا نامعتبر است.", status: 404 };
+  }
+  return { ok: true as const, story: publicStory(story, userId, { reactions: countReactions(data, story.id) }) };
+}
+
+export async function forwardStory(userId: string, storyId: string, toUserId: string) {
+  return mutateStore((data) => {
+    const now = Date.now();
+    const flood = hitRateLimit(data, `storyfwd:${userId}`, 60_000, 12, now);
+    if (!flood.allowed) return { ok: false as const, error: "هدایت استوری محدود شد.", status: 429 };
+    if (!toUserId || toUserId === userId) return { ok: false as const, error: "گیرنده نامعتبر است.", status: 400 };
+    const story = data.userStories.find((s) => s.id === storyId);
+    if (!story || !canViewStory(data, story, userId, now)) {
+      return { ok: false as const, error: "استوری در دسترس نیست.", status: 404 };
+    }
+    if (!story.allowShare || story.visibility !== "everyone") {
+      return { ok: false as const, error: "این استوری قابل هدایت نیست.", status: 403 };
+    }
+    if (blocked(data, userId, toUserId) || blocked(data, story.ownerUserId, toUserId)) {
+      return { ok: false as const, error: "هدایت مجاز نیست.", status: 403 };
+    }
+    if (!canViewStory(data, story, toUserId, now)) {
+      return { ok: false as const, error: "گیرنده اجازهٔ دیدن این استوری را ندارد.", status: 403 };
+    }
+    const sender = data.users.find((u) => u.id === userId);
+    emitNotification(data, {
+      userId: toUserId,
+      category: "stories",
+      kind: "story",
+      title: sender?.displayName || "استوری",
+      senderName: sender?.displayName || "",
+      body: "استوری عمومی برایت فرستاده شد",
+      sourceId: `story-fwd:${story.id}`,
+      muteType: "user",
+      muteId: userId,
+      target: { type: "story", id: story.id },
+    });
+    pushStoryAudit(data, userId, "forward", story.id);
+    return { ok: true as const };
+  });
+}
+
+export async function listDiscovery(userId: string) {
+  return mutateStore((data) => {
+    sweepStories(data);
+    const now = Date.now();
+    const items = data.userStories
+      .filter((s) => !s.draft && !s.deletedAt && s.visibility === "everyone" && canViewStory(data, s, userId, now))
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 40)
+      .map((s) => publicStory(s, userId, { reactions: countReactions(data, s.id) }));
+    return { items };
   });
 }

@@ -2,8 +2,11 @@ export const STORY_TTL_MS = 24 * 60 * 60 * 1000;
 export const STORY_MAX_MEDIA = 420_000;
 export const STORY_VIDEO_MAX_MS = 15_000;
 export const STORY_MEDIA_TOKEN_MS = 10 * 60 * 1000;
+export const STORY_TEXT_MAX = 400;
+export const STORY_DUP_WINDOW_MS = 60_000;
+export const STORY_CAPTION_MAX = 200;
 
-export type StoryKind = "text" | "photo" | "video" | "gif" | "sticker" | "location";
+export type StoryKind = "text" | "photo" | "video" | "audio" | "gif" | "sticker" | "location";
 export type StoryVisibility = "everyone" | "contacts" | "friends" | "closeFriends" | "selected" | "nobody";
 export type StoryProcessStatus = "ready" | "processing" | "failed";
 export type StoryPurpose = "general" | "product" | "discount" | "announcement" | "service";
