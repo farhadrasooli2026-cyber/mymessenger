@@ -54,7 +54,7 @@ describe("voice access control", () => {
   it("retries the same voice envelope without duplicating", async () => {
     const userId = await activeUser("voice_dup");
     const threads = await listThreads(userId);
-    const thread = threads.find((t) => t.peerKey === "arya")!;
+    const thread = threads.find((t: { peerKey: string }) => t.peerKey === "arya")!;
     const key = await generateThreadKey();
     const envelope = await encryptText(key, JSON.stringify({ mime: "audio/webm", audio: "abcdefghij", durationMs: 1200, peaks: [] }));
     const first = await sendMessage(userId, thread.id, { ...envelope, kind: "voice", durationMs: 1200 });
@@ -69,13 +69,13 @@ describe("voice access control", () => {
     const a = await activeUser("voice_a");
     const b = await activeUser("voice_b");
     const threads = await listThreads(a);
-    const thread = threads.find((t) => t.peerKey === "arya")!;
+    const thread = threads.find((t: { peerKey: string }) => t.peerKey === "arya")!;
     const key = await generateThreadKey();
     const envelope = await encryptText(key, JSON.stringify({ mime: "audio/webm", audio: "abcdefghij", durationMs: 900, peaks: [] }));
     const sent = await sendMessage(a, thread.id, { ...envelope, kind: "voice", durationMs: 900, viewOnce: true });
     expect(sent.ok).toBe(true);
     if (!sent.ok) return;
-    const msg = sent.messages.find((m) => m.kind === "voice")!;
+    const msg = sent.messages.find((m: { kind?: string; id: string }) => m.kind === "voice")!;
     const stolen = await markVoicePlayed(b, thread.id, msg.id);
     expect(stolen.ok).toBe(false);
   });

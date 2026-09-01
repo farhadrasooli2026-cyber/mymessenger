@@ -11,6 +11,7 @@ import { AiComposerTools } from "@/components/ai-composer-tools";
 import { ReactionBar } from "@/components/reaction-bar";
 import { CHANNEL_PERM_FA, formatSubscribers, type ChannelAdminPerms } from "@/lib/channel-types";
 import { ROLE_FA } from "@/lib/group-types";
+import { blobMatches } from "@/lib/search-match";
 import { ChannelVoicePlayer } from "@/components/voice-player";
 
 type Post = {

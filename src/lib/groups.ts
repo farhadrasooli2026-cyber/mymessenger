@@ -1,6 +1,7 @@
 import "server-only";
 import { randomId } from "@/lib/crypto-utils";
 import { SEED_PEERS } from "@/lib/chat-copy";
+import { canAddToGroup } from "@/lib/privacy";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { GroupMember, GroupMessage, GroupRecord, StoreData } from "@/lib/store";

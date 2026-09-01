@@ -4,6 +4,7 @@ import { SEED_PEERS } from "@/lib/chat-copy";
 import { blockState } from "@/lib/safety";
 import { canMessageUser } from "@/lib/privacy";
 import { hitRateLimit } from "@/lib/rate-limit";
+import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { ChatMessage, StoreData } from "@/lib/store";
 import { DELETE_EVERYONE_MS, VOICE_CIPHER_MAX, VOICE_MAX_MS, VOICE_SEND_PER_MIN, validateVoiceDuration } from "@/lib/voice";
 import { MEDIA_MAX_CHUNKS, MEDIA_MAX_BYTES } from "@/lib/media";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, Forward, Info, MoreVertical, Pause, Play, Share2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -102,7 +102,7 @@ export function VoicePlayer({
   const [menu, setMenu] = useState(false);
   const [forwardOpen, setForwardOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => Boolean(msg.ciphertext && msg.enc === "e2ee-v1" && !msg.expired));
   const [err, setErr] = useState("");
   const [sink, setSink] = useState<"speaker" | "earpiece">("speaker");
   const [spent, setSpent] = useState(Boolean(msg.expired) || msg.enc !== "e2ee-v1" || !msg.ciphertext);
@@ -116,7 +116,6 @@ export function VoicePlayer({
     }
     let revoke: string | null = null;
     let cancelled = false;
-    setLoading(true);
     const envelope: CipherEnvelope = { enc: "e2ee-v1", ciphertext: msg.ciphertext, nonce: msg.nonce };
     loadOrCreateThreadKey(threadId)
       .then((key) => decryptText(key, envelope))
@@ -181,9 +180,7 @@ export function VoicePlayer({
 
   const durationLabel = formatClock(inner?.durationMs ?? msg.durationMs ?? 0);
 
-  const playNowRef = useRef<() => Promise<void>>(async () => undefined);
-
-  async function playNow() {
+  const playNow = useCallback(async () => {
     const el = audioRef.current;
     if (!el || spent) return;
     el.playbackRate = speed;
@@ -207,9 +204,7 @@ export function VoicePlayer({
     } catch {
       toast.error("پخش انجام نشد.");
     }
-  }
-
-  playNowRef.current = playNow;
+  }, [spent, speed, deleteMode, msg.viewOnce, msg.expireFrom, msg.id, msg.sender, threadId, senderLabel]);
 
   async function toggle() {
     const el = audioRef.current;
@@ -224,9 +219,9 @@ export function VoicePlayer({
 
   useEffect(() => {
     if (!queue) return;
-    queue.register(qid, () => void playNowRef.current());
+    queue.register(qid, () => void playNow());
     return () => queue.unregister(qid);
-  }, [qid, queue]);
+  }, [qid, queue, playNow]);
 
   useEffect(() => {
     const a = audioRef.current;

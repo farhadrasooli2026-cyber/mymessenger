@@ -6,6 +6,7 @@ import type { ChannelPost, ChannelStaff, PubChannelRecord, StoreData } from "@/l
 import { sniffVoiceBytes, validateVoiceDuration, VOICE_UPLOAD_MAX } from "@/lib/voice";
 import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf } from "@/lib/stickers";
 import { canChannelInvite } from "@/lib/privacy";
+import { emitNotification } from "@/lib/notify";
 import { rankRole } from "@/lib/group-types";
 import {
   CHANNEL_FLOOD_MAX,
@@ -738,7 +739,7 @@ export async function createPost(
           kind: isMention ? "mention" : "channel_post",
           title: channel.name,
           senderName: me!.name,
-          body: (caption || body || kind).slice(0, 120),
+          body: (kind === "voice" ? "پیام صوتی جدید" : caption || body || kind).slice(0, 120),
           mention: isMention,
           sourceId: `channel:${channel.id}`,
           muteType: "channel",
