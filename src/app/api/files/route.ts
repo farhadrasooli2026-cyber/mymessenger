@@ -16,6 +16,8 @@ export async function GET(request: Request) {
     to: url.searchParams.get("to") ? Number(url.searchParams.get("to")) : undefined,
     sort: url.searchParams.get("sort") ?? undefined,
     offset: url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0,
+    cursor: url.searchParams.get("cursor") ?? undefined,
+    sender: url.searchParams.get("sender") ?? undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json(result);

@@ -118,6 +118,9 @@ export function snapshotPrivacy(user: UserRecord) {
     syncedCount: user.syncedContactHashes.length,
     contactOsPermission: user.contactOsPermission,
     contactNotifyJoin: user.contactNotifyJoin,
+    contactAutoSync: Boolean(user.contactAutoSync),
+    contactSyncStatus: user.contactSyncStatus ?? "idle",
+    contactLastSyncAt: user.contactLastSyncAt ?? 0,
     privacyBirthday: user.privacyBirthday ?? "nobody",
     privacyMentions: user.privacyMentions ?? "everyone",
     privacyStoryMentions: user.privacyStoryMentions ?? "everyone",
@@ -228,7 +231,15 @@ export async function updatePrivacy(userId: string, patch: Record<string, unknow
     if (typeof patch.restrictForward === "boolean") me.restrictForward = patch.restrictForward;
     if (typeof patch.restrictSave === "boolean") me.restrictSave = patch.restrictSave;
     if (typeof patch.restrictShare === "boolean") me.restrictShare = patch.restrictShare;
-    if (typeof patch.contactSyncEnabled === "boolean") me.contactSyncEnabled = patch.contactSyncEnabled;
+    if (typeof patch.contactSyncEnabled === "boolean") {
+      me.contactSyncEnabled = patch.contactSyncEnabled;
+      if (patch.contactSyncEnabled) {
+        me.contactConsentAt = Date.now();
+      } else {
+        wipeContactSyncData(data, userId);
+      }
+    }
+    if (typeof patch.contactAutoSync === "boolean") me.contactAutoSync = patch.contactAutoSync;
     if (typeof patch.contactNotifyJoin === "boolean") me.contactNotifyJoin = patch.contactNotifyJoin;
     if (patch.contactOsPermission === "allow" || patch.contactOsPermission === "deny" || patch.contactOsPermission === "limited" || patch.contactOsPermission === "unknown") {
       me.contactOsPermission = patch.contactOsPermission;
@@ -329,21 +340,48 @@ export async function syncContacts(userId: string, hashes: string[], identifiers
     if (me.contactOsPermission === "deny") {
       return { ok: false as const, error: "مجوز مخاطبین گوشی رد شده است.", status: 403 };
     }
+    const flood = hitRateLimit(data, `cthash:${userId}`, 60_000, 6);
+    if (!flood.allowed) {
+      me.contactSyncStatus = "failed";
+      me.contactSyncError = "همگام‌سازی محدود شد.";
+      me.contactSyncRetries = Math.min(8, (me.contactSyncRetries ?? 0) + 1);
+      return { ok: false as const, error: "همگام‌سازی محدود شد.", status: 429 };
+    }
+    if ((me.contactSyncRetries ?? 0) >= 8) {
+      me.contactSyncStatus = "failed";
+      me.contactSyncError = "تعداد تلاش مجدد به سقف رسید.";
+      return { ok: false as const, error: "تعداد تلاش مجدد به سقف رسید.", status: 429 };
+    }
+    me.contactSyncStatus = "syncing";
     const fromIds = (identifiers ?? [])
       .slice(0, 200)
       .map((raw) => normalizePhone(String(raw)) ?? normalizeEmail(String(raw)))
       .filter((v): v is string => Boolean(v))
       .map((n) => hmacIdentifier(n));
     const incoming = [...hashes.map(String).filter((h) => /^[a-f0-9]{16,64}$/i.test(h)), ...fromIds];
-    me.syncedContactHashes = [...new Set(incoming)].slice(0, 400);
+    me.syncedContactHashes = [...new Set([...(me.syncedContactHashes ?? []), ...incoming])].slice(0, 400);
     const matches = data.users.filter(
       (u) =>
         u.id !== userId &&
         u.status === "active" &&
         me.syncedContactHashes.includes(u.identifierHash) &&
-        audienceAllows(u.privacyFindPhone, u.contactIds, u.findPhoneAllowIds, userId) &&
+        audienceAllows(
+          u.channel === "email" ? u.privacyEmail : u.privacyFindPhone,
+          u.contactIds,
+          u.channel === "email" ? u.emailAllowIds : u.findPhoneAllowIds,
+          userId,
+        ) &&
         !pairBlocked(data, userId, u.id),
     );
+    me.contactSyncStatus = "completed";
+    me.contactSyncError = "";
+    me.contactLastSyncAt = Date.now();
+    me.contactSyncRetries = 0;
+    me.contactSyncCursor = Date.now();
+    data.audit = [
+      { id: `ctsy-${Date.now()}`, userId, kind: "suspicious" as const, createdAt: Date.now(), detail: `contact-hash-sync n=${incoming.length}` },
+      ...(data.audit ?? []),
+    ].slice(0, 400);
     return {
       ok: true as const,
       syncedCount: me.syncedContactHashes.length,
@@ -356,12 +394,28 @@ export async function syncContacts(userId: string, hashes: string[], identifiers
   });
 }
 
+export function wipeContactSyncData(data: StoreData, userId: string) {
+  const me = data.users.find((u) => u.id === userId);
+  if (!me) return;
+  me.syncedContactHashes = [];
+  me.contactSyncEnabled = false;
+  me.contactAutoSync = false;
+  me.contactSyncStatus = "idle";
+  me.contactSyncError = "";
+  me.contactSyncCursor = 0;
+  me.contactSyncRetries = 0;
+  data.contacts = (data.contacts ?? []).filter((c) => !(c.ownerUserId === userId && c.source === "sync"));
+}
+
 export async function clearSyncedContacts(userId: string) {
   return mutateStore((data) => {
     const me = data.users.find((u) => u.id === userId);
     if (!me) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
-    me.syncedContactHashes = [];
-    me.contactSyncEnabled = false;
+    wipeContactSyncData(data, userId);
+    data.audit = [
+      { id: `ctcl-${Date.now()}`, userId, kind: "suspicious" as const, createdAt: Date.now(), detail: "contact-sync-cleared" },
+      ...(data.audit ?? []),
+    ].slice(0, 400);
     return { ok: true as const };
   });
 }

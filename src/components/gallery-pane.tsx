@@ -34,6 +34,9 @@ export function GalleryPane() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [chat, setChat] = useState("");
+  const [sender, setSender] = useState("");
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [albums, setAlbums] = useState<{ id: string; name: string; itemIds: string[] }[]>([]);
   const [stats, setStats] = useState<{ photos: number; videos: number; files: number; documents: number; cache: number; total: number; count: number } | null>(null);
@@ -60,14 +63,17 @@ export function GalleryPane() {
     if (chat) params.set("chat", chat);
     if (trash) params.set("trash", "1");
     if (albumId) params.set("album", albumId);
+    if (sender) params.set("sender", sender);
+    if (cursor) params.set("cursor", cursor);
     const res = await fetch(`/api/gallery?${params}`, { cache: "no-store" });
     const data = await res.json();
     setLocked(Boolean(data.locked));
-    setItems(data.items ?? []);
+    setItems((prev) => (cursor ? [...prev, ...(data.items ?? [])] : (data.items ?? [])));
+    setNextCursor(data.nextCursor ?? null);
     setAlbums(data.albums ?? []);
     setStats(data.stats ?? null);
     setChats(data.chats ?? []);
-  }, [kind, q, from, to, chat, trash, albumId]);
+  }, [kind, q, from, to, chat, trash, albumId, sender, cursor]);
 
   useEffect(() => {
     const t = window.setTimeout(() => void load(), 0);
@@ -183,14 +189,15 @@ export function GalleryPane() {
         </div>
         <div className="flex flex-wrap gap-1 text-[11px]">
           {TABS.map((t) => (
-            <button key={t} type="button" className={`rounded-full px-2 py-1 ${kind === t ? "bg-amber-300 text-[#102824]" : "bg-white/10"}`} onClick={() => setKind(t)}>
+            <button key={t} type="button" className={`rounded-full px-2 py-1 ${kind === t ? "bg-amber-300 text-[#102824]" : "bg-white/10"}`} onClick={() => { setCursor(null); setKind(t); }}>
               {t === "all" ? "همه" : GALLERY_KIND_FA[t]}
             </button>
           ))}
           <button type="button" className={`rounded-full px-2 py-1 ${trash ? "bg-rose-400 text-black" : "bg-white/10"}`} onClick={() => setTrash((v) => !v)}>Recently Deleted</button>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجو نام، چت، نوع" className="h-9 max-w-xs bg-black/20" />
+          <Input value={q} onChange={(e) => { setCursor(null); setQ(e.target.value); }} placeholder="جستجو نام، چت، نوع" className="h-9 max-w-xs bg-black/20" />
+          <Input value={sender} onChange={(e) => { setCursor(null); setSender(e.target.value); }} placeholder="فرستنده" className="h-9 w-28 bg-black/20" />
           <input type="date" className="rounded bg-black/30 px-1 text-xs" value={from} onChange={(e) => setFrom(e.target.value)} />
           <input type="date" className="rounded bg-black/30 px-1 text-xs" value={to} onChange={(e) => setTo(e.target.value)} />
           <select className="rounded bg-black/30 px-2 text-xs" value={chat} onChange={(e) => setChat(e.target.value)}>
@@ -266,6 +273,9 @@ export function GalleryPane() {
           ))}
         </div>
         {items.length === 0 && <p className="text-sm opacity-50">رسانه‌ای در این فیلتر نیست.</p>}
+        {nextCursor ? (
+          <Button type="button" variant="secondary" onClick={() => setCursor(nextCursor)}>موارد بیشتر</Button>
+        ) : null}
         <section className="rounded-2xl bg-white/5 p-3 text-xs">
           <h2 className="font-medium">رسانهٔ چت E2EE</h2>
           <p className="opacity-60">متادیتا روی سرور است؛ فایل رمزشده فقط در گفتگو با کلید دستگاه باز می‌شود.</p>

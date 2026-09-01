@@ -4,7 +4,7 @@ import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { ChannelPost, ChannelStaff, PubChannelRecord, StoreData } from "@/lib/store";
 import { sniffVoiceBytes, validateVoiceDuration, VOICE_UPLOAD_MAX } from "@/lib/voice";
-import { FILE_MAX_BYTES, sanitizeFileName, scanNamedFile, sniffFileBytes } from "@/lib/files";
+import { FILE_MAX_BYTES, maxBytesForKind, sanitizeFileName, scanNamedFile, sniffFileBytes } from "@/lib/files";
 import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf } from "@/lib/stickers";
 import { canChannelInvite } from "@/lib/privacy";
 import { emitNotification } from "@/lib/notify";
@@ -860,10 +860,13 @@ export async function createPost(
         }
         if (buf.length > FILE_MAX_BYTES) return { ok: false as const, error: "حجم فایل از سقف سرور بیشتر است.", status: 413 };
         const name = sanitizeFileName(String(input.fileName ?? (kind === "audio" ? "audio.bin" : "file.bin")));
-        const named = scanNamedFile(name, m[1] ?? "", buf.length);
-        if (!named.ok) return { ok: false as const, error: named.warning ?? "فایل مجاز نیست.", status: 400 };
         const sniff = sniffFileBytes(new Uint8Array(buf));
         if (!sniff.ok) return { ok: false as const, error: sniff.error ?? "امضای فایل پذیرفته نشد.", status: 400 };
+        if (buf.length > maxBytesForKind(sniff.kind)) {
+          return { ok: false as const, error: "حجم این نوع فایل بیش از حد مجاز است.", status: 413 };
+        }
+        const named = scanNamedFile(name, m[1] ?? "", buf.length, sniff.kind);
+        if (!named.ok) return { ok: false as const, error: named.warning ?? "فایل مجاز نیست.", status: 400 };
         body = raw;
         if (!caption) caption = name;
       } else if (body.length < 1 && caption.length < 1) {

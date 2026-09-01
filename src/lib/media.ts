@@ -1,4 +1,4 @@
-import { scanNamedFile, sniffFileBytes } from "@/lib/files";
+import { maxBytesForKind, scanNamedFile, sniffFileBytes } from "@/lib/files";
 
 export { extOf } from "@/lib/files";
 
@@ -44,7 +44,6 @@ export function scanAttachment(name: string, mime: string, size: number): {
   warning?: string;
   mimeClass: MimeClass;
 } {
-  const named = scanNamedFile(name, mime, size);
   const mimeClass: MimeClass = mime.startsWith("image/")
     ? "image"
     : mime.startsWith("video/")
@@ -52,7 +51,10 @@ export function scanAttachment(name: string, mime: string, size: number): {
       : mime.startsWith("audio/")
         ? "audio"
         : "file";
+  const capKind = mimeClass === "image" ? "image" : mimeClass === "video" ? "video" : mimeClass === "audio" ? "audio" : "unknown";
+  const named = scanNamedFile(name, mime, size, capKind);
   if (!named.ok) return { ok: false, warning: named.warning, mimeClass };
+  if (size > maxBytesForKind(capKind)) return { ok: false, warning: named.warning ?? "حجم فایل بیش از حد مجاز است.", mimeClass };
   return { ok: true, mimeClass };
 }
 

@@ -4,7 +4,7 @@ import { randomId } from "@/lib/crypto-utils";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore } from "@/lib/store";
 import type { StoreData } from "@/lib/store";
-import { FILE_DL_PER_MIN, FILE_SEARCH_PER_MIN, FILE_SEND_PER_MIN } from "@/lib/files";
+import { FILE_BW_PER_MIN, FILE_DL_PER_MIN, FILE_SEARCH_PER_MIN, FILE_SEND_PER_MIN } from "@/lib/files";
 
 function ensureLogs(data: StoreData) {
   data.fileAccessLogs ??= [];
@@ -35,6 +35,8 @@ export async function gateFileDownload(userId: string, blobId: string) {
   return mutateStore((data) => {
     const hit = hitRateLimit(data, `file:dl:${userId}`, 60_000, FILE_DL_PER_MIN);
     if (!hit.allowed) return { ok: false as const, error: "دانلود فایل پیاپی محدود شد.", status: 429 };
+    const bw = hitRateLimit(data, `file:bw:${userId}`, 60_000, FILE_BW_PER_MIN);
+    if (!bw.allowed) return { ok: false as const, error: "مصرف پهنای باند محدود شد.", status: 429 };
     logFileAccess(data, userId, "download-chunk", blobId);
     return { ok: true as const };
   });
@@ -64,24 +66,36 @@ export async function listFileIndex(
     to?: number;
     sort?: string;
     offset?: number;
+    cursor?: string;
+    sender?: string;
   },
 ) {
   const gated = await gateFileSearch(userId);
   if (!gated.ok) return gated;
   const { listGallery } = await import("@/lib/gallery");
-  const kinds: Array<"document" | "file" | "audio"> =
-    opts.type === "document" || opts.type === "file" || opts.type === "audio" ? [opts.type] : ["document", "file", "audio"];
-  const pages = await Promise.all(kinds.map((kind) => listGallery(userId, { kind, q: opts.q, from: opts.from, to: opts.to, chat: opts.chat })));
-  const failed = pages.find((p) => !p.ok);
-  if (failed && !failed.ok) return failed;
-  let items = pages.flatMap((p) => (p.ok ? p.items : []));
-  const seen = new Set<string>();
-  items = items.filter((i) => {
-    if (seen.has(i.id)) return false;
-    seen.add(i.id);
-    return true;
+  const kind =
+    opts.type === "photo" ||
+    opts.type === "video" ||
+    opts.type === "audio" ||
+    opts.type === "document" ||
+    opts.type === "file" ||
+    opts.type === "voice" ||
+    opts.type === "gif"
+      ? opts.type
+      : "all";
+  const listed = await listGallery(userId, {
+    kind,
+    q: opts.q,
+    from: opts.from,
+    to: opts.to,
+    chat: opts.chat,
+    sender: opts.sender,
+    cursor: opts.cursor,
+    limit: opts.cursor ? 40 : 400,
   });
-  if (opts.type && opts.type !== "all") {
+  if (!listed.ok) return listed;
+  let items = listed.items;
+  if (opts.type && opts.type !== "all" && kind === "all") {
     const t = opts.type.toLowerCase();
     items = items.filter((i) => i.kind === t || i.mime.toLowerCase().includes(t) || i.name.toLowerCase().endsWith(`.${t}`));
   }
@@ -90,16 +104,18 @@ export async function listFileIndex(
   const { sortFiles } = await import("@/lib/files");
   const sort = opts.sort === "oldest" || opts.sort === "name" || opts.sort === "size" || opts.sort === "type" ? opts.sort : "newest";
   items = sortFiles(items, sort);
+  const { encodeMediaCursor } = await import("@/lib/media-share");
   const offset = Math.max(0, opts.offset ?? 0);
-  const page = items.slice(offset, offset + 40);
-  const okPage = pages.find((p) => p.ok);
+  const sliced = opts.cursor ? items.slice(0, 40) : items.slice(offset, offset + 40);
+  const last = sliced[sliced.length - 1];
   return {
     ok: true as const,
-    items: page,
-    total: items.length,
+    items: sliced,
+    total: listed.stats?.count ?? items.length,
     offset,
-    stats: okPage && okPage.ok ? okPage.stats : null,
-    prefs: okPage && okPage.ok ? okPage.prefs : null,
+    nextCursor: listed.nextCursor ?? (items.length > sliced.length && last ? encodeMediaCursor(last.createdAt, last.id) : null),
+    stats: listed.stats,
+    prefs: listed.prefs,
     recent: items.slice(0, 12),
   };
 }

@@ -1,9 +1,10 @@
 import "server-only";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { MEDIA_MAX_CHUNKS } from "@/lib/media";
 
 const ROOT = path.join(process.cwd(), ".data", "media");
+const INCOMPLETE_MS = 60 * 60 * 1000;
 
 function blobDir(userId: string, blobId: string) {
   if (!/^[a-f0-9]{8,64}$/i.test(blobId)) return null;
@@ -25,6 +26,12 @@ export async function saveMediaChunk(
   const dir = blobDir(userId, blobId);
   if (!dir) return { ok: false, error: "شناسه نامعتبر است." };
   await mkdir(dir, { recursive: true });
+  const metaPath = path.join(dir, "meta.json");
+  try {
+    await readFile(metaPath);
+  } catch {
+    await writeFile(metaPath, JSON.stringify({ createdAt: Date.now(), ownerUserId: userId }), "utf8");
+  }
   await writeFile(path.join(dir, `${index}.enc`), payload, "utf8");
   return { ok: true };
 }
@@ -49,13 +56,45 @@ export async function listUploadedChunks(userId: string, blobId: string): Promis
   const dir = blobDir(userId, blobId);
   if (!dir) return [];
   try {
-    const { readdir } = await import("node:fs/promises");
     const files = await readdir(dir);
     return files
+      .filter((f) => f.endsWith(".enc"))
       .map((f) => Number(f.replace(".enc", "")))
       .filter((n) => Number.isInteger(n))
       .sort((a, b) => a - b);
   } catch {
     return [];
   }
+}
+
+export type StoredBlobRef = { userId: string; blobId: string; createdAt: number };
+
+export async function listStoredBlobs(): Promise<StoredBlobRef[]> {
+  const out: StoredBlobRef[] = [];
+  try {
+    const users = await readdir(ROOT);
+    for (const userId of users) {
+      if (!/^[a-zA-Z0-9_-]+$/.test(userId)) continue;
+      const blobs = await readdir(path.join(ROOT, userId)).catch(() => []);
+      for (const blobId of blobs) {
+        if (!/^[a-f0-9]{8,64}$/i.test(blobId)) continue;
+        const dir = path.join(ROOT, userId, blobId);
+        let createdAt = 0;
+        try {
+          const meta = JSON.parse(await readFile(path.join(dir, "meta.json"), "utf8")) as { createdAt?: number };
+          createdAt = typeof meta.createdAt === "number" ? meta.createdAt : 0;
+        } catch {
+          createdAt = (await stat(dir).catch(() => null))?.mtimeMs ?? 0;
+        }
+        out.push({ userId, blobId, createdAt });
+      }
+    }
+  } catch {
+    return out;
+  }
+  return out;
+}
+
+export function incompleteTtlMs() {
+  return INCOMPLETE_MS;
 }

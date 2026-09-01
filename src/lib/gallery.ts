@@ -5,8 +5,9 @@ import { config } from "@/lib/config";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { GalleryAlbum, GalleryItem, StoreData } from "@/lib/store";
-import { sniffMagic } from "@/lib/media";
 import { MEDIA_MAX_BYTES } from "@/lib/media";
+import { maxBytesForKind, sniffFileBytes, stripJpegExif } from "@/lib/files";
+import { applyCursor, decodeMediaCursor, encodeMediaCursor, enqueueMediaJob, processMediaJobs } from "@/lib/media-share";
 import { writeGalleryBlob, readGalleryBlob, deleteGalleryBlob } from "@/lib/gallery-files";
 import {
   DEFAULT_GALLERY_PREFS,
@@ -80,12 +81,26 @@ function publicItem(item: GalleryItem, userId: string) {
     thumb: item.thumb,
     mediaUrl: item.deletedAt ? "" : `/api/gallery/${item.id}/media?t=${signGalleryMedia(item.id, userId)}`,
     duplicateOf: item.duplicateOf,
+    senderId: item.senderId ?? "",
+    checksum: item.checksum ?? "",
   };
 }
 
 export async function listGallery(
   userId: string,
-  opts?: { kind?: GalleryKind | "all"; q?: string; from?: number; to?: number; chat?: string; albumId?: string; trash?: boolean; pin?: string },
+  opts?: {
+    kind?: GalleryKind | "all";
+    q?: string;
+    from?: number;
+    to?: number;
+    chat?: string;
+    albumId?: string;
+    trash?: boolean;
+    pin?: string;
+    sender?: string;
+    cursor?: string;
+    limit?: number;
+  },
 ) {
   const data = await readStoreSnapshot();
   const prefs = data.galleryPrefs?.find((p) => p.userId === userId) ?? { userId, ...DEFAULT_GALLERY_PREFS };
@@ -132,7 +147,16 @@ export async function listGallery(
   if (opts?.to) items = items.filter((i) => i.createdAt <= opts.to!);
   if (opts?.chat) items = items.filter((i) => i.sourceChat === opts.chat);
   if (opts?.albumId) items = items.filter((i) => i.albumIds.includes(opts.albumId!));
-  items.sort((a, b) => b.createdAt - a.createdAt);
+  if (opts?.sender) {
+    const s = opts.sender.toLowerCase();
+    items = items.filter((i) => (i.senderId ?? "").toLowerCase() === s || (i.sourceChat ?? "").toLowerCase().includes(s));
+  }
+  items.sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id));
+  const cursor = decodeMediaCursor(opts?.cursor);
+  items = applyCursor(items, cursor);
+  const pageSize = Math.min(80, Math.max(1, opts?.limit ?? 40));
+  const page = items.slice(0, pageSize);
+  const nextCursor = items.length > pageSize ? encodeMediaCursor(page[page.length - 1]!.createdAt, page[page.length - 1]!.id) : null;
   const albums = data.galleryAlbums.filter((a) => a.ownerUserId === userId && !a.deletedAt);
   const live = data.galleryItems.filter((i) => i.ownerUserId === userId && !i.deletedAt);
   const stats = {
@@ -148,7 +172,8 @@ export async function listGallery(
   return {
     ok: true as const,
     locked: false,
-    items: items.slice(0, 120).map((i) => publicItem(i, userId)),
+    items: page.map((i) => publicItem(i, userId)),
+    nextCursor,
     albums: albums.map((a) => ({ id: a.id, name: a.name, itemIds: a.itemIds, createdAt: a.createdAt })),
     stats,
     chats,
@@ -167,23 +192,44 @@ export async function listGallery(
   };
 }
 
-export async function listChatMediaIndex(userId: string) {
+export async function listChatMediaIndex(
+  userId: string,
+  opts?: { kind?: string; sender?: string; cursor?: string; from?: number; to?: number; q?: string },
+) {
   const data = await readStoreSnapshot();
   const threads = data.threads.filter((t) => t.ownerUserId === userId);
   const byId = new Map(threads.map((t) => [t.id, t]));
-  return data.messages
-    .filter((m) => m.ownerUserId === userId && !m.deletedEverywhere && (m.kind === "photo" || m.kind === "video" || m.kind === "file" || m.kind === "voice") && m.blobId)
-    .slice(-80)
-    .reverse()
-    .map((m) => ({
+  let rows = data.messages.filter(
+    (m) =>
+      m.ownerUserId === userId &&
+      !m.deletedEverywhere &&
+      !(m.hiddenFor ?? []).includes(userId) &&
+      m.enc === "e2ee-v1" &&
+      (m.kind === "photo" || m.kind === "video" || m.kind === "file" || m.kind === "voice") &&
+      m.blobId,
+  );
+  if (opts?.kind && opts.kind !== "all") rows = rows.filter((m) => m.kind === opts.kind || m.mimeClass === opts.kind);
+  if (opts?.sender === "me") rows = rows.filter((m) => m.sender === "me");
+  if (opts?.sender === "peer") rows = rows.filter((m) => m.sender === "peer");
+  if (opts?.from) rows = rows.filter((m) => m.createdAt >= opts.from!);
+  if (opts?.to) rows = rows.filter((m) => m.createdAt <= opts.to!);
+  rows.sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id));
+  const cursor = decodeMediaCursor(opts?.cursor);
+  rows = applyCursor(rows, cursor);
+  const page = rows.slice(0, 40);
+  return {
+    items: page.map((m) => ({
       id: m.id,
       kind: m.kind,
       threadId: m.threadId,
       peerName: byId.get(m.threadId)?.peerName ?? "چت",
       createdAt: m.createdAt,
       size: m.byteLength ?? 0,
+      sender: m.sender,
       e2ee: true,
-    }));
+    })),
+    nextCursor: rows.length > 40 ? encodeMediaCursor(page[page.length - 1]!.createdAt, page[page.length - 1]!.id) : null,
+  };
 }
 
 export async function addGalleryItem(
@@ -198,6 +244,7 @@ export async function addGalleryItem(
     sourceChat?: string;
     cache?: boolean;
     thumb?: string;
+    senderId?: string;
   },
 ) {
   const name = input.name.trim().slice(0, 120) || "file";
@@ -237,14 +284,19 @@ export async function addGalleryItem(
   if (bytes.length > GALLERY_MAX_BYTES || bytes.length > MEDIA_MAX_BYTES) {
     return { ok: false as const, error: "حجم از سقف گالری بیشتر است.", status: 413 };
   }
-  const magic = sniffMagic(bytes);
-  if (!magic.ok) return { ok: false as const, error: magic.warning ?? "فایل رد شد.", status: 400 };
-  const mime = magic.mime !== "application/octet-stream" ? magic.mime : match[1] || "application/octet-stream";
+  const sniffed = sniffFileBytes(bytes);
+  if (!sniffed.ok) return { ok: false as const, error: sniffed.error ?? "فایل رد شد.", status: 400 };
+  if (bytes.length > maxBytesForKind(sniffed.kind)) {
+    return { ok: false as const, error: "حجم این نوع فایل بیش از حد مجاز است.", status: 413 };
+  }
+  if (sniffed.mime === "image/jpeg") bytes = stripJpegExif(bytes);
+  const mime = sniffed.mime;
+  const checksum = createHash("sha256").update(bytes).digest("hex");
   const hash = createHash("sha256").update(bytes.subarray(0, Math.min(64, bytes.length))).update(String(bytes.length)).digest("hex").slice(0, 24);
-  return mutateStore(async (data) => {
+  const created = await mutateStore(async (data) => {
     const flood = hitRateLimit(data, `gal:${userId}`, 60_000, 20);
     if (!flood.allowed) return { ok: false as const, error: "آپلود پیاپی محدود شد.", status: 429 };
-    const dup = data.galleryItems.find((i) => i.ownerUserId === userId && i.hash === hash && !i.deletedAt);
+    const dup = data.galleryItems.find((i) => i.ownerUserId === userId && (i.hash === hash || i.checksum === checksum) && !i.deletedAt);
     const id = randomId();
     const written = await writeGalleryBlob(userId, id, bytes);
     if (!written.ok) return { ok: false as const, error: written.error, status: 400 };
@@ -265,14 +317,21 @@ export async function addGalleryItem(
       duplicateOf: dup ? dup.id : null,
       createdAt: Date.now(),
       deletedAt: null,
+      senderId: (input.senderId ?? userId).slice(0, 80),
+      checksum,
     };
     data.galleryItems.unshift(item);
     const cached = data.galleryItems.filter((i) => i.ownerUserId === userId && i.cache && !i.deletedAt);
     if (cached.length > GALLERY_CACHE_MAX) {
       for (const extra of cached.slice(GALLERY_CACHE_MAX)) extra.deletedAt = Date.now();
     }
-    return { ok: true as const, item: publicItem(item, userId), duplicate: Boolean(dup) };
+    return { ok: true as const, item: publicItem(item, userId), duplicate: Boolean(dup), id };
   });
+  if (created.ok && "id" in created) {
+    await enqueueMediaJob(userId, created.id, sniffed.kind === "image" ? "exif" : "scan");
+    await processMediaJobs(userId);
+  }
+  return created;
 }
 
 export async function getGalleryMedia(userId: string, itemId: string, token: string) {

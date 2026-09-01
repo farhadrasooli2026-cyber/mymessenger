@@ -29,6 +29,7 @@ export function FilesDesk() {
   const [type, setType] = useState("all");
   const [sort, setSort] = useState<FileSort>("newest");
   const [chat, setChat] = useState("");
+  const [sender, setSender] = useState("");
   const [minSize, setMinSize] = useState("");
   const [maxSize, setMaxSize] = useState("");
   const [from, setFrom] = useState("");
@@ -45,6 +46,7 @@ export function FilesDesk() {
     if (q.trim()) params.set("q", q.trim());
     if (type !== "all") params.set("type", type);
     if (chat.trim()) params.set("chat", chat.trim());
+    if (sender.trim()) params.set("sender", sender.trim());
     if (minSize) params.set("minSize", String(Number(minSize) * 1024));
     if (maxSize) params.set("maxSize", String(Number(maxSize) * 1024));
     if (from) params.set("from", String(new Date(from).getTime()));
@@ -63,7 +65,7 @@ export function FilesDesk() {
       setStats(data.stats ?? null);
     }
     setLoading(false);
-  }, [q, type, sort, chat, minSize, maxSize, from, to, offset]);
+  }, [q, type, sort, chat, sender, minSize, maxSize, from, to, offset]);
 
   useEffect(() => {
     const t = window.setTimeout(() => void load(), 0);
@@ -85,7 +87,7 @@ export function FilesDesk() {
         <div className="flex flex-wrap gap-2 text-xs">
           <Input value={q} onChange={(e) => { setOffset(0); setQ(e.target.value); }} placeholder="جستجو بر اساس نام" className="h-9 max-w-xs bg-black/20" />
           <select value={type} onChange={(e) => { setOffset(0); setType(e.target.value); }} className="h-9 rounded-md bg-black/30 px-2" aria-label="نوع فایل">
-            {["all", "document", "file", "audio", "pdf", "zip"].map((t) => (
+            {["all", "photo", "video", "document", "file", "audio", "voice", "pdf", "zip"].map((t) => (
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
@@ -97,6 +99,7 @@ export function FilesDesk() {
             <option value="type">Type</option>
           </select>
           <Input value={chat} onChange={(e) => { setOffset(0); setChat(e.target.value); }} placeholder="Chat" className="h-9 w-32 bg-black/20" />
+          <Input value={sender} onChange={(e) => { setOffset(0); setSender(e.target.value); }} placeholder="فرستنده" className="h-9 w-28 bg-black/20" />
           <Input value={minSize} onChange={(e) => setMinSize(e.target.value)} placeholder="حداقل KB" className="h-9 w-24 bg-black/20" />
           <Input value={maxSize} onChange={(e) => setMaxSize(e.target.value)} placeholder="حداکثر KB" className="h-9 w-24 bg-black/20" />
           <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-9 bg-black/20" aria-label="از تاریخ" />

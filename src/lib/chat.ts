@@ -389,10 +389,18 @@ export async function deleteMessage(
       if (now - message.createdAt > DELETE_EVERYONE_MS) {
         return { ok: false as const, error: "مهلت حذف برای همه گذشته است.", status: 403 };
       }
+      const blobId = message.blobId;
       purgeContent(message, now);
       message.deletedEverywhere = true;
-      if (message.blobId) await deleteMediaBlob(userId, message.blobId);
-      message.blobId = undefined;
+      if (blobId) {
+        for (const copy of data.messages) {
+          if (copy.blobId === blobId) {
+            purgeContent(copy, now);
+            copy.deletedEverywhere = true;
+          }
+        }
+        await deleteMediaBlob(userId, blobId);
+      }
     } else {
       if (!message.hiddenFor) message.hiddenFor = [];
       if (!message.hiddenFor.includes(userId)) message.hiddenFor.push(userId);

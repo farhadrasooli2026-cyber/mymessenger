@@ -94,6 +94,13 @@ export function defaultUserFields(): {
   syncedContactHashes: string[];
   contactOsPermission: "unknown" | "allow" | "deny" | "limited";
   contactNotifyJoin: boolean;
+  contactAutoSync: boolean;
+  contactSyncStatus: "idle" | "syncing" | "completed" | "failed";
+  contactSyncError: string;
+  contactLastSyncAt: number;
+  contactSyncCursor: number;
+  contactSyncRetries: number;
+  contactConsentAt: number;
   chatOrgSort: import("@/lib/inbox-types").ChatOrgSort;
   archiveUnarchiveOnNew: boolean;
   listShowPreview: boolean;
@@ -172,6 +179,13 @@ export function defaultUserFields(): {
     syncedContactHashes: [],
     contactOsPermission: "unknown",
     contactNotifyJoin: true,
+    contactAutoSync: false,
+    contactSyncStatus: "idle",
+    contactSyncError: "",
+    contactLastSyncAt: 0,
+    contactSyncCursor: 0,
+    contactSyncRetries: 0,
+    contactConsentAt: 0,
     chatOrgSort: "recent",
     archiveUnarchiveOnNew: true,
     listShowPreview: true,

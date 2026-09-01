@@ -1,9 +1,46 @@
 /** Shared file policy — never trust the filename alone. */
 
 export const FILE_MAX_BYTES = 28 * 1024 * 1024;
+export const IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+export const AUDIO_MAX_BYTES = 12 * 1024 * 1024;
+export const DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
+export const VIDEO_MAX_BYTES = FILE_MAX_BYTES;
 export const FILE_SEND_PER_MIN = 12;
 export const FILE_DL_PER_MIN = 80;
 export const FILE_SEARCH_PER_MIN = 40;
+export const FILE_BW_PER_MIN = 160;
+
+export type FileKind = "image" | "video" | "audio" | "document" | "archive" | "text" | "unknown";
+
+export function maxBytesForKind(kind: FileKind): number {
+  switch (kind) {
+    case "image":
+      return IMAGE_MAX_BYTES;
+    case "audio":
+      return AUDIO_MAX_BYTES;
+    case "document":
+    case "text":
+      return DOCUMENT_MAX_BYTES;
+    case "video":
+      return VIDEO_MAX_BYTES;
+    default:
+      return FILE_MAX_BYTES;
+  }
+}
+
+export function guessKindFromName(name: string, mime = ""): FileKind {
+  const ext = extOf(name);
+  const m = mime.toLowerCase();
+  if (m.startsWith("image/") || ["jpg", "jpeg", "png", "webp", "gif", "heic"].includes(ext)) return "image";
+  if (m.startsWith("video/") || ["mp4", "webm", "mov", "m4v"].includes(ext)) return "video";
+  if (m.startsWith("audio/") || ["mp3", "m4a", "ogg", "wav", "flac"].includes(ext)) return "audio";
+  if (["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv"].includes(ext) || m.includes("pdf") || m.includes("word") || m.includes("sheet") || m.includes("presentation")) {
+    return "document";
+  }
+  if (["zip", "rar", "7z"].includes(ext) || m.includes("zip") || m.includes("rar") || m.includes("7z")) return "archive";
+  if (m.startsWith("text/")) return "text";
+  return "unknown";
+}
 export const ZIP_MAX_ENTRIES = 2_000;
 export const ZIP_MAX_UNCOMPRESSED = 180 * 1024 * 1024;
 
@@ -36,8 +73,67 @@ export function sanitizeFileName(name: string): string {
 
 export type FileSniff = { ok: boolean; mime: string; kind: "image" | "video" | "audio" | "document" | "archive" | "text" | "unknown"; error?: string };
 
+function isBlockedExecutable(bytes: Uint8Array): boolean {
+  if (bytes.length >= 2 && bytes[0] === 0x4d && bytes[1] === 0x5a) return true;
+  if (bytes.length >= 4 && bytes[0] === 0x7f && bytes[1] === 0x45 && bytes[2] === 0x4c && bytes[3] === 0x46) return true;
+  if (bytes.length >= 4 && bytes[0] === 0xca && bytes[1] === 0xfe && bytes[2] === 0xba && bytes[3] === 0xbe) return true;
+  if (bytes.length >= 4 && bytes[0] === 0xcf && bytes[1] === 0xfa && bytes[2] === 0xed && bytes[3] === 0xfe) return true;
+  return false;
+}
+
+/** JPEG APP1 (EXIF) را حذف می‌کند تا GPS و مدل دوربین بدون رضایت لو نرود. */
+export function stripJpegExif(buf: Buffer): Buffer {
+  if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) return buf;
+  const out: number[] = [0xff, 0xd8];
+  let i = 2;
+  while (i + 3 < buf.length) {
+    if (buf[i] !== 0xff) {
+      out.push(...buf.subarray(i));
+      break;
+    }
+    const marker = buf[i + 1]!;
+    if (marker === 0xda) {
+      out.push(...buf.subarray(i));
+      break;
+    }
+    if (marker === 0xd9) {
+      out.push(0xff, 0xd9);
+      break;
+    }
+    if (marker === 0xd8) {
+      i += 2;
+      continue;
+    }
+    if (marker === 0x00 || marker === 0xd0 || marker === 0xd1 || marker === 0xd2 || marker === 0xd3 || marker === 0xd4 || marker === 0xd5 || marker === 0xd6 || marker === 0xd7) {
+      out.push(0xff, marker);
+      i += 2;
+      continue;
+    }
+    if (i + 4 > buf.length) {
+      out.push(...buf.subarray(i));
+      break;
+    }
+    const len = buf.readUInt16BE(i + 2);
+    const next = i + 2 + len;
+    if (next > buf.length || len < 2) {
+      out.push(...buf.subarray(i));
+      break;
+    }
+    if (marker === 0xe1) {
+      i = next;
+      continue;
+    }
+    out.push(...buf.subarray(i, next));
+    i = next;
+  }
+  return Buffer.from(out);
+}
+
 export function sniffFileBytes(bytes: Uint8Array): FileSniff {
   if (bytes.length < 8) return { ok: false, mime: "application/octet-stream", kind: "unknown", error: "فایل ناقص است." };
+  if (isBlockedExecutable(bytes)) {
+    return { ok: false, mime: "application/octet-stream", kind: "unknown", error: "فایل اجرایی طبق سیاست امنیتی رد شد." };
+  }
   const ascii = String.fromCharCode(...Array.from(bytes.slice(0, Math.min(64, bytes.length))));
   if (/^\s*</.test(ascii) || /<script/i.test(ascii)) {
     return { ok: false, mime: "text/html", kind: "unknown", error: "HTML/اسکریپت به‌عنوان فایل پذیرفته نمی‌شود." };
@@ -136,9 +232,14 @@ export function declaredExtAllowed(allowed: string[] | null | undefined, nameOrE
   return allowed.includes(ext);
 }
 
-export function scanNamedFile(name: string, declaredMime: string, size: number): { ok: boolean; warning?: string } {
+export function scanNamedFile(name: string, declaredMime: string, size: number, sniffedKind?: FileKind): { ok: boolean; warning?: string } {
   const ext = extOf(name);
   if (size > FILE_MAX_BYTES) return { ok: false, warning: "حجم فایل از سقف سرور بیشتر است." };
+  const kind = sniffedKind && sniffedKind !== "unknown" ? sniffedKind : guessKindFromName(name, declaredMime);
+  const cap = maxBytesForKind(kind);
+  if (size > cap) {
+    return { ok: false, warning: `حجم این نوع فایل بیش از حد مجاز است (حداکثر ${Math.round(cap / (1024 * 1024))} مگابایت).` };
+  }
   if (DANGEROUS_EXT.has(ext) || /javascript|html|svg/i.test(declaredMime)) {
     return { ok: false, warning: "این نوع فایل خطرناک است و پذیرفته نمی‌شود." };
   }

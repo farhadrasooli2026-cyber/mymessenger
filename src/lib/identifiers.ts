@@ -21,8 +21,10 @@ export function normalizePhone(input: string): string | null {
   if (raw.startsWith("0098")) raw = `0${raw.slice(4)}`;
   if (raw.startsWith("+98")) raw = `0${raw.slice(3)}`;
   if (raw.startsWith("98") && raw.length === 12) raw = `0${raw.slice(2)}`;
-  if (!/^09\d{9}$/.test(raw)) return null;
-  return raw;
+  if (/^09\d{9}$/.test(raw)) return raw;
+  if (raw.startsWith("00") && /^00[1-9]\d{7,14}$/.test(raw)) raw = `+${raw.slice(2)}`;
+  if (/^\+[1-9]\d{7,14}$/.test(raw)) return raw;
+  return null;
 }
 
 export function normalizeEmail(input: string): string | null {

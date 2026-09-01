@@ -21,8 +21,18 @@ export async function GET(request: Request) {
   if (!user) return jsonError("نشست فعال نیست.", 401);
   const url = new URL(request.url);
   if (url.searchParams.get("chats") === "1") {
-    const chats = await listChatMediaIndex(user.id);
-    return json({ ok: true, chats });
+    const chats = await listChatMediaIndex(user.id, {
+      kind: url.searchParams.get("mediaKind") ?? undefined,
+      sender: url.searchParams.get("sender") ?? undefined,
+      cursor: url.searchParams.get("cursor") ?? undefined,
+      from: url.searchParams.get("from") ? Number(url.searchParams.get("from")) : undefined,
+      to: url.searchParams.get("to") ? Number(url.searchParams.get("to")) : undefined,
+    });
+    return json({ ok: true, chats: chats.items, nextCursor: chats.nextCursor });
+  }
+  if (url.searchParams.get("jobs") === "1") {
+    const { listMediaJobs } = await import("@/lib/media-share");
+    return json({ ok: true, jobs: await listMediaJobs(user.id) });
   }
   const kindRaw = url.searchParams.get("kind");
   const kind = kindRaw && KINDS.includes(kindRaw as GalleryKind) ? (kindRaw as GalleryKind) : kindRaw === "all" ? "all" : undefined;
@@ -35,6 +45,8 @@ export async function GET(request: Request) {
     albumId: url.searchParams.get("album") ?? undefined,
     trash: url.searchParams.get("trash") === "1",
     pin: url.searchParams.get("pin") ?? undefined,
+    sender: url.searchParams.get("sender") ?? undefined,
+    cursor: url.searchParams.get("cursor") ?? undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json(result);
@@ -92,6 +104,12 @@ export async function POST(request: Request) {
     const privacy = body.privacy === "shared" || body.privacy === "public" ? body.privacy : "private";
     const result = await setGalleryPrivacy(user.id, Array.isArray(body.ids) ? body.ids.map(String) : [], privacy);
     return json(result);
+  }
+  if (body.action === "retry-jobs") {
+    const { retryFailedJobs, processMediaJobs } = await import("@/lib/media-share");
+    await retryFailedJobs(user.id);
+    const ran = await processMediaJobs(user.id);
+    return json(ran);
   }
   const result = await addGalleryItem(user.id, {
     name: String(body.name ?? "file"),

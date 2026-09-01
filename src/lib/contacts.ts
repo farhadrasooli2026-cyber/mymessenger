@@ -27,6 +27,7 @@ function ensureArrays(data: StoreData) {
   data.contacts ??= [];
   data.contactInvites ??= [];
   data.contactRequests ??= [];
+  data.contactLists ??= [];
 }
 
 function notesOf(row: ContactRecord) {
@@ -62,6 +63,7 @@ function publicContact(row: ContactRecord) {
     updatedAt: row.updatedAt,
     lastContactedAt: row.lastContactedAt,
     deviceStamp: row.deviceStamp,
+    mutedUntil: row.mutedUntil ?? null,
   };
 }
 
@@ -141,7 +143,12 @@ export async function listContacts(
     requestsOut: outgoing.map((r) => requestView(data, r, userId)),
     permission: me.contactOsPermission,
     syncEnabled: me.contactSyncEnabled,
+    autoSync: Boolean(me.contactAutoSync),
     notifyJoin: me.contactNotifyJoin,
+    syncStatus: me.contactSyncStatus ?? "idle",
+    syncError: me.contactSyncError ?? "",
+    lastSyncAt: me.contactLastSyncAt ?? 0,
+    lists: (data.contactLists ?? []).filter((l) => l.ownerUserId === userId),
   };
 }
 
@@ -248,6 +255,8 @@ export async function saveContact(userId: string, patch: ContactPatch) {
       updatedAt: now,
       lastContactedAt: 0,
       deviceStamp: String(patch.deviceStamp ?? "").slice(0, 80),
+      mutedUntil: null,
+      matchHash: "",
     };
     if (patch.notes) setNotes(row, patch.notes);
     data.contacts.push(row);
@@ -345,6 +354,8 @@ export async function ingestPhoneBook(
           updatedAt: now,
           lastContactedAt: 0,
           deviceStamp: "os-sync",
+          mutedUntil: null,
+          matchHash: "",
         };
         data.contacts.push(row);
         imported += 1;
@@ -519,6 +530,8 @@ export async function acceptInvite(userId: string, token: string) {
         updatedAt: now,
         lastContactedAt: 0,
         deviceStamp: "",
+        mutedUntil: null,
+        matchHash: "",
       });
     }
     return { ok: true as const, username: owner.username };

@@ -139,6 +139,16 @@ function hydrateUser(user: UserRecord): UserRecord {
         ? user.contactOsPermission
         : "unknown",
     contactNotifyJoin: user.contactNotifyJoin !== false,
+    contactAutoSync: Boolean(user.contactAutoSync),
+    contactSyncStatus:
+      user.contactSyncStatus === "syncing" || user.contactSyncStatus === "completed" || user.contactSyncStatus === "failed"
+        ? user.contactSyncStatus
+        : "idle",
+    contactSyncError: String(user.contactSyncError ?? "").slice(0, 160),
+    contactLastSyncAt: user.contactLastSyncAt ?? 0,
+    contactSyncCursor: user.contactSyncCursor ?? 0,
+    contactSyncRetries: user.contactSyncRetries ?? 0,
+    contactConsentAt: user.contactConsentAt ?? 0,
     chatOrgSort:
       user.chatOrgSort === "unread" || user.chatOrgSort === "name" || user.chatOrgSort === "favorites" ? user.chatOrgSort : "recent",
     archiveUnarchiveOnNew: user.archiveUnarchiveOnNew !== false,
@@ -482,6 +492,13 @@ export type UserRecord = {
   syncedContactHashes: string[];
   contactOsPermission: "unknown" | "allow" | "deny" | "limited";
   contactNotifyJoin: boolean;
+  contactAutoSync: boolean;
+  contactSyncStatus: "idle" | "syncing" | "completed" | "failed";
+  contactSyncError: string;
+  contactLastSyncAt: number;
+  contactSyncCursor: number;
+  contactSyncRetries: number;
+  contactConsentAt: number;
   chatOrgSort: import("@/lib/inbox-types").ChatOrgSort;
   archiveUnarchiveOnNew: boolean;
   listShowPreview: boolean;
@@ -698,6 +715,8 @@ export type ContactRecord = {
   updatedAt: number;
   lastContactedAt: number;
   deviceStamp: string;
+  mutedUntil: number | null;
+  matchHash: string;
 };
 
 export type ContactInvite = {
@@ -714,7 +733,16 @@ export type ContactRequest = {
   id: string;
   fromUserId: string;
   toUserId: string;
-  status: "pending" | "accepted" | "declined";
+  status: "pending" | "accepted" | "declined" | "cancelled";
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type ContactList = {
+  id: string;
+  ownerUserId: string;
+  name: string;
+  contactIds: string[];
   createdAt: number;
   updatedAt: number;
 };
@@ -1416,6 +1444,8 @@ export type GalleryItem = {
   duplicateOf: string | null;
   createdAt: number;
   deletedAt: number | null;
+  senderId?: string;
+  checksum?: string;
 };
 
 export type GalleryAlbum = {
@@ -1563,6 +1593,18 @@ function hydrateOrder(o: BizOrder): BizOrder {
   };
 }
 
+export type MediaJob = {
+  id: string;
+  ownerUserId: string;
+  itemId: string;
+  kind: "exif" | "thumb" | "scan" | "cleanup";
+  status: "queued" | "running" | "done" | "failed";
+  retries: number;
+  lastError?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type StoreData = {
   users: UserRecord[];
   challenges: ChallengeRecord[];
@@ -1653,6 +1695,7 @@ export type StoreData = {
   contacts: ContactRecord[];
   contactInvites: ContactInvite[];
   contactRequests: ContactRequest[];
+  contactLists: ContactList[];
   usernameHolds: UsernameHold[];
   reservedUsernames: string[];
   inboxMetas: InboxMeta[];
@@ -1662,6 +1705,7 @@ export type StoreData = {
   stickerPrefs: StickerPrefs[];
   stickerReports: StickerModeration[];
   fileAccessLogs: { id: string; userId: string; action: string; target: string; at: number }[];
+  mediaJobs: MediaJob[];
   lives: LiveStream[];
   liveRecordings: LiveRecordingMeta[];
   livePrefs: LivePrefs[];
@@ -1758,6 +1802,7 @@ const EMPTY: StoreData = {
   contacts: [],
   contactInvites: [],
   contactRequests: [],
+  contactLists: [],
   usernameHolds: [],
   reservedUsernames: [],
   inboxMetas: [],
@@ -1767,6 +1812,7 @@ const EMPTY: StoreData = {
   stickerPrefs: [],
   stickerReports: [],
   fileAccessLogs: [],
+  mediaJobs: [],
   lives: [],
   liveRecordings: [],
   livePrefs: [],
@@ -1839,6 +1885,8 @@ async function readStore(): Promise<StoreData> {
             thumb: i.thumb ?? "",
             duplicateOf: i.duplicateOf ?? null,
             deletedAt: i.deletedAt ?? null,
+            senderId: i.senderId ?? "",
+            checksum: i.checksum ?? "",
           }))
         : [],
       galleryAlbums: Array.isArray(parsed.galleryAlbums) ? parsed.galleryAlbums : [],
@@ -1913,9 +1961,16 @@ async function readStore(): Promise<StoreData> {
       groupCalls: Array.isArray(parsed.groupCalls) ? parsed.groupCalls : [],
       callSignals: Array.isArray(parsed.callSignals) ? parsed.callSignals : [],
       callQuality: Array.isArray(parsed.callQuality) ? parsed.callQuality : [],
-      contacts: Array.isArray(parsed.contacts) ? parsed.contacts : [],
+      contacts: Array.isArray(parsed.contacts)
+        ? parsed.contacts.map((c) => ({
+            ...c,
+            mutedUntil: typeof c.mutedUntil === "number" ? c.mutedUntil : null,
+            matchHash: typeof c.matchHash === "string" ? c.matchHash : "",
+          }))
+        : [],
       contactInvites: Array.isArray(parsed.contactInvites) ? parsed.contactInvites : [],
       contactRequests: Array.isArray(parsed.contactRequests) ? parsed.contactRequests : [],
+      contactLists: Array.isArray(parsed.contactLists) ? parsed.contactLists : [],
       usernameHolds: Array.isArray(parsed.usernameHolds) ? parsed.usernameHolds : [],
       reservedUsernames: Array.isArray(parsed.reservedUsernames) ? parsed.reservedUsernames : [],
       inboxMetas: Array.isArray(parsed.inboxMetas) ? parsed.inboxMetas.map(hydrateInboxMeta) : [],
@@ -1925,6 +1980,7 @@ async function readStore(): Promise<StoreData> {
       stickerPrefs: Array.isArray(parsed.stickerPrefs) ? parsed.stickerPrefs : [],
       stickerReports: Array.isArray(parsed.stickerReports) ? parsed.stickerReports : [],
       fileAccessLogs: Array.isArray(parsed.fileAccessLogs) ? parsed.fileAccessLogs : [],
+      mediaJobs: Array.isArray(parsed.mediaJobs) ? parsed.mediaJobs : [],
       lives: Array.isArray(parsed.lives) ? parsed.lives : [],
       liveRecordings: Array.isArray(parsed.liveRecordings) ? parsed.liveRecordings : [],
       livePrefs: Array.isArray(parsed.livePrefs) ? parsed.livePrefs : [],
@@ -1998,6 +2054,7 @@ function prune(data: StoreData, now: number): void {
   data.failedCycles = data.failedCycles.filter((f) => now - f.lastAt < 24 * 60 * 60 * 1000);
   const gallerySoftMs = 30 * 24 * 60 * 60 * 1000;
   data.galleryItems = (data.galleryItems ?? []).filter((i) => !i.deletedAt || now - i.deletedAt < gallerySoftMs);
+  data.mediaJobs = (data.mediaJobs ?? []).filter((j) => now - j.createdAt < 7 * 24 * 60 * 60 * 1000);
   // Accounts are never removed for inactivity. Only a confirmed pending deletion past its grace period is purged.
   finalizeDueAccounts(data, now);
 }
@@ -2093,11 +2150,13 @@ function purgeUserData(data: StoreData, user: UserRecord, now: number) {
   data.contacts = (data.contacts ?? []).filter((c) => c.ownerUserId !== uid);
   data.contactInvites = (data.contactInvites ?? []).filter((i) => i.ownerUserId !== uid);
   data.contactRequests = (data.contactRequests ?? []).filter((r) => r.fromUserId !== uid && r.toUserId !== uid);
+  data.contactLists = (data.contactLists ?? []).filter((l) => l.ownerUserId !== uid);
   data.inboxMetas = (data.inboxMetas ?? []).filter((m) => m.ownerUserId !== uid);
   data.chatFolders = (data.chatFolders ?? []).filter((f) => f.ownerUserId !== uid);
   data.stickerPrefs = (data.stickerPrefs ?? []).filter((p) => p.userId !== uid);
   data.stickerReports = (data.stickerReports ?? []).filter((r) => r.reporterUserId !== uid);
   data.fileAccessLogs = (data.fileAccessLogs ?? []).filter((s) => s.userId !== uid);
+  data.mediaJobs = (data.mediaJobs ?? []).filter((j) => j.ownerUserId !== uid);
   data.lives = (data.lives ?? []).map((l) => {
     if (l.hostUserId === uid && l.status !== "ended") {
       return {
