@@ -18,6 +18,9 @@ import { StickerPicker } from "@/components/sticker-picker";
 import { EmojiPicker } from "@/components/emoji-picker";
 import { blobMatches } from "@/lib/search-match";
 import { GroupCallStage, type PublicGroupCallUi } from "@/components/group-call-stage";
+import { VoiceComposer } from "@/components/voice-composer";
+import { VoicePlayer } from "@/components/voice-player";
+import { VoiceQueueProvider } from "@/components/voice-queue";
 
 type GMember = {
   key: string;
@@ -74,6 +77,7 @@ type GMsg = {
   deleted?: boolean;
   text?: string;
   stickerId?: string;
+  durationMs?: number;
 };
 
 export function GroupPane({
@@ -131,8 +135,8 @@ export function GroupPane({
     const key = await loadOrCreateThreadKey(`group:${groupId}`);
     const next: GMsg[] = [];
     for (const raw of data.messages as GMsg[]) {
-      if (raw.kind === "system" || raw.kind === "poll" || raw.kind === "sticker" || raw.enc !== "e2ee-v1") {
-        next.push({ ...raw, text: raw.bodyFa ?? "" });
+      if (raw.kind === "system" || raw.kind === "poll" || raw.kind === "sticker" || raw.kind === "voice" || raw.enc !== "e2ee-v1") {
+        next.push({ ...raw, text: raw.kind === "voice" ? "پیام صوتی" : (raw.bodyFa ?? "") });
         continue;
       }
       try {
@@ -220,8 +224,8 @@ export function GroupPane({
           const key = await loadOrCreateThreadKey(`group:${groupId}`);
           const next: GMsg[] = [];
           for (const raw of data.messages as GMsg[]) {
-            if (raw.kind === "system" || raw.kind === "poll" || raw.kind === "sticker" || raw.enc !== "e2ee-v1") {
-              next.push({ ...raw, text: raw.bodyFa ?? "" });
+            if (raw.kind === "system" || raw.kind === "poll" || raw.kind === "sticker" || raw.kind === "voice" || raw.enc !== "e2ee-v1") {
+              next.push({ ...raw, text: raw.kind === "voice" ? "پیام صوتی" : (raw.bodyFa ?? "") });
               continue;
             }
             try {
@@ -333,6 +337,7 @@ export function GroupPane({
   const media = messages.filter((m) => m.kind === "photo" || m.kind === "video" || m.kind === "file" || m.kind === "voice");
 
   return (
+    <VoiceQueueProvider>
     <div className="relative flex min-w-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b border-white/10 px-4 py-3">
         <span className="grid size-10 place-items-center rounded-2xl text-sm font-semibold text-[#071614]" style={{ background: group.color }}>
@@ -398,6 +403,24 @@ export function GroupPane({
                     {msg.replyToId && <p className="text-[10px] opacity-60">پاسخ</p>}
                     {msg.kind === "sticker" ? (
                       <p>استیکر</p>
+                    ) : msg.kind === "voice" ? (
+                      <VoicePlayer
+                        msg={{
+                          id: msg.id,
+                          sender: msg.senderKey === userIdHint ? "me" : "peer",
+                          createdAt: msg.createdAt,
+                          enc: msg.enc,
+                          ciphertext: msg.ciphertext,
+                          nonce: msg.nonce,
+                          durationMs: msg.durationMs,
+                        }}
+                        threadId={`group:${groupId}`}
+                        threads={[]}
+                        senderLabel={msg.senderName}
+                        deleteMode="group"
+                        groupId={groupId}
+                        onGone={() => void load()}
+                      />
                     ) : msg.kind === "poll" && msg.poll ? (
                       <div className="space-y-1">
                         <p className="font-medium">{msg.poll.question}</p>
@@ -458,14 +481,27 @@ export function GroupPane({
           </div>
         </ScrollArea>
       </div>
+      {media.length === 0 && searchOpen ? (
+        <p className="px-4 text-[11px] text-emerald-100/50">Voiceای در این گفتگو نیست.</p>
+      ) : null}
       {replyTo && (
         <div className="flex items-center justify-between border-t border-white/10 px-4 py-1 text-[11px]">
           پاسخ به {replyTo.senderName}
           <button type="button" onClick={() => setReplyTo(null)}>×</button>
         </div>
       )}
+      <VoiceComposer
+        threadId={`group:${groupId}`}
+        sendPath={`/api/groups/${groupId}/messages`}
+        replyToId={replyTo?.id}
+        disabled={busy || group.perms.sendVoice === false}
+        onSent={() => {
+          setReplyTo(null);
+          void load();
+        }}
+      >
       <form
-        className="flex gap-2 border-t border-white/10 p-3 pb-[calc(4.25rem+env(safe-area-inset-bottom))] md:pb-3"
+        className="flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           void send();
@@ -484,6 +520,7 @@ export function GroupPane({
           <Send className="size-4" />
         </Button>
       </form>
+      </VoiceComposer>
       {emojiOpen && (
         <div className="px-3 pb-2">
           <EmojiPicker onPick={(e) => setDraft((d) => (d + e).slice(0, 2000))} />
@@ -814,5 +851,6 @@ export function GroupPane({
         />
       )}
     </div>
+    </VoiceQueueProvider>
   );
 }

@@ -35,6 +35,7 @@ import {
 } from "@/lib/e2ee";
 import { VoiceComposer } from "@/components/voice-composer";
 import { VoicePlayer } from "@/components/voice-player";
+import { VoiceQueueProvider } from "@/components/voice-queue";
 import { MediaDock } from "@/components/media-dock";
 import { MediaBubble } from "@/components/media-bubble";
 import { EmojiPicker } from "@/components/emoji-picker";
@@ -606,7 +607,14 @@ export function Messenger({
           setWaitingCall(waiting && waiting.id !== incoming?.id ? waiting : null);
           setLiveCall((cur) => {
             if (cur && (cur.status === "active" || cur.direction === "out")) return cur;
-            if (incoming && (incoming.status === "ringing" || incoming.status === "queued")) return incoming;
+    if (incoming && (incoming.status === "ringing" || incoming.status === "queued")) {
+              try {
+                window.dispatchEvent(new Event("nixo:incoming-call"));
+              } catch {
+                /* ignore */
+              }
+              return incoming;
+            }
             if (cur && cur.direction === "in" && cur.status === "ringing" && !incoming) return null;
             return cur;
           });
@@ -1043,6 +1051,7 @@ export function Messenger({
           : null;
 
   return (
+    <VoiceQueueProvider>
     <div
       className="flex min-h-dvh text-[var(--nixo-text,#ecfdf5)]"
       style={{
@@ -1632,6 +1641,7 @@ export function Messenger({
                             }}
                             threadId={active.id}
                             threads={threads}
+                            senderLabel={msg.sender === "me" ? "تو" : active.peerName}
                             onGone={async () => {
                               const res = await fetch(`/api/chats/${active.id}`, { cache: "no-store" });
                               if (!res.ok) return;
@@ -2099,7 +2109,7 @@ export function Messenger({
               موسیقی نیکسو
             </Link>
             <Link href="/app/settings/audio" className="block text-sm text-amber-200">
-              تنظیمات → Data & Storage → Audio
+              تنظیمات → Voice & Audio
             </Link>
             <Link href="/app/gallery" className="block text-sm text-amber-200">
               گالری نیکسو
@@ -2638,6 +2648,7 @@ export function Messenger({
         />
       )}
     </div>
+    </VoiceQueueProvider>
   );
 }
 

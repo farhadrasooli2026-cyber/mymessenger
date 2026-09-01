@@ -67,6 +67,8 @@ export async function POST(request: Request, ctx: Ctx) {
     scheduledAt: typeof body.scheduledAt === "number" ? body.scheduledAt : null,
     poll: body.poll && typeof body.poll === "object" ? (body.poll as never) : undefined,
     album: Array.isArray(body.album) ? body.album.map(String) : undefined,
+    durationMs: typeof body.durationMs === "number" ? body.durationMs : undefined,
+    voiceDataUrl: typeof body.voiceDataUrl === "string" ? body.voiceDataUrl : undefined,
   });
   if (!result.ok) return jsonError(result.error, result.status);
   return json({ ok: true, post: result.post, channel: result.channel });

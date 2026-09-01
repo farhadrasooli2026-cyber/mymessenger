@@ -28,6 +28,11 @@ function prefsOf(data: StoreData, userId: string): MusicPrefs {
     data.musicPrefs.push(row);
   }
   if (typeof row.backgroundPlayback !== "boolean") row.backgroundPlayback = true;
+  if (typeof row.autoPlayVoice !== "boolean") row.autoPlayVoice = false;
+  if (typeof row.sequentialVoice !== "boolean") row.sequentialVoice = true;
+  if (row.autoDownloadVoice !== "wifi" && row.autoDownloadVoice !== "mobile" && row.autoDownloadVoice !== "never") {
+    row.autoDownloadVoice = row.dataSaver ? "never" : "wifi";
+  }
   return row;
 }
 
@@ -171,6 +176,9 @@ export async function listMusic(
       dataSaver: prefs.dataSaver,
       notifyPlayback: prefs.notifyPlayback,
       backgroundPlayback: prefs.backgroundPlayback !== false,
+      autoPlayVoice: Boolean(prefs.autoPlayVoice),
+      sequentialVoice: prefs.sequentialVoice !== false,
+      autoDownloadVoice: prefs.autoDownloadVoice ?? "wifi",
       lastTrackId: prefs.lastTrackId,
       lastPositionMs: prefs.lastPositionMs,
       lastQueue: prefs.lastQueue,
@@ -355,7 +363,7 @@ export async function markPlayed(userId: string, id: string, catalog: boolean, p
 
 export async function updateMusicPrefs(
   userId: string,
-  patch: Partial<Pick<MusicPrefs, "autoWifi" | "autoMobile" | "autoRoaming" | "quality" | "speed" | "dataSaver" | "notifyPlayback" | "backgroundPlayback" | "lastQueue">>,
+  patch: Partial<Pick<MusicPrefs, "autoWifi" | "autoMobile" | "autoRoaming" | "quality" | "speed" | "dataSaver" | "notifyPlayback" | "backgroundPlayback" | "lastQueue" | "autoPlayVoice" | "sequentialVoice" | "autoDownloadVoice">>,
 ) {
   return mutateStore((data) => {
     const p = prefsOf(data, userId);
@@ -367,6 +375,11 @@ export async function updateMusicPrefs(
     if (typeof patch.dataSaver === "boolean") p.dataSaver = patch.dataSaver;
     if (typeof patch.notifyPlayback === "boolean") p.notifyPlayback = patch.notifyPlayback;
     if (typeof patch.backgroundPlayback === "boolean") p.backgroundPlayback = patch.backgroundPlayback;
+    if (typeof patch.autoPlayVoice === "boolean") p.autoPlayVoice = patch.autoPlayVoice;
+    if (typeof patch.sequentialVoice === "boolean") p.sequentialVoice = patch.sequentialVoice;
+    if (patch.autoDownloadVoice === "wifi" || patch.autoDownloadVoice === "mobile" || patch.autoDownloadVoice === "never") {
+      p.autoDownloadVoice = patch.autoDownloadVoice;
+    }
     if (Array.isArray(patch.lastQueue)) p.lastQueue = patch.lastQueue.map(String).slice(0, 80);
     return { ok: true as const };
   });

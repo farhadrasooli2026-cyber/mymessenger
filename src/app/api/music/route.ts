@@ -45,6 +45,12 @@ export async function POST(request: Request) {
       dataSaver: typeof body.dataSaver === "boolean" ? body.dataSaver : undefined,
       notifyPlayback: typeof body.notifyPlayback === "boolean" ? body.notifyPlayback : undefined,
       backgroundPlayback: typeof body.backgroundPlayback === "boolean" ? body.backgroundPlayback : undefined,
+      autoPlayVoice: typeof body.autoPlayVoice === "boolean" ? body.autoPlayVoice : undefined,
+      sequentialVoice: typeof body.sequentialVoice === "boolean" ? body.sequentialVoice : undefined,
+      autoDownloadVoice:
+        body.autoDownloadVoice === "wifi" || body.autoDownloadVoice === "mobile" || body.autoDownloadVoice === "never"
+          ? body.autoDownloadVoice
+          : undefined,
       lastQueue: Array.isArray(body.lastQueue) ? body.lastQueue.map(String) : undefined,
     });
     return json(result);

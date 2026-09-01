@@ -40,6 +40,9 @@ export type MusicPrefs = {
   dataSaver: boolean;
   notifyPlayback: boolean;
   backgroundPlayback: boolean;
+  autoPlayVoice: boolean;
+  sequentialVoice: boolean;
+  autoDownloadVoice: "wifi" | "mobile" | "never";
   lastTrackId: string | null;
   lastPositionMs: number;
   lastQueue: string[];
@@ -55,6 +58,9 @@ export const DEFAULT_MUSIC_PREFS: Omit<MusicPrefs, "userId"> = {
   dataSaver: false,
   notifyPlayback: true,
   backgroundPlayback: true,
+  autoPlayVoice: false,
+  sequentialVoice: true,
+  autoDownloadVoice: "wifi",
   lastTrackId: null,
   lastPositionMs: 0,
   lastQueue: [],

@@ -5,7 +5,7 @@ import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { GroupMember, GroupMessage, GroupRecord, StoreData } from "@/lib/store";
 import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf, canUseSticker } from "@/lib/stickers";
-import { canAddToGroup } from "@/lib/privacy";
+import { validateVoiceDuration, VOICE_SEND_PER_MIN } from "@/lib/voice";
 import { emitNotification } from "@/lib/notify";
 import {
   DEFAULT_GROUP_ADMIN_PERMS,
@@ -689,6 +689,7 @@ export async function sendGroupMessage(
     chunkCount?: number;
     poll?: { question: string; options: string[]; anonymous?: boolean; multiple?: boolean; closesAt?: number | null };
     stickerId?: string;
+    durationMs?: number;
   },
 ) {
   return mutateStore((data) => {
@@ -802,6 +803,23 @@ export async function sendGroupMessage(
     if (payload.enc !== "e2ee-v1" || ciphertext.length < 8 || nonce.length < 8 || !B64.test(ciphertext) || !B64.test(nonce)) {
       return { ok: false as const, error: "فقط پاکت رمزنگاری‌شده پذیرفته می‌شود.", status: 400 };
     }
+    if (kind === "voice") {
+      const d = validateVoiceDuration(payload.durationMs);
+      if (!d.ok) return { ok: false as const, error: d.error, status: 400 };
+      const vlim = hitRateLimit(data, `voice:up:${userId}`, 60_000, VOICE_SEND_PER_MIN, now);
+      if (!vlim.allowed) return { ok: false as const, error: "ارسال صوت پیاپی محدود شد.", status: 429 };
+      const dup = data.groupMessages.find(
+        (m) =>
+          m.groupId === groupId &&
+          m.senderKey === userId &&
+          m.nonce === nonce &&
+          m.ciphertext === ciphertext &&
+          m.kind === "voice" &&
+          !m.deleted &&
+          now - m.createdAt < 120_000,
+      );
+      if (dup) return { ok: true as const, message: publicGroupMessage(dup, userId, data) };
+    }
     if (/https?:\/\//i.test(ciphertext) && !group.perms.sendLinks && rankRole(me.role) < 3) {
       /* ciphertext is not plaintext; skip */
     }
@@ -823,6 +841,7 @@ export async function sendGroupMessage(
       reactions: [],
       blobId: payload.blobId,
       chunkCount: payload.chunkCount,
+      durationMs: kind === "voice" ? payload.durationMs : undefined,
     };
     data.groupMessages.push(msg);
     group.updatedAt = now;

@@ -98,7 +98,7 @@ export function MediaSettings() {
         </section>
         <p className="text-[11px] opacity-45">رسانهٔ چت خصوصی E2EE است. پشتیبان رسانه طبق Backup حساب. نیکسو اسکرین‌شات را ۱۰۰٪ متوقف نمی‌کند.</p>
         <Link href="/app/gallery" className="text-sm text-amber-200">گالری نیکسو</Link>
-        <Link href="/app/settings/audio" className="block text-sm text-amber-200">Settings → Data & Storage → Audio</Link>
+          <Link href="/app/settings/audio" className="block text-sm text-amber-200">Settings → Voice & Audio</Link>
       </div>
     </main>
   );

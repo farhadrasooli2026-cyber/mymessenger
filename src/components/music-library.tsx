@@ -210,7 +210,7 @@ export function MusicLibrary() {
               <h1 className="text-xl font-semibold">کتابخانه صوت</h1>
             </div>
           </div>
-          <Link href="/app/settings/audio" className="text-xs text-amber-200">Settings → Data & Storage → Audio</Link>
+          <Link href="/app/settings/audio" className="text-xs text-amber-200">Settings → Voice & Audio</Link>
         </div>
         <p className="text-[11px] opacity-55">فهرست داخلی فقط صداهای اصل نیکسو با مجوز است. فایل خودت برای حساب خودت است و بدون نشست + توکن به دیگری داده نمی‌شود. موسیقی تجاری بدون مجوز اینجا نیست.</p>
         <div className="flex flex-wrap gap-1 text-[11px]">

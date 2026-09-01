@@ -29,12 +29,16 @@ export function VoiceComposer({
   onSent,
   onRecordingChange,
   children,
+  sendPath,
+  replyToId,
 }: {
   threadId: string;
   disabled?: boolean;
   onSent: () => void;
   onRecordingChange?: (active: boolean) => void;
   children?: React.ReactNode;
+  sendPath?: string;
+  replyToId?: string | null;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [elapsed, setElapsed] = useState(0);
@@ -50,6 +54,8 @@ export function VoiceComposer({
     disappearAfterMs: number | null | undefined;
   } | null>(null);
   const [sending, setSending] = useState(false);
+  const [uploadPct, setUploadPct] = useState(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const recRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -97,6 +103,21 @@ export function VoiceComposer({
   }
 
   useEffect(() => () => stopTracks(), []);
+
+  useEffect(() => {
+    const onCall = () => {
+      if (recRef.current?.state === "recording") pauseRec();
+    };
+    const onHide = () => {
+      if (document.hidden && recRef.current?.state === "recording") pauseRec();
+    };
+    window.addEventListener("nixo:incoming-call", onCall);
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("nixo:incoming-call", onCall);
+      document.removeEventListener("visibilitychange", onHide);
+    };
+  }, []);
 
   async function startRecording() {
     try {
@@ -195,18 +216,26 @@ export function VoiceComposer({
       });
       const envelope = await encryptText(key, inner);
       const disappearAfterMs = msFromChoice(disappear, customMs);
+      const endpoint = sendPath ?? `/api/chats/${threadId}`;
       const body: Record<string, unknown> = {
         ...envelope,
         kind: "voice",
         durationMs: elapsedRef.current,
         viewOnce,
+        replyToId: replyToId || undefined,
       };
       if (disappearAfterMs !== undefined) body.disappearAfterMs = disappearAfterMs;
-      const res = await fetch(`/api/chats/${threadId}`, {
+      abortRef.current?.abort();
+      const ac = new AbortController();
+      abortRef.current = ac;
+      setUploadPct(12);
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: ac.signal,
       });
+      setUploadPct(100);
       if (!res.ok) {
         setRetry({ envelope, durationMs: elapsedRef.current, viewOnce, disappearAfterMs });
         toast.error("ارسال نشد. دوباره تلاش کن.");
@@ -215,16 +244,23 @@ export function VoiceComposer({
       setRetry(null);
       resetAll();
       onSent();
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        toast.message("آپلود لغو شد.");
+        return;
+      }
+      toast.error("شبکه قطع شد. پس از اتصال Retry بزن.");
     } finally {
       setSending(false);
+      setUploadPct(0);
     }
   }
 
   async function retrySend() {
-    if (!retry) return;
+    if (!retry || !retry.envelope.ciphertext) return;
     setSending(true);
     try {
-      const res = await fetch(`/api/chats/${threadId}`, {
+      const res = await fetch(sendPath ?? `/api/chats/${threadId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -233,6 +269,7 @@ export function VoiceComposer({
           durationMs: retry.durationMs,
           viewOnce: retry.viewOnce,
           disappearAfterMs: retry.disappearAfterMs,
+          replyToId: replyToId || undefined,
         }),
       });
       if (!res.ok) {
@@ -319,6 +356,11 @@ export function VoiceComposer({
         <div className="mb-2 flex items-center justify-between gap-2 rounded-xl bg-rose-500/15 px-3 py-2 text-xs">
           <span>ارسال پیام صوتی ناموفق بود.</span>
           <div className="flex gap-1">
+            {sending && (
+              <Button type="button" size="sm" variant="ghost" className="h-7 text-white" onClick={() => abortRef.current?.abort()}>
+                لغو آپلود
+              </Button>
+            )}
             <Button type="button" size="sm" variant="ghost" className="h-7 text-white" onClick={() => setRetry(null)}>
               انصراف
             </Button>
@@ -330,7 +372,12 @@ export function VoiceComposer({
       )}
       {phase === "denied" && (
         <p className="mb-2 text-xs leading-6 text-amber-100">
-          دسترسی میکروفون داده نشد. از تنظیمات مرورگر یا سیستم‌عامل میکروفون را برای نیکسو فعال کن.
+          دسترسی میکروفون داده نشد. از تنظیمات مرورگر یا سیستم‌عامل میکروفون را برای نیکسو فعال کن. نیکسو بدون اجازهٔ سیستم‌عامل میکروفون را روشن نمی‌کند.
+        </p>
+      )}
+      {sending && (
+        <p className="mb-2 text-[11px] text-amber-200" aria-live="polite">
+          Sending {uploadPct}% · می‌توانی آپلود را لغو کنی
         </p>
       )}
       {!recording && phase !== "preview" && (
@@ -361,9 +408,11 @@ export function VoiceComposer({
             <span className="text-emerald-100/70">
               {hint === "cancel"
                 ? "رها کن تا لغو شود"
-                : phase === "locked" || phase === "paused"
-                  ? "قفل ضبط"
-                  : "بکش بالا: قفل · بکش کنار: لغو"}
+                : phase === "paused"
+                  ? "مکث · Recording متوقف موقت"
+                  : phase === "locked"
+                    ? "Recording · قفل ضبط"
+                    : "Recording · بکش بالا: قفل · بکش کنار: لغو"}
             </span>
           </div>
           <div className="flex h-8 items-end gap-[2px]" dir="ltr">
@@ -433,7 +482,7 @@ export function VoiceComposer({
               recording ? "bg-rose-400 text-[#102824]" : "bg-amber-300 text-[#102824]",
               disabled && "opacity-40",
             )}
-            aria-label="نگه دار تا ضبط شود"
+            aria-label="نگه دار یا لمس کن تا ضبط شود"
           >
             {phase === "locked" || phase === "paused" ? (
               <Lock className="size-5" />

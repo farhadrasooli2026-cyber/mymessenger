@@ -1008,6 +1008,7 @@ export type GroupMessage = {
   chunkCount?: number;
   deleted?: boolean;
   stickerId?: string;
+  durationMs?: number;
 };
 
 export type CommunityMember = {
@@ -1215,6 +1216,7 @@ export type ChannelPost = {
   views: string[];
   forwards: number;
   createdAt: number;
+  durationMs?: number;
   deleted?: boolean;
 };
 

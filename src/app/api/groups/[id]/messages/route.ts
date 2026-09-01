@@ -37,6 +37,7 @@ export async function POST(request: Request, ctx: Ctx) {
     mentions: Array.isArray(body.mentions) ? body.mentions.map(String) : undefined,
     blobId: typeof body.blobId === "string" ? body.blobId : undefined,
     chunkCount: typeof body.chunkCount === "number" ? body.chunkCount : undefined,
+    durationMs: typeof body.durationMs === "number" ? body.durationMs : undefined,
     poll:
       body.poll && typeof body.poll === "object"
         ? (body.poll as {

@@ -3,9 +3,9 @@ import { randomId } from "@/lib/crypto-utils";
 import { SEED_PEERS } from "@/lib/chat-copy";
 import { blockState } from "@/lib/safety";
 import { canMessageUser } from "@/lib/privacy";
-import { mutateStore, readStoreSnapshot } from "@/lib/store";
+import { hitRateLimit } from "@/lib/rate-limit";
 import type { ChatMessage, StoreData } from "@/lib/store";
-import { DELETE_EVERYONE_MS, VOICE_CIPHER_MAX, VOICE_MAX_MS } from "@/lib/voice";
+import { DELETE_EVERYONE_MS, VOICE_CIPHER_MAX, VOICE_MAX_MS, VOICE_SEND_PER_MIN, validateVoiceDuration } from "@/lib/voice";
 import { MEDIA_MAX_CHUNKS, MEDIA_MAX_BYTES } from "@/lib/media";
 import { deleteMediaBlob } from "@/lib/media-files";
 import { emitNotification } from "@/lib/notify";
@@ -23,6 +23,7 @@ export type CipherPayload = {
   kind?: "text" | "voice" | "photo" | "video" | "file";
   durationMs?: number;
   viewOnce?: boolean;
+  clientNonce?: string;
   /** undefined = inherit chat timer; 0 = this message has no timer */
   disappearAfterMs?: number | null;
   forwarded?: boolean;
@@ -84,6 +85,12 @@ export function parseCipherPayload(body: unknown): CipherPayload | null {
   if ((kind === "voice" || kind === "video") && typeof rec.durationMs === "number") {
     durationMs = Math.min(kind === "voice" ? VOICE_MAX_MS : 30 * 60 * 1000, Math.max(0, Math.floor(rec.durationMs)));
   }
+  if (kind === "voice") {
+    const d = validateVoiceDuration(durationMs);
+    if (!d.ok) return null;
+    durationMs = d.ms;
+  }
+  const clientNonce = typeof rec.clientNonce === "string" && rec.clientNonce.length >= 8 && rec.clientNonce.length <= 80 ? rec.clientNonce : undefined;
   const viewOnceOk = kind === "voice" || kind === "photo" || kind === "video";
   return {
     enc: "e2ee-v1",
@@ -98,6 +105,7 @@ export function parseCipherPayload(body: unknown): CipherPayload | null {
     chunkCount,
     byteLength,
     mimeClass,
+    clientNonce,
   };
 }
 
@@ -247,6 +255,30 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
           ? payload.disappearAfterMs
           : null;
     const kind = payload.kind ?? "text";
+    if (kind === "voice") {
+      const d = validateVoiceDuration(payload.durationMs);
+      if (!d.ok) return { ok: false as const, error: d.error, status: 400 };
+      const flood = hitRateLimit(data, `voice:up:${userId}`, 60_000, VOICE_SEND_PER_MIN, now);
+      if (!flood.allowed) return { ok: false as const, error: "ارسال صوت پیاپی محدود شد.", status: 429 };
+      const dup = data.messages.find(
+        (m) =>
+          m.ownerUserId === userId &&
+          m.kind === "voice" &&
+          m.nonce === payload.nonce &&
+          m.ciphertext === payload.ciphertext &&
+          !m.deletedEverywhere &&
+          !(m.hiddenFor ?? []).includes(userId) &&
+          now - m.createdAt < 120_000,
+      );
+      if (dup) {
+        const messages = data.messages
+          .filter((m) => m.threadId === threadId && m.ownerUserId === userId)
+          .sort((a, b) => a.createdAt - b.createdAt)
+          .map((m) => publicMessage(m, userId, now, blobs, data))
+          .filter((m): m is NonNullable<typeof m> => Boolean(m));
+        return { ok: true as const, thread, messages, ...safety, duplicate: true };
+      }
+    }
     const viewOnce = Boolean(payload.viewOnce);
     const expireFrom = expireFromForKind(kind, viewOnce, disappearAfterMs);
     const expiresAt = expireFrom === "send" && disappearAfterMs ? now + disappearAfterMs : null;
@@ -295,10 +327,10 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
       emitNotification(data, {
         userId: peer.id,
         category: "messages",
-        kind: "message",
+        kind: kind === "voice" ? "voice" : "message",
         title: label,
         senderName: label,
-        body: "پیام رمزنگاری‌شده جدید",
+        body: kind === "voice" ? "پیام صوتی جدید" : "پیام رمزنگاری‌شده جدید",
         e2ee: true,
         sourceId: `chat:${userId}`,
         muteType: "chat",
@@ -356,6 +388,8 @@ export async function markVoicePlayed(userId: string, threadId: string, messageI
     if (message.kind !== "voice" && message.kind !== "photo" && message.kind !== "video") {
       return { ok: false as const, error: "این پیام یک‌بارمصرف نیست.", status: 400 };
     }
+    const playLimit = hitRateLimit(data, `voice:play:${userId}`, 60_000, 80, Date.now());
+    if (!playLimit.allowed) return { ok: false as const, error: "درخواست پخش محدود شد.", status: 429 };
     const now = Date.now();
     if (isMessageExpired(message, now)) {
       expireIfNeeded(message, now, blobs);

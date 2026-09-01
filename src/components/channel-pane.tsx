@@ -11,7 +11,7 @@ import { AiComposerTools } from "@/components/ai-composer-tools";
 import { ReactionBar } from "@/components/reaction-bar";
 import { CHANNEL_PERM_FA, formatSubscribers, type ChannelAdminPerms } from "@/lib/channel-types";
 import { ROLE_FA } from "@/lib/group-types";
-import { blobMatches } from "@/lib/search-match";
+import { ChannelVoicePlayer } from "@/components/voice-player";
 
 type Post = {
   id: string;
@@ -29,6 +29,7 @@ type Post = {
   authorName: string;
   views?: number;
   forwards?: number;
+  durationMs?: number;
 };
 
 type Ch = {
@@ -99,6 +100,8 @@ export function ChannelPane({
   const [mediaFilter, setMediaFilter] = useState("all");
   const [liveMsg, setLiveMsg] = useState("");
   const [storyBody, setStoryBody] = useState("");
+  const [voiceFile, setVoiceFile] = useState<string>("");
+  const [voiceMs, setVoiceMs] = useState(0);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/channels/${channelId}`, { cache: "no-store" });
@@ -279,13 +282,17 @@ export function ChannelPane({
                 e.preventDefault();
                 void act({
                   kind,
-                  body: kind === "poll" ? pollQ : draft,
+                  body: kind === "poll" ? pollQ : kind === "voice" ? "" : draft,
                   caption,
+                  voiceDataUrl: kind === "voice" ? voiceFile : undefined,
+                  durationMs: kind === "voice" ? voiceMs : undefined,
                   poll: kind === "poll" || kind === "quiz" ? { question: pollQ, options: pollOpts.split("\n").filter(Boolean), anonymous: kind === "poll", multiple: false, quiz: kind === "quiz", correctIndex: kind === "quiz" ? 0 : null } : undefined,
                   album: kind === "album" ? draft.split("\n") : undefined,
                 });
                 setDraft("");
                 setCaption("");
+                setVoiceFile("");
+                setVoiceMs(0);
               }}
             >
               <div className="flex flex-wrap gap-1 text-[11px]">
@@ -295,7 +302,25 @@ export function ChannelPane({
                   </button>
                 ))}
               </div>
-              {kind === "poll" || kind === "quiz" ? (
+              {kind === "voice" ? (
+                <input
+                  type="file"
+                  accept="audio/webm,audio/ogg,audio/mpeg,audio/mp4,audio/wav,.webm,.ogg,.mp3,.m4a,.wav"
+                  className="text-xs"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const url = String(reader.result ?? "");
+                      setVoiceFile(url);
+                      const a = new Audio(url);
+                      a.onloadedmetadata = () => setVoiceMs(Math.round(a.duration * 1000) || 800);
+                    };
+                    reader.readAsDataURL(f);
+                  }}
+                />
+              ) : kind === "poll" || kind === "quiz" ? (
                 <>
                   <Input value={pollQ} onChange={(e) => setPollQ(e.target.value)} placeholder="سؤال نظرسنجی" className="bg-black/20" />
                   <Textarea value={pollOpts} onChange={(e) => setPollOpts(e.target.value)} className="min-h-16 bg-black/20" />
@@ -360,6 +385,8 @@ export function ChannelPane({
                       </button>
                     ))}
                   </div>
+                ) : p.kind === "voice" ? (
+                  <ChannelVoicePlayer src={p.body} durationMs={p.durationMs} />
                 ) : p.kind === "album" ? (
                   <ul className="mt-2 list-disc pr-4">{p.album.map((item) => <li key={item}>{item}</li>)}</ul>
                 ) : (

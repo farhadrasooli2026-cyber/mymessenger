@@ -3,7 +3,7 @@ import { randomId } from "@/lib/crypto-utils";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
 import type { ChannelPost, ChannelStaff, PubChannelRecord, StoreData } from "@/lib/store";
-import { emitNotification } from "@/lib/notify";
+import { sniffVoiceBytes, validateVoiceDuration, VOICE_UPLOAD_MAX } from "@/lib/voice";
 import { applyUserReaction, allowedReactionSet, publicReactionView, prefsOf } from "@/lib/stickers";
 import { canChannelInvite } from "@/lib/privacy";
 import { rankRole } from "@/lib/group-types";
@@ -163,6 +163,7 @@ function publicChannel(channel: PubChannelRecord, viewerId: string | null, data:
       views: p.views?.length ?? 0,
       forwards: p.forwards ?? 0,
       comments: channel.commentsEnabled ? p.comments.map((c) => ({ id: c.id, authorName: c.authorName, body: c.body, createdAt: c.createdAt })) : [],
+      durationMs: p.durationMs,
       poll: p.poll
         ? {
             ...p.poll,
@@ -635,6 +636,8 @@ export async function createPost(
     scheduledAt?: number | null;
     poll?: { question: string; options: string[]; anonymous?: boolean; multiple?: boolean; closesAt?: number | null; quiz?: boolean; correctIndex?: number | null };
     album?: string[];
+    durationMs?: number;
+    voiceDataUrl?: string;
   },
 ) {
   return mutateStore((data) => {
@@ -651,12 +654,28 @@ export async function createPost(
       input.kind && ["text", "photo", "video", "voice", "file", "link", "poll", "album", "gif", "quiz"].includes(input.kind)
         ? input.kind
         : "text";
-    const body = (input.body ?? "").trim().slice(0, 4000);
+    let body = (input.body ?? "").trim().slice(0, 4000);
     const caption = (input.caption ?? "").trim().slice(0, 1000);
     if (kind === "poll" || kind === "quiz") {
       const question = input.poll?.question?.trim() ?? "";
       const options = (input.poll?.options ?? []).map((o) => o.trim()).filter(Boolean).slice(0, 8);
       if (question.length < 2 || options.length < 2) return { ok: false as const, error: "نظرسنجی نامعتبر است.", status: 400 };
+    } else if (kind === "voice") {
+      const d = validateVoiceDuration(input.durationMs);
+      if (!d.ok) return { ok: false as const, error: d.error, status: 400 };
+      const raw = String(input.voiceDataUrl ?? input.body ?? "");
+      const m = /^data:([a-zA-Z0-9.+/-]+);base64,([A-Za-z0-9+/]+=*)$/.exec(raw);
+      if (!m) return { ok: false as const, error: "فایل صوت نامعتبر است.", status: 400 };
+      let buf: Buffer;
+      try {
+        buf = Buffer.from(m[2]!, "base64");
+      } catch {
+        return { ok: false as const, error: "فایل صوت خراب است.", status: 400 };
+      }
+      if (buf.length > VOICE_UPLOAD_MAX) return { ok: false as const, error: "حجم صوت از سقف نیکسو بیشتر است.", status: 413 };
+      const sniff = sniffVoiceBytes(new Uint8Array(buf));
+      if (!sniff.ok) return { ok: false as const, error: sniff.error ?? "امضای فایل صوت پذیرفته نشد.", status: 400 };
+      body = raw;
     } else if (kind !== "album" && body.length < 1 && caption.length < 1) {
       return { ok: false as const, error: "پست خالی است.", status: 400 };
     }
@@ -697,6 +716,7 @@ export async function createPost(
       views: [],
       forwards: 0,
       createdAt: now,
+      durationMs: kind === "voice" ? input.durationMs : undefined,
     };
     data.channelPosts.push(post);
     channel.updatedAt = now;
