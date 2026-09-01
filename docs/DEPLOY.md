@@ -24,6 +24,8 @@ Staff → `/app/admin` → انتشار (`/api/deploy`) و آمادگی (`/api/p
 - `docker-compose.yml` memory/CPU limits, stop grace, json logs.
 - `deploy/nixo.service` restart burst limit (anti restart-loop).
 - `deploy/k8s.yaml` rolling update, readiness/liveness, preStop drain.
+- `deploy/k8s-scale.yaml` HPA, PDB, worker Deployment, NetworkPolicy.
+- `deploy/iac/nixo.tf` Terraform contract (no secrets).
 - `deploy/nginx.conf.example` health-aware upstream.
 
 ## Runbooks

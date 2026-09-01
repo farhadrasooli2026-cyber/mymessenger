@@ -78,6 +78,7 @@ export const DOC_API_PATHS = [
   "/api/prod",
   "/api/ai",
   "/api/ai/ops",
+  "/api/cloud",
 ] as const;
 
 function page(p: Omit<DocPage, "headings">): DocPage {
@@ -267,13 +268,17 @@ POST /api/chats/:id  body: { ciphertext, nonce, enc, clientNonce }
 ## هوش مصنوعی
 \`GET/POST /api/ai\` نشست کاربر. \`GET/POST /api/ai/ops\` با \`ai.view\` / \`ai.manage\`. کلید Provider در پاسخ نیست. شکست AI روی \`503\` است و هستهٔ پیام را قطع نمی‌کند.
 
+## ابر
+\`GET/POST /api/cloud\` با \`cloud.view\` / \`cloud.manage\`. Auto Scaling با min/max و cooldown. Secret و connection string در پاسخ نیست.
+
 ## Deprecation
 فعلاً Breaking Change عمومی اعلام‌شده نیست. حذف فیلد فقط با bump API_VERSION و یادداشت در CHANGELOG.md.
 
 ## Changelog API (0.1.0)
 - افزودن \`/api/version\`، \`/api/deploy\`، \`/api/docs\`، \`/api/i18n\`
 - \`X-NIXO-App-Version\`
-- \`/api/ai\` و \`/api/ai/ops\``,
+- \`/api/ai\` و \`/api/ai/ops\`
+- \`/api/cloud\``,
   }),
   page({
     slug: "realtime",
@@ -694,6 +699,24 @@ Secret و کارت از Prompt حذف می‌شوند. جستجو فقط نتا�
 
 ## ایمنی
 Injection، Safety Layer، خروجی Validateشده. Moderation کمکی است و Ban دائم نمی‌کند. محتوای AI برچسب دارد. Kill، Eval، Rollback پرامپت.`,
+  }),
+  page({
+    slug: "cloud",
+    title: "ابر و مقیاس",
+    group: "عملیات",
+    owner: DOCS_OWNERS.platform,
+    summary: "Cloud-Ready، Auto Scaling با Min/Max، Load Balancer سالم، Multi-Region و Data plane خصوصی.",
+    tags: ["cloud", "autoscaling", "kubernetes", "ha", "cdn", "object-storage"],
+    body: `مرکز: \`/app/admin\` زبانهٔ ابر. فایل: \`docs/CLOUD.md\`. API \`/api/cloud\`.
+
+## Scale
+سرویس‌ها Stateless. Cooldown جلوی loop را می‌گیرد. Scale-in با Drain. HPA در \`deploy/k8s-scale.yaml\`.
+
+## حریم شبکه
+Database و Storage خصوصی. WAF/DDoS در لبه. Secret از env.
+
+## بازیابی
+Failover منطقه نشست را باطل نمی‌کند. RTO/RPO در پنل. Chaos فقط خارج از Production.`,
   }),
   page({
     slug: "changelog",

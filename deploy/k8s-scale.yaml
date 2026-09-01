@@ -1,0 +1,109 @@
+# Extra Kubernetes objects for autoscaling. Apply after deploy/k8s.yaml.
+# Secrets stay in nixo-runtime; this file has no credentials.
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nixo-api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: nixo
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nixo-api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nixo
+  minReplicas: 2
+  maxReplicas: 12
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 90
+    scaleUp:
+      stabilizationWindowSeconds: 30
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nixo-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nixo-worker
+  template:
+    metadata:
+      labels:
+        app: nixo-worker
+        tier: worker
+    spec:
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: worker
+          image: nixo:0.1.0
+          command: ["node", "-e", "console.log('nixo worker placeholder; jobs live in store')"]
+          envFrom:
+            - secretRef:
+                name: nixo-runtime
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nixo-db-private
+spec:
+  podSelector:
+    matchLabels:
+      tier: database
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: nixo
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nixo-api-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: nixo
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: nixo-edge
+      ports:
+        - protocol: TCP
+          port: 43151

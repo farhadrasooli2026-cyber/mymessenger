@@ -15,6 +15,7 @@ import { BiDesk } from "@/components/bi-desk";
 import { FinanceDesk } from "@/components/finance-desk";
 import { ProdDesk } from "@/components/prod-desk";
 import { AiOpsDesk } from "@/components/ai-ops-desk";
+import { CloudDesk } from "@/components/cloud-desk";
 import { ADMIN_CONFIRM, STAFF_ROLE_FA, type StaffRole } from "@/lib/admin-types";
 
 type Dash = {
@@ -25,7 +26,7 @@ type Dash = {
   sessions: { id: string; current: boolean; createdAt: number; userAgent: string; ipHint: string }[];
 };
 
-const TABS = ["داشبورد", "تحلیل", "مالی", "پایش", "بازیابی", "عملکرد", "انتشار", "آمادگی", "هوش مصنوعی", "زبان", "کاربران", "گزارش‌ها", "صف", "پرونده", "اعتراض", "حسابرسی"] as const;
+const TABS = ["داشبورد", "تحلیل", "مالی", "پایش", "بازیابی", "عملکرد", "انتشار", "آمادگی", "ابر", "هوش مصنوعی", "زبان", "کاربران", "گزارش‌ها", "صف", "پرونده", "اعتراض", "حسابرسی"] as const;
 
 export function AdminDesk() {
   const [me, setMe] = useState<{ staff: boolean; authed: boolean; role: StaffRole | null; impersonateUserId: string | null } | null>(null);
@@ -244,6 +245,8 @@ export function AdminDesk() {
       {tab === "انتشار" && <DeployDesk />}
 
       {tab === "آمادگی" && <ProdDesk />}
+
+      {tab === "ابر" && <CloudDesk />}
 
       {tab === "هوش مصنوعی" && <AiOpsDesk />}
 

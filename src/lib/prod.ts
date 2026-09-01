@@ -58,6 +58,7 @@ export function runSmokeProbes(data: StoreData): SmokeProbe[] {
     probe("payment", "پرداخت", Array.isArray(data.billing?.intents), "Intent و Webhook HMAC؛ نه PAN."),
     probe("refund", "استرداد", Array.isArray(data.billing?.refunds), "استرداد فقط با billing.refund."),
     probe("ai", "هوش مصنوعی", Array.isArray(data.aiChats) && Boolean(data.aiSys?.policy), "AI جداست؛ خاموشی آن ورود و پیام را قطع نمی‌کند."),
+    probe("cloud", "ابر", Boolean(data.cloud?.policy?.services?.api?.min >= 1), "Auto Scaling با min/max؛ Session روی Instance نیست."),
   ];
 }
 
@@ -74,6 +75,7 @@ export function securityAudit(): ProdAuditSection {
       { name: "Output redaction", ok: leak.password === undefined && nested?.totpSecretCipher === undefined && leak.visible === 1, note: "stripSensitive کلیدهای حساس را حذف می‌کند." },
       { name: "Least privilege finance", ok: roleHasPerm("finance", "billing.refund") && !roleHasPerm("analyst", "billing.refund"), note: "Analyst استرداد ندارد." },
       { name: "AI cannot ban", ok: roleHasPerm("moderator", "ai.view") && !roleHasPerm("finance", "ai.manage"), note: "AI حساب را حذف نمی‌کند؛ کنترل ops جداست." },
+      { name: "Cloud least privilege", ok: roleHasPerm("analyst", "cloud.view") && !roleHasPerm("analyst", "cloud.manage"), note: "Analyst ابر را می‌بیند؛ Scale نمی‌کند." },
       { name: "Impersonate", ok: !permsForRole("admin").includes("impersonate"), note: "فقط ابرادمین Impersonate." },
     ],
   };

@@ -75,6 +75,7 @@ import { emptyBiPersist, hydrateBiPersist, purgeBiSubjectFromPersist, type BiPer
 import { emptyBillingPersist, hydrateBillingPersist, type BillingPersist } from "@/lib/billing-persist";
 import { anonymizeBilling, syncBillingLifecycle } from "@/lib/billing-access";
 import { emptyProdPersist, hydrateProdPersist, type ProdPersist } from "@/lib/prod-persist";
+import { emptyCloudPersist, hydrateCloudPersist, type CloudPersist } from "@/lib/cloud-persist";
 import { currentDeployEnv } from "@/lib/env-config";
 import type {
   AdminAlert,
@@ -2158,6 +2159,7 @@ export type StoreData = {
   bi: BiPersist;
   billing: BillingPersist;
   prod: ProdPersist;
+  cloud: CloudPersist;
   schemaMeta: import("@/lib/db/migrate").SchemaMeta;
   dbJobs: DbJob[];
   dbAudit: DbAudit[];
@@ -2324,6 +2326,7 @@ const EMPTY: StoreData = {
   bi: emptyBiPersist(),
   billing: emptyBillingPersist(),
   prod: emptyProdPersist(),
+  cloud: emptyCloudPersist(),
   schemaMeta: { version: 0, migratedAt: 0, env: process.env.VITEST ? "test" : "development" },
   dbJobs: [],
   dbAudit: [],
@@ -2594,6 +2597,7 @@ async function readStore(): Promise<StoreData> {
       bi: hydrateBiPersist(parsed.bi),
       billing: hydrateBillingPersist(parsed.billing),
       prod: hydrateProdPersist(parsed.prod),
+      cloud: hydrateCloudPersist(parsed.cloud),
       schemaMeta: hydrateSchemaMeta(parsed.schemaMeta),
       dbJobs: Array.isArray(parsed.dbJobs) ? parsed.dbJobs : [],
       dbAudit: Array.isArray(parsed.dbAudit) ? parsed.dbAudit : [],
@@ -2717,6 +2721,7 @@ function prune(data: StoreData, now: number): void {
   data.bi = hydrateBiPersist(data.bi);
   data.billing = hydrateBillingPersist(data.billing);
   data.prod = hydrateProdPersist(data.prod);
+  data.cloud = hydrateCloudPersist(data.cloud);
   data.aiSys = pruneAiPersist(hydrateAiPersist(data.aiSys), now);
   data.aiLogs = (data.aiLogs ?? []).filter((l) => now - l.at < (data.aiSys.policy.retentionDays || 90) * 24 * 60 * 60 * 1000).slice(0, 800);
   syncBillingLifecycle(data, now);
