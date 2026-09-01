@@ -5,6 +5,7 @@ export type LoopSession = {
   remote: MediaStream;
   pcLocal: RTCPeerConnection;
   pcRemote: RTCPeerConnection;
+  stopPoll?: () => void;
 };
 
 const fallbackIce: RTCConfiguration = { iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }] };
@@ -112,7 +113,8 @@ export function stopLoop(session: LoopSession | null): void {
   session.local.getTracks().forEach((t) => t.stop());
   session.remote.getTracks().forEach((t) => t.stop());
   session.pcLocal.close();
-  session.pcRemote.close();
+  if (session.pcRemote !== session.pcLocal) session.pcRemote.close();
+  session.stopPoll?.();
 }
 
 export async function shareScreen(session: LoopSession): Promise<() => void> {
@@ -176,6 +178,23 @@ export async function sampleCallQuality(pc: RTCPeerConnection): Promise<{ rttMs:
   } catch {
     return null;
   }
+}
+
+export async function listCameras(): Promise<{ deviceId: string; label: string }[]> {
+  if (!navigator.mediaDevices?.enumerateDevices) return [];
+  const all = await navigator.mediaDevices.enumerateDevices();
+  return all.filter((d) => d.kind === "videoinput").map((d) => ({ deviceId: d.deviceId, label: d.label || "دوربین" }));
+}
+
+export async function startCameraPreview(facing: "user" | "environment" = "user"): Promise<MediaStream> {
+  return navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } },
+  });
+}
+
+export function stopStream(stream: MediaStream | null) {
+  stream?.getTracks().forEach((t) => t.stop());
 }
 
 export function getMediaErrorMessage(err: unknown): string {

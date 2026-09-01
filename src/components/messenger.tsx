@@ -907,7 +907,7 @@ export function Messenger({
       return;
     }
     setCallMin(false);
-    setLiveCall(data.call as LiveCall);
+    setLiveCall({ ...(data.call as LiveCall), mediaToken: data.mediaToken ?? null, bridged: Boolean(data.call?.bridged) });
     if ("Notification" in window && Notification.permission === "default") void Notification.requestPermission();
   }
 
@@ -2122,7 +2122,7 @@ export function Messenger({
                 return;
               }
               setCallMin(false);
-              setLiveCall(data.call as LiveCall);
+              setLiveCall({ ...(data.call as LiveCall), mediaToken: data.mediaToken ?? null, bridged: Boolean(data.call?.bridged) });
             }}
             onClearHistory={async () => {
               const res = await fetch("/api/calls", { method: "DELETE" });
@@ -2845,7 +2845,7 @@ export function Messenger({
             }
             setWaitingCall(null);
             setCallMin(false);
-            setLiveCall(data.call as LiveCall);
+            setLiveCall({ ...(data.call as LiveCall), mediaToken: data.mediaToken ?? null, bridged: Boolean(data.call?.bridged) });
           }}
           onClose={() => {
             setLiveCall(null);

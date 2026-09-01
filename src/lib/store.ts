@@ -989,6 +989,13 @@ export type CallRecord = {
   endReason?: "hangup" | "cancel" | "timeout" | "failed" | "busy" | "declined";
   hiddenAt?: number | null;
   chatNotedAt?: number | null;
+  /** Shared signaling room for a 1:1 pair. Never trust a client-supplied room id. */
+  sessionId?: string;
+  mediaTokenHash?: string;
+  mediaTokenExpiresAt?: number;
+  reconnects?: number;
+  reconnecting?: boolean;
+  sharing?: boolean;
 };
 
 export type CallSignal = {
@@ -1019,6 +1026,8 @@ export type GroupCallParticipant = {
   kicked: boolean;
   camOff?: boolean;
   micMuted?: boolean;
+  sharing?: boolean;
+  speakingAt?: number;
 };
 
 export type GroupCallRoom = {

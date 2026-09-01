@@ -25,13 +25,17 @@ import {
   applyBitrate,
   getMediaErrorMessage,
   listAudioOutputs,
+  listCameras,
   sampleCallQuality,
   shareScreen,
+  startCameraPreview,
   startMediaLoop,
   stopLoop,
+  stopStream,
   switchCamera,
   type LoopSession,
 } from "@/lib/webrtc-loop";
+import { startBridgedCall } from "@/lib/webrtc-bridge";
 
 export type LiveCall = {
   id: string;
@@ -44,6 +48,9 @@ export type LiveCall = {
   status: "ringing" | "active" | "ended" | "declined" | "missed" | "queued";
   createdAt: number;
   connectedAt: number | null;
+  bridged?: boolean;
+  sessionId?: string | null;
+  mediaToken?: string | null;
 };
 
 export function CallStage({
@@ -87,7 +94,10 @@ export function CallStage({
   const [elapsed, setElapsed] = useState(0);
   const [busy, setBusy] = useState(false);
   const [metrics, setMetrics] = useState<{ rttMs: number; loss: number; jitterMs: number } | null>(null);
+  const [cameras, setCameras] = useState<{ deviceId: string; label: string }[]>([]);
+  const previewRef = useRef<MediaStream | null>(null);
   const incoming = call.direction === "in" && phase === "ringing";
+  const bridged = Boolean(call.bridged);
 
   const attach = useCallback((session: LoopSession) => {
     loopRef.current = session;
@@ -107,10 +117,24 @@ export function CallStage({
       const st = session.pcLocal.iceConnectionState;
       if (st === "disconnected" || st === "failed") {
         setPhase("reconnect");
+        void fetch(`/api/calls/${call.id}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "reconnect" }),
+        }).then(async (res) => {
+          if (res.status === 429) {
+            toast.error("اتصال مجدد به سقف رسید.");
+            void fetch(`/api/calls/${call.id}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "fail" }),
+            });
+          }
+        });
         void fetch(`/api/calls/${call.id}/signal`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "reconnect", body: st }),
+          body: JSON.stringify({ type: "reconnect", body: st, token: call.mediaToken }),
         });
       } else if (st === "checking") setPhase("poor");
       else if (st === "connected" || st === "completed") {
@@ -118,19 +142,30 @@ export function CallStage({
         void fetch(`/api/calls/${call.id}/signal`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "quality", body: `ice:${st}` }),
+          body: JSON.stringify({ type: "quality", body: `ice:${st}`, token: call.mediaToken }),
         });
       }
     };
     session.pcLocal.addEventListener("iceconnectionstatechange", onIce);
-  }, [call.id]);
+  }, [call.id, call.mediaToken]);
 
   async function mediaForConnect() {
     try {
-      const session = await startMediaLoop({
-        video: call.kind === "video",
-        lowData: quality === "saver" || lowData,
-      });
+      stopStream(previewRef.current);
+      previewRef.current = null;
+      const session = bridged
+        ? await startBridgedCall({
+            callId: call.id,
+            offerer: call.direction === "in",
+            video: call.kind === "video",
+            lowData: quality === "saver" || lowData,
+            token: call.mediaToken,
+            quality,
+          })
+        : await startMediaLoop({
+            video: call.kind === "video",
+            lowData: quality === "saver" || lowData,
+          });
       attach(session);
       return true;
     } catch (err) {
@@ -144,6 +179,7 @@ export function CallStage({
     void mediaForConnect();
     return () => {
       stopShareRef.current?.();
+      stopStream(previewRef.current);
       stopLoop(loopRef.current);
       loopRef.current = null;
     };
@@ -152,7 +188,42 @@ export function CallStage({
 
   useEffect(() => {
     void listAudioOutputs().then(setSinks);
+    void listCameras().then(setCameras);
   }, []);
+
+  useEffect(() => {
+    if (!incoming || call.kind !== "video") return;
+    let live = true;
+    void startCameraPreview(facing)
+      .then((stream) => {
+        if (!live) {
+          stopStream(stream);
+          return;
+        }
+        previewRef.current = stream;
+        if (localRef.current) {
+          localRef.current.srcObject = stream;
+          void localRef.current.play().catch(() => undefined);
+        }
+      })
+      .catch((err) => toast.error(getMediaErrorMessage(err)));
+    return () => {
+      live = false;
+      stopStream(previewRef.current);
+      previewRef.current = null;
+    };
+  }, [incoming, call.kind, facing]);
+
+  useEffect(() => {
+    if (!bridged || call.direction !== "out" || phase !== "ringing") return;
+    const t = window.setInterval(async () => {
+      const res = await fetch("/api/calls?live=1", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { call?: LiveCall | null };
+      if (data.call?.id === call.id && data.call.status === "active") setPhase("active");
+    }, 1200);
+    return () => window.clearInterval(t);
+  }, [bridged, call.direction, call.id, phase]);
 
   useEffect(() => {
     const onOff = () => setPhase("reconnect");
@@ -166,7 +237,7 @@ export function CallStage({
   }, []);
 
   useEffect(() => {
-    if (call.direction !== "out" || phase !== "ringing") return;
+    if (call.direction !== "out" || phase !== "ringing" || bridged) return;
     const t = window.setTimeout(async () => {
       const res = await fetch(`/api/calls/${call.id}`, {
         method: "POST",
@@ -176,7 +247,7 @@ export function CallStage({
       if (res.ok) setPhase("active");
     }, 1800);
     return () => window.clearTimeout(t);
-  }, [call.direction, call.id, phase]);
+  }, [call.direction, call.id, phase, bridged]);
 
   useEffect(() => {
     if (phase !== "active" && phase !== "poor") return;
@@ -202,11 +273,12 @@ export function CallStage({
           type: "quality",
           nonce,
           body: `rtt=${sample.rttMs},loss=${sample.loss},jitter=${sample.jitterMs}`,
+          token: call.mediaToken,
         }),
       });
     }, 5000);
     return () => window.clearInterval(t);
-  }, [phase, call.id]);
+  }, [phase, call.id, call.mediaToken]);
 
   useEffect(() => {
     if (!hideLockInfo && incoming && "Notification" in window && Notification.permission === "granted") {
@@ -424,8 +496,8 @@ export function CallStage({
 
       <div className="space-y-3 px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-3">
         <p className="text-center text-[11px] leading-5 text-emerald-100/55">
-          سیگنال تماس با نشست احرازشده روی سرور است؛ صدا و تصویر در این برش با WebRTC روی همین دستگاه حلقه می‌شود و نیکسو رسانه را نمی‌بیند.
-          Echo Cancellation، Noise Suppression و Automatic Gain Control در صورت پشتیبانی مرورگر فعال است. نیکسو جایگزین تماس اضطراری سیستم‌عامل نیست.
+          سیگنال تماس با نشست احرازشده روی سرور است. رسانه با DTLS/SRTP مرورگر رمز می‌شود و نیکسو صدا/تصویر را نمی‌بیند.
+          برای مخاطب واقعی، Offer/Answer و ICE فقط در اتاق همان نشست رد و بدل می‌شود. Echo Cancellation، Noise Suppression و AGC در صورت پشتیبانی مرورگر فعال است. نیکسو جایگزین تماس اضطراری سیستم‌عامل نیست.
         </p>
         <p className="text-center text-[10px] text-emerald-100/40" role="status">
           ضبط تماس خاموش است · Recording off
@@ -508,6 +580,26 @@ export function CallStage({
                 onClick={() => setQuality(q)}
               >
                 {q === "auto" ? "کیفیت خودکار" : q === "saver" ? "کم‌مصرف" : "کیفیت بالا"}
+              </button>
+            ))}
+            {cameras.map((c) => (
+              <button
+                key={c.deviceId}
+                type="button"
+                className="rounded-full bg-white/10 px-2 py-1"
+                onClick={() => {
+                  if (!loopRef.current) return;
+                  void navigator.mediaDevices
+                    .getUserMedia({ video: { deviceId: { exact: c.deviceId } }, audio: false })
+                    .then(async (stream) => {
+                      const track = stream.getVideoTracks()[0];
+                      const sender = loopRef.current?.pcLocal.getSenders().find((s) => s.track?.kind === "video");
+                      if (track) await sender?.replaceTrack(track);
+                    })
+                    .catch(() => toast.error("این دوربین در دسترس نیست."));
+                }}
+              >
+                {c.label.slice(0, 16) || "دوربین"}
               </button>
             ))}
             {sinks.map((s) => (

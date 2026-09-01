@@ -1,5 +1,5 @@
 import "server-only";
-import { randomId } from "@/lib/crypto-utils";
+import { hmacIdentifier, randomId } from "@/lib/crypto-utils";
 import { SEED_PEERS } from "@/lib/chat-copy";
 import { blockState } from "@/lib/safety";
 import { audienceAllows } from "@/lib/privacy";
@@ -11,6 +11,8 @@ import { emitNotification } from "@/lib/notify";
 export const CALL_RING_MS = 30_000;
 export const CALL_FLOOD_WINDOW_MS = 60_000;
 export const CALL_FLOOD_MAX = 8;
+export const CALL_TOKEN_TTL_MS = 2 * 60 * 60 * 1000;
+export const CALL_RECONNECT_MAX = 8;
 
 export type PublicCall = {
   id: string;
@@ -27,6 +29,20 @@ export type PublicCall = {
   durationMs: number;
   declineWithMessage: boolean;
   endReason?: CallRecord["endReason"];
+  sessionId: string | null;
+  bridged: boolean;
+  phase:
+    | "calling"
+    | "ringing"
+    | "connecting"
+    | "connected"
+    | "reconnecting"
+    | "ended"
+    | "rejected"
+    | "missed"
+    | "failed"
+    | "busy";
+  reconnects: number;
 };
 
 function noteMissedInChat(data: StoreData, call: CallRecord, now: number) {
@@ -54,23 +70,75 @@ function expireRinging(call: CallRecord, now: number, data?: StoreData): CallRec
     call.status = "missed";
     call.endedAt = call.createdAt + CALL_RING_MS;
     call.endReason = "timeout";
-    if (data && call.direction === "in") {
-      noteMissedInChat(data, call, now);
-      emitNotification(data, {
-        userId: call.ownerUserId,
-        category: "calls",
-        kind: "missed",
-        title: "Missed Call",
-        senderName: call.peerName,
-        body: call.kind === "video" ? "Incoming Video Call از دست رفت" : "Incoming Voice Call از دست رفت",
-        sourceId: `call:${call.peerKey}`,
-        muteType: "chat",
-        muteId: call.threadId,
-        target: { type: "call", id: call.id },
-      });
+    call.mediaTokenHash = undefined;
+    if (data) {
+      for (const copy of twins(data, call)) {
+        if (copy.id === call.id) continue;
+        if (copy.status === "ringing") {
+          copy.status = copy.direction === "out" ? "ended" : "missed";
+          copy.endedAt = call.endedAt;
+          copy.endReason = "timeout";
+          copy.mediaTokenHash = undefined;
+          if (copy.direction === "in") noteMissedInChat(data, copy, now);
+        }
+      }
+      if (call.direction === "in") {
+        noteMissedInChat(data, call, now);
+        emitNotification(data, {
+          userId: call.ownerUserId,
+          category: "calls",
+          kind: "missed",
+          title: "Missed Call",
+          senderName: call.peerName,
+          body: call.kind === "video" ? "Incoming Video Call از دست رفت" : "Incoming Voice Call از دست رفت",
+          sourceId: `call:${call.peerKey}`,
+          muteType: "chat",
+          muteId: call.threadId,
+          target: { type: "call", id: call.id },
+        });
+      }
     }
   }
   return call;
+}
+
+export function callPhase(call: CallRecord): PublicCall["phase"] {
+  if (call.status === "missed") return "missed";
+  if (call.status === "declined") return "rejected";
+  if (call.status === "queued") return "busy";
+  if (call.status === "ended" && call.endReason === "failed") return "failed";
+  if (call.status === "ended") return "ended";
+  if (call.status === "active" && call.reconnecting) return "reconnecting";
+  if (call.status === "active") return "connected";
+  if (call.status === "ringing" && call.direction === "out") return "calling";
+  if (call.status === "ringing") return "ringing";
+  return "ended";
+}
+
+export function hashCallToken(token: string) {
+  return hmacIdentifier(`call-token:${token}`);
+}
+
+function twins(data: StoreData, call: CallRecord): CallRecord[] {
+  if (!call.sessionId) return [call];
+  return data.calls.filter((c) => c.sessionId === call.sessionId);
+}
+
+function ensurePeerThread(data: StoreData, fromId: string, toUser: { id: string; displayName?: string; username?: string | null }, now: number) {
+  let thread = data.threads.find((t) => t.ownerUserId === toUser.id && t.peerKey === fromId);
+  if (thread) return thread;
+  const from = data.users.find((u) => u.id === fromId);
+  thread = {
+    id: randomId(),
+    ownerUserId: toUser.id,
+    peerKey: fromId,
+    peerName: from?.displayName || from?.username || "کاربر نیکسو",
+    peerTitle: from?.username ? `@${from.username}` : "گفتگوی خصوصی",
+    color: "#34d399",
+    updatedAt: now,
+  };
+  data.threads.push(thread);
+  return thread;
 }
 
 export function publicCall(call: CallRecord, now = Date.now()): PublicCall {
@@ -95,6 +163,10 @@ export function publicCall(call: CallRecord, now = Date.now()): PublicCall {
     durationMs,
     declineWithMessage: Boolean(call.declineWithMessage),
     endReason: call.endReason,
+    sessionId: call.sessionId ?? null,
+    bridged: Boolean(call.sessionId),
+    phase: callPhase(call),
+    reconnects: call.reconnects ?? 0,
   };
 }
 
@@ -171,12 +243,21 @@ export async function startOutgoing(userId: string, threadId: string, kind: Call
     const existing = data.calls.find(
       (c) => c.ownerUserId === userId && c.threadId === thread.id && c.status === "ringing" && now - c.createdAt < 8_000,
     );
-    if (existing) return { ok: true as const, call: publicCall(existing, now) };
+    if (existing) return { ok: true as const, call: publicCall(existing, now), mediaToken: null as string | null };
     if (busyCall(data, userId)) {
       return { ok: false as const, error: "یک تماس دیگر در جریان است.", status: 409, busy: true as const };
     }
     const flood = hitRateLimit(data, `callout:${userId}`, CALL_FLOOD_WINDOW_MS, CALL_FLOOD_MAX);
     if (!flood.allowed) return { ok: false as const, error: "تماس پیاپی محدود شد.", status: 429 };
+    const peerUser = data.users.find((u) => u.id === thread.peerKey && u.status === "active");
+    if (peerUser && !canReceiveCall(data, peerUser.id, userId)) {
+      return { ok: false as const, error: "تنظیمات حریم خصوصی مخاطب تماس را محدود کرده است.", status: 403 };
+    }
+    const sessionId = peerUser ? randomId() : undefined;
+    const token = peerUser ? randomId() : undefined;
+    const tokenHash = token ? hashCallToken(token) : undefined;
+    const tokenExp = token ? now + CALL_TOKEN_TTL_MS : undefined;
+    const meUser = data.users.find((u) => u.id === userId);
     const call: CallRecord = {
       id: randomId(),
       ownerUserId: userId,
@@ -188,9 +269,47 @@ export async function startOutgoing(userId: string, threadId: string, kind: Call
       direction: "out",
       status: "ringing",
       createdAt: now,
+      sessionId,
+      mediaTokenHash: tokenHash,
+      mediaTokenExpiresAt: tokenExp,
+      reconnects: 0,
     };
     data.calls.push(call);
-    return { ok: true as const, call: publicCall(call, now) };
+    if (peerUser) {
+      const peerThread = ensurePeerThread(data, userId, peerUser, now);
+      const peerBusy = busyCall(data, peerUser.id);
+      const incoming: CallRecord = {
+        id: randomId(),
+        ownerUserId: peerUser.id,
+        threadId: peerThread.id,
+        peerKey: userId,
+        peerName: meUser?.displayName || meUser?.username || "مخاطب",
+        peerColor: thread.color,
+        kind,
+        direction: "in",
+        status: peerBusy ? "queued" : "ringing",
+        createdAt: now,
+        sessionId,
+        mediaTokenHash: tokenHash,
+        mediaTokenExpiresAt: tokenExp,
+        reconnects: 0,
+      };
+      data.calls.push(incoming);
+      const hide = Boolean(peerUser.hideCallOnLockScreen);
+      emitNotification(data, {
+        userId: peerUser.id,
+        category: "calls",
+        kind: kind === "video" ? "incoming_video" : "incoming_voice",
+        title: kind === "video" ? "Incoming Video Call" : "Incoming Voice Call",
+        senderName: hide ? "NIXO" : incoming.peerName,
+        body: hide ? "تماس ورودی" : incoming.peerName,
+        sourceId: `call:${userId}`,
+        muteType: "chat",
+        muteId: peerThread.id,
+        target: { type: "call", id: incoming.id },
+      });
+    }
+    return { ok: true as const, call: publicCall(call, now), mediaToken: token ?? null };
   });
 }
 
@@ -238,71 +357,124 @@ export async function startIncomingDemo(userId: string, kind: CallKind) {
 export async function actOnCall(
   userId: string,
   callId: string,
-  action: "accept" | "connect" | "decline" | "end" | "message-decline" | "end-current-accept" | "cancel" | "fail",
+  action: "accept" | "connect" | "decline" | "end" | "message-decline" | "end-current-accept" | "cancel" | "fail" | "reconnect",
 ) {
   return mutateStore((data) => {
     const call = data.calls.find((c) => c.id === callId && c.ownerUserId === userId);
     if (!call) return { ok: false as const, error: "تماس یافت نشد.", status: 404 };
     const now = Date.now();
     expireRinging(call, now, data);
+    const applyTwins = (fn: (c: CallRecord) => void) => {
+      for (const copy of twins(data, call)) fn(copy);
+    };
+    if (action === "reconnect") {
+      if (call.status !== "active") return { ok: false as const, error: "تماس فعال نیست.", status: 400 };
+      const n = (call.reconnects ?? 0) + 1;
+      if (n > CALL_RECONNECT_MAX) {
+        applyTwins((c) => {
+          c.status = "ended";
+          c.endedAt = now;
+          c.endReason = "failed";
+          c.reconnecting = false;
+          c.mediaTokenHash = undefined;
+          if (c.connectedAt) c.durationMs = now - c.connectedAt;
+        });
+        return { ok: false as const, error: "تلاش اتصال مجدد به سقف رسید.", status: 429, call: publicCall(call, now) };
+      }
+      applyTwins((c) => {
+        c.reconnects = n;
+        c.reconnecting = true;
+      });
+      return { ok: true as const, call: publicCall(call, now) };
+    }
     if (action === "connect") {
-      if (call.direction !== "out" || call.status !== "ringing") {
+      if (call.direction !== "out" || (call.status !== "ringing" && call.status !== "active")) {
         return { ok: false as const, error: "این تماس قابل اتصال نیست.", status: 400 };
       }
+      if (call.sessionId && call.status === "ringing") {
+        return { ok: false as const, error: "منتظر پذیرش طرف مقابل بمان.", status: 409 };
+      }
       call.status = "active";
-      call.connectedAt = now;
+      call.connectedAt = call.connectedAt ?? now;
+      call.reconnecting = false;
     } else if (action === "accept") {
       if (call.direction !== "in" || (call.status !== "ringing" && call.status !== "queued")) {
         return { ok: false as const, error: "تماس ورودی فعالی نیست.", status: 400 };
       }
-      call.status = "active";
-      call.connectedAt = now;
+      applyTwins((c) => {
+        c.status = "active";
+        c.connectedAt = now;
+        c.reconnecting = false;
+      });
     } else if (action === "end-current-accept") {
       const current = busyCall(data, userId);
       if (current && current.id !== call.id) {
         current.status = "ended";
         current.endedAt = now;
         if (current.connectedAt) current.durationMs = now - current.connectedAt;
+        current.mediaTokenHash = undefined;
       }
       if (call.direction !== "in" || (call.status !== "queued" && call.status !== "ringing")) {
         return { ok: false as const, error: "تماس منتظری نیست.", status: 400 };
       }
-      call.status = "active";
-      call.connectedAt = now;
+      applyTwins((c) => {
+        c.status = "active";
+        c.connectedAt = now;
+        c.reconnecting = false;
+      });
     } else if (action === "cancel") {
       if (call.direction !== "out" || call.status !== "ringing") {
         return { ok: false as const, error: "این تماس قابل لغو نیست.", status: 400 };
       }
-      call.status = "ended";
-      call.endedAt = now;
-      call.endReason = "cancel";
+      applyTwins((c) => {
+        c.status = c.direction === "in" ? "missed" : "ended";
+        c.endedAt = now;
+        c.endReason = c.direction === "in" ? "timeout" : "cancel";
+        c.mediaTokenHash = undefined;
+        if (c.direction === "in") noteMissedInChat(data, c, now);
+      });
     } else if (action === "fail") {
-      call.status = "ended";
-      call.endedAt = now;
-      call.endReason = "failed";
-      if (call.connectedAt) call.durationMs = now - call.connectedAt;
+      applyTwins((c) => {
+        c.status = "ended";
+        c.endedAt = now;
+        c.endReason = "failed";
+        c.mediaTokenHash = undefined;
+        if (c.connectedAt) c.durationMs = now - c.connectedAt;
+      });
     } else if (action === "decline" || action === "message-decline") {
       if (call.status !== "ringing" && call.status !== "queued") {
         return { ok: false as const, error: "تماس در حال زنگ نیست.", status: 400 };
       }
-      call.status = call.direction === "in" ? "declined" : "ended";
-      call.endedAt = now;
-      call.declineWithMessage = action === "message-decline";
-      call.endReason = call.direction === "in" ? "declined" : "cancel";
+      applyTwins((c) => {
+        if (c.direction === "in") {
+          c.status = "declined";
+          c.endReason = "declined";
+        } else {
+          c.status = "ended";
+          c.endReason = "declined";
+        }
+        c.endedAt = now;
+        c.declineWithMessage = action === "message-decline";
+        c.mediaTokenHash = undefined;
+      });
     } else if (action === "end") {
-      if (call.status === "active") {
-        call.durationMs = call.connectedAt ? now - call.connectedAt : 0;
-        call.endReason = "hangup";
-      }
-      if (call.status === "ringing" && call.direction === "in") {
-        call.status = "missed";
-        call.endReason = "timeout";
-        noteMissedInChat(data, call, now);
-      } else if (call.status === "ringing") {
-        call.status = "ended";
-        call.endReason = "cancel";
-      } else call.status = "ended";
-      call.endedAt = now;
+      applyTwins((c) => {
+        if (c.status === "active") {
+          c.durationMs = c.connectedAt ? now - c.connectedAt : 0;
+          c.endReason = "hangup";
+        }
+        if (c.status === "ringing" && c.direction === "in") {
+          c.status = "missed";
+          c.endReason = "timeout";
+          noteMissedInChat(data, c, now);
+        } else if (c.status === "ringing") {
+          c.status = "ended";
+          c.endReason = "cancel";
+        } else c.status = "ended";
+        c.endedAt = now;
+        c.mediaTokenHash = undefined;
+        c.reconnecting = false;
+      });
     }
     return { ok: true as const, call: publicCall(call, now) };
   });

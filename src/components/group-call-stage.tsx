@@ -40,9 +40,10 @@ export type PublicGroupCallUi = {
   maxParticipants: number;
   createdAt: number;
   inviteToken: string | boolean | null;
-  participants: { userId: string; name: string; role: string; mutedByHost: boolean; camOff?: boolean; micMuted?: boolean; me: boolean }[];
+  participants: { userId: string; name: string; role: string; mutedByHost: boolean; camOff?: boolean; micMuted?: boolean; sharing?: boolean; speaking?: boolean; me: boolean }[];
   iAmHost: boolean;
   canModerate: boolean;
+  activeSpeakerId?: string | null;
 };
 
 export function GroupCallStage({
@@ -90,6 +91,14 @@ export function GroupCallStage({
     const t = window.setInterval(() => void refresh(), 2500);
     return () => window.clearInterval(t);
   }, [refresh]);
+
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      if (!muted) void act("media", { speaking: true });
+    }, 2000);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [muted, room.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,6 +169,7 @@ export function GroupCallStage({
       stopShareRef.current?.();
       stopShareRef.current = null;
       setSharing(false);
+      void act("media", { sharing: false });
       return;
     }
     try {
@@ -167,8 +177,10 @@ export function GroupCallStage({
       stopShareRef.current = () => {
         stop();
         setSharing(false);
+        void act("media", { sharing: false });
       };
       setSharing(true);
+      void act("media", { sharing: true });
     } catch {
       toast.error("اشتراک صفحه ممکن نشد.");
     }
@@ -212,12 +224,14 @@ export function GroupCallStage({
         </p>
         <ul className="mt-2 max-h-28 space-y-1 overflow-auto text-xs">
           {room.participants.map((p) => (
-            <li key={p.userId} className="flex items-center justify-between gap-2">
+            <li key={p.userId} className={cn("flex items-center justify-between gap-2 rounded-lg px-2 py-1", (p.speaking || room.activeSpeakerId === p.userId) && "bg-amber-300/20")}>
               <span>
                 {p.name} · {p.role}
                 {p.mutedByHost ? " · بی‌صدا از طرف Host" : ""}
                 {p.micMuted ? " · میکروفون خاموش" : ""}
                 {p.camOff ? " · دوربین خاموش" : ""}
+                {p.sharing ? " · اشتراک صفحه" : ""}
+                {p.speaking || room.activeSpeakerId === p.userId ? " · در حال صحبت" : ""}
                 {p.me ? " · شما" : ""}
               </span>
               {room.canModerate && !p.me && (

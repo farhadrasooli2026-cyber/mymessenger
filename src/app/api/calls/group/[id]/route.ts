@@ -23,6 +23,8 @@ export async function POST(request: Request, ctx: Ctx) {
     maxParticipants?: number;
     camOff?: boolean;
     micMuted?: boolean;
+    sharing?: boolean;
+    speaking?: boolean;
   } | null;
   const action = body?.action;
   if (!action) return jsonError("عملیات نامعتبر است.");
@@ -32,7 +34,12 @@ export async function POST(request: Request, ctx: Ctx) {
     return json({ ok: true, call: r.call });
   }
   if (action === "media") {
-    const r = await setOwnCallMedia(user.id, id, { camOff: body?.camOff, micMuted: body?.micMuted });
+    const r = await setOwnCallMedia(user.id, id, {
+      camOff: body?.camOff,
+      micMuted: body?.micMuted,
+      sharing: body?.sharing,
+      speaking: body?.speaking,
+    });
     if (!r.ok) return jsonError(r.error, r.status);
     return json({ ok: true, call: r.call });
   }

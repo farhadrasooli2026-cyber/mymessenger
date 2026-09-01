@@ -51,8 +51,13 @@ export function publicGroupCall(room: GroupCallRoom, userId: string) {
       mutedByHost: p.mutedByHost,
       camOff: Boolean(p.camOff),
       micMuted: Boolean(p.micMuted),
+      sharing: Boolean(p.sharing),
+      speaking: Boolean(p.speakingAt && Date.now() - p.speakingAt < 2_500),
       me: p.userId === userId,
     })),
+    activeSpeakerId: liveParts(room)
+      .filter((p) => p.speakingAt && Date.now() - p.speakingAt < 2_500)
+      .sort((a, b) => (b.speakingAt ?? 0) - (a.speakingAt ?? 0))[0]?.userId ?? null,
     iAmHost: room.hostUserId === userId,
     canModerate: Boolean(me && (me.role === "host" || me.role === "admin")),
   };
@@ -65,6 +70,7 @@ function canModerate(room: GroupCallRoom, userId: string) {
 
 export async function startGroupCall(userId: string, groupId: string, kind: CallKind, maxParticipants?: number) {
   return mutateStore((data) => {
+    expireAbandonedGroupCalls(data);
     const ctx = liveMember(data, groupId, userId);
     if (!ctx) return { ok: false as const, error: "عضو این گروه نیستی.", status: 403 };
     if (ctx.member.role !== "owner" && ctx.member.role !== "admin" && !ctx.group.perms.startCalls) {
@@ -352,20 +358,36 @@ export async function moderateGroupCall(
   });
 }
 
-export async function setOwnCallMedia(userId: string, callId: string, patch: { camOff?: boolean; micMuted?: boolean }) {
+export async function setOwnCallMedia(userId: string, callId: string, patch: { camOff?: boolean; micMuted?: boolean; sharing?: boolean; speaking?: boolean }) {
   return mutateStore((data) => {
+    expireAbandonedGroupCalls(data);
     const room = (data.groupCalls ?? []).find((c) => c.id === callId && c.status !== "ended");
     if (!room) return { ok: false as const, error: "تماس نیست.", status: 404 };
     const me = room.participants.find((p) => p.userId === userId && !p.leftAt && !p.kicked);
     if (!me) return { ok: false as const, error: "داخل تماس نیستی.", status: 403 };
     if (typeof patch.camOff === "boolean") me.camOff = patch.camOff;
     if (typeof patch.micMuted === "boolean") me.micMuted = patch.micMuted;
+    if (typeof patch.sharing === "boolean") me.sharing = patch.sharing;
+    if (patch.speaking) me.speakingAt = Date.now();
     return { ok: true as const, call: publicGroupCall(room, userId) };
   });
 }
 
+function expireAbandonedGroupCalls(data: StoreData, now = Date.now()) {
+  for (const room of data.groupCalls ?? []) {
+    if (room.status === "ended") continue;
+    const live = liveParts(room);
+    if (live.length === 0 && now - room.createdAt > 90_000) {
+      room.status = "ended";
+      room.endedAt = now;
+      room.inviteToken = null;
+    }
+  }
+}
+
 export async function getGroupCall(userId: string, callId: string) {
   return mutateStore((data) => {
+    expireAbandonedGroupCalls(data);
     const room = (data.groupCalls ?? []).find((c) => c.id === callId);
     if (!room) return { ok: false as const, error: "تماس نیست.", status: 404 };
     if (!liveMember(data, room.groupId, userId)) return { ok: false as const, error: "اجازه نداری.", status: 403 };

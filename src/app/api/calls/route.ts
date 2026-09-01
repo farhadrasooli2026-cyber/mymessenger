@@ -39,7 +39,7 @@ export async function POST(request: Request) {
   }
   const result = await startOutgoing(user.id, body.threadId, body.kind);
   if (!result.ok) return jsonError(result.error, result.status);
-  return json({ ok: true, call: result.call });
+  return json({ ok: true, call: result.call, mediaToken: "mediaToken" in result ? result.mediaToken : null });
 }
 
 export async function DELETE() {
