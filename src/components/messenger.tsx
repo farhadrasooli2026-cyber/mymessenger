@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Ban, Bookmark, Check, CheckCheck, Flag, Lock, MessageCircle, MoreVertical, Phone, Search, Send, Sparkles, UserRound, Users, Video } from "lucide-react";
+import { Ban, Bookmark, Check, CheckCheck, Flag, Lock, MessageCircle, MoreVertical, Phone, Search, Send, Smile, Sparkles, UserRound, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { useA11y } from "@/components/a11y-provider";
@@ -1507,6 +1507,21 @@ export function Messenger({
                     <button type="button" className="block w-full rounded-xl px-3 py-2 text-start hover:bg-white/10" onClick={() => { setTimerOpen((v) => !v); setHeaderMore(false); }}>تایمر ناپدید</button>
                     <button type="button" className="block w-full rounded-xl px-3 py-2 text-start hover:bg-white/10" onClick={() => { setSafetyOpen((v) => !v); setHeaderMore(false); }}>ایمنی</button>
                     <button type="button" className="block w-full rounded-xl px-3 py-2 text-start hover:bg-white/10" onClick={() => { setPeerSheet(true); setHeaderMore(false); }}>پروفایل</button>
+                    <button
+                      type="button"
+                      className="block w-full rounded-xl px-3 py-2 text-start hover:bg-white/10"
+                      onClick={() => {
+                        if (!confirm("پیام‌های این گفتگو فقط برای تو پاک شود؟ حساب حذف نمی‌شود.")) return;
+                        void fetch("/api/inbox", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ key: `dm:${active.id}`, action: "clear", confirm: true }),
+                        }).then(() => setMessages([]));
+                        setHeaderMore(false);
+                      }}
+                    >
+                      پاک کردن گفتگو
+                    </button>
                   </div>
                 )}
               </div>
@@ -1629,23 +1644,6 @@ export function Messenger({
                 >
                   <Flag className="size-3.5" />
                   گزارش گفتگو
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => {
-                    if (!confirm("پیام‌های این گفتگو فقط برای تو پاک شود؟ حساب و پیام‌های طرف مقابل حذف نمی‌شود.")) return;
-                    void fetch("/api/inbox", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ key: `dm:${active.id}`, action: "clear", confirm: true }),
-                    }).then(() => {
-                      setMessages([]);
-                    });
-                  }}
-                >
-                  Clear Chat
                 </Button>
               </div>
             )}
@@ -1972,6 +1970,9 @@ export function Messenger({
                     await loadThreads();
                   }}
                 />
+                <Button type="button" size="icon" variant="ghost" className="size-10 shrink-0 text-white hover:bg-white/10" aria-label="ایموجی" onClick={() => { setEmojiOpen((v) => !v); setStickerOpen(false); }}>
+                  <Smile className="size-4" />
+                </Button>
                 <Input
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}

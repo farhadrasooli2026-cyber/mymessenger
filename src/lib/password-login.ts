@@ -1,8 +1,8 @@
 import "server-only";
 import { z } from "zod";
 import { loginBlocked } from "@/lib/account-gate";
-import { dummyOtpCompare, hmacIdentifier, randomId } from "@/lib/crypto-utils";
-import { detectChannel, normalizeIdentifier } from "@/lib/identifiers";
+import { dummyOtpCompare, hmacIdentifier, identifierHashSet, randomId } from "@/lib/crypto-utils";
+import { canonicalizeEmail, detectChannel, normalizeIdentifier } from "@/lib/identifiers";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { consumeHumanInStore } from "@/lib/registration";
 import { passwordMatches, userNeedsTotpOrPasskey } from "@/lib/security";
@@ -48,7 +48,8 @@ export async function loginWithPassword(input: z.infer<typeof passwordLoginSchem
     return { ok: true as const, bait: true as const, next: "app" as const };
   }
 
-  const identifierHash = hmacIdentifier(normalized);
+  const canonical = channel === "email" ? (canonicalizeEmail(normalized) ?? normalized) : normalized;
+  const hashes = new Set(identifierHashSet(canonical));
   const now = Date.now();
 
   return mutateStore((data) => {
@@ -63,7 +64,7 @@ export async function loginWithPassword(input: z.infer<typeof passwordLoginSchem
         retryAfterSec: ipLimit.retryAfterSec,
       });
     }
-    const idLimit = hitRateLimit(data, `password-login:id:${identifierHash}`, 15 * 60 * 1000, 8, now);
+    const idLimit = hitRateLimit(data, `password-login:id:${hmacIdentifier(canonical)}`, 15 * 60 * 1000, 8, now);
     if (!idLimit.allowed) {
       return publicError("تعداد درخواست‌ها بیش از حد مجاز است. بعداً تلاش کنید.", 429, {
         retryAfterSec: idLimit.retryAfterSec,
@@ -72,7 +73,7 @@ export async function loginWithPassword(input: z.infer<typeof passwordLoginSchem
 
     dummyOtpCompare(input.password.slice(0, 6).padEnd(6, "0"));
 
-    const user = data.users.find((u) => u.identifierHash === identifierHash);
+    const user = data.users.find((u) => hashes.has(u.identifierHash));
     if (!user || user.status !== "active") {
       dummyOtpCompare("000000");
       return publicError(GENERIC, 401);

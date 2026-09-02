@@ -1,6 +1,7 @@
 import "server-only";
 import { createCipheriv, createDecipheriv, createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { config } from "@/lib/config";
+import { canonicalizeEmail } from "@/lib/identifiers";
 
 const SCRYPT_KEYLEN = 32;
 
@@ -18,6 +19,25 @@ export function randomOtp(length: number): string {
 
 export function hmacIdentifier(normalized: string): string {
   return createHmac("sha256", config.pepper).update(normalized).digest("hex");
+}
+
+/** All hashes that may represent the same login identifier (canonical email, previous pepper). */
+export function identifierHashSet(normalized: string): string[] {
+  const variants = new Set<string>([normalized]);
+  if (normalized.includes("@")) {
+    const canon = canonicalizeEmail(normalized);
+    if (canon) variants.add(canon);
+  }
+  const peppers = [config.pepper];
+  const prev = (process.env.NIXO_PEPPER_PREVIOUS || "").trim();
+  if (prev && prev !== config.pepper) peppers.push(prev);
+  const out: string[] = [];
+  for (const pepper of peppers) {
+    for (const value of variants) {
+      out.push(createHmac("sha256", pepper).update(value).digest("hex"));
+    }
+  }
+  return out;
 }
 
 export function hashIp(ip: string): string {

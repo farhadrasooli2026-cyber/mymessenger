@@ -42,6 +42,7 @@ export function RegisterFlow() {
   const router = useRouter();
   const [boot, setBoot] = useState(true);
   const [step, setStep] = useState<Step>("start");
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [method, setMethod] = useState<Method>("otp");
   const [idMode, setIdMode] = useState<IdMode>("phone");
   const [countryIso, setCountryIso] = useState("TR");
@@ -172,6 +173,7 @@ export function RegisterFlow() {
 
   async function parseError(res: Response) {
     const data = (await res.json()) as { error?: string; remainingAttempts?: number; reason?: string };
+    if (data.reason === "no_account") return "حسابی با این شناسه نیست. ثبت‌نام کنید.";
     if (data.reason === "destination") {
       return idMode === "email" ? "ایمیل واردشده معتبر نیست." : "شماره موبایل معتبر نیست.";
     }
@@ -211,6 +213,7 @@ export function RegisterFlow() {
           countryIso: idMode === "phone" ? countryIso : undefined,
           humanToken: token,
           website: honeypot,
+          intent: authMode,
         }),
       });
       if (!res.ok) {
@@ -522,7 +525,9 @@ export function RegisterFlow() {
     <div className="space-y-6">
       <NixoHeroLogo />
       {step === "start" && (
-        <p className="text-center text-sm text-slate-200">با حساب خود وارد شوید</p>
+        <p className="text-center text-sm text-slate-200">
+          {authMode === "register" ? "ساخت حساب نیکسو" : "با حساب خود وارد شوید"}
+        </p>
       )}
 
       {error && (
@@ -685,25 +690,44 @@ export function RegisterFlow() {
             <p className="text-center text-xs text-slate-500">یا</p>
             {idMode === "phone" ? (
               <Button type="button" className={ghostBtn} disabled={busy} onClick={switchToEmail}>
-                تغییر با ایمیل
+                تغییر به ورود با ایمیل
               </Button>
             ) : (
               <Button type="button" className={ghostBtn} disabled={busy} onClick={switchToPhone}>
-                تغییر با شماره
+                تغییر به ورود با شماره
               </Button>
             )}
             <p className="pt-2 text-center text-sm text-slate-300">
-              حساب کاربری ندارید؟{" "}
-              <button
-                type="button"
-                className="text-cyan-300 hover:underline"
-                onClick={() => {
-                  setMethod("otp");
-                  document.getElementById("login-identifier")?.focus();
-                }}
-              >
-                ثبت‌نام کنید
-              </button>
+              {authMode === "login" ? (
+                <>
+                  حساب کاربری ندارید؟{" "}
+                  <button
+                    type="button"
+                    className="text-cyan-300 hover:underline"
+                    onClick={() => {
+                      setAuthMode("register");
+                      setMethod("otp");
+                      setError(null);
+                    }}
+                  >
+                    ثبت‌نام کنید
+                  </button>
+                </>
+              ) : (
+                <>
+                  قبلاً حساب دارید؟{" "}
+                  <button
+                    type="button"
+                    className="text-cyan-300 hover:underline"
+                    onClick={() => {
+                      setAuthMode("login");
+                      setError(null);
+                    }}
+                  >
+                    وارد شوید
+                  </button>
+                </>
+              )}
             </p>
           </div>
         </>
@@ -712,7 +736,6 @@ export function RegisterFlow() {
       {step === "verify" && (
         <form onSubmit={onVerify} className="space-y-5">
           <p className="text-center text-lg font-medium text-white">کد تأیید</p>
-          <p className="text-center text-sm text-slate-300">کد ۶ رقمی ارسال‌شده را وارد کنید.</p>
           <div className="flex justify-center" dir="ltr">
             <InputOTP maxLength={6} value={code} onChange={setCode} disabled={busy} aria-label="کد یک‌بارمصرف ۶ رقمی">
               <InputOTPGroup>
@@ -743,15 +766,9 @@ export function RegisterFlow() {
               </span>
             ) : null}
           </p>
-          {idMode === "phone" ? (
-            <Button type="button" className={ghostBtn} disabled={busy} onClick={switchToEmail}>
-              تغییر با ایمیل
-            </Button>
-          ) : (
-            <Button type="button" className={ghostBtn} disabled={busy} onClick={switchToPhone}>
-              تغییر با شماره
-            </Button>
-          )}
+          <Button type="button" className={ghostBtn} disabled={busy} onClick={idMode === "phone" ? switchToEmail : switchToPhone}>
+            {idMode === "phone" ? "تغییر به ورود با ایمیل" : "تغییر به ورود با شماره"}
+          </Button>
           {demoInbox ? (
             <div className="space-y-2">
               <Button type="button" className={ghostBtn} onClick={loadInbox} disabled={busy}>

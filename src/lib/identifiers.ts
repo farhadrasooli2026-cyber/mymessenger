@@ -37,8 +37,22 @@ export function normalizeEmail(input: string): string | null {
   return raw;
 }
 
+export function canonicalizeEmail(input: string): string | null {
+  const n = normalizeEmail(input);
+  if (!n) return null;
+  const at = n.lastIndexOf("@");
+  const local = n.slice(0, at);
+  const domain = n.slice(at + 1);
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    const base = local.split("+")[0]!.replace(/\./g, "");
+    if (!base) return n;
+    return `${base}@gmail.com`;
+  }
+  return n;
+}
+
 export function normalizeIdentifier(channel: Channel, input: string, countryIso?: string | null): string | null {
-  if (channel === "email") return normalizeEmail(input);
+  if (channel === "email") return canonicalizeEmail(input) ?? normalizeEmail(input);
   if (countryIso) return normalizePhoneWithCountry(countryIso, input);
   return normalizePhone(input);
 }

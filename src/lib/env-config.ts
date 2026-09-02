@@ -1,6 +1,7 @@
 import "server-only";
 import { APP_VERSION } from "@/lib/release";
 import { DEPLOY_ENVS, type DeployEnvName } from "@/lib/deploy-types";
+import { productionPersistOk } from "@/lib/persist";
 import { emailConfigured, smsConfigured } from "@/lib/otp-env";
 
 const DEV_PEPPER = "nixo-dev-pepper-not-for-production-use";
@@ -59,6 +60,8 @@ export function envVarNames(): readonly string[] {
     "NIXO_SMS_API_KEY",
     "NIXO_SMS_API_SECRET",
     "NIXO_PUBLIC_HOST",
+    "DATABASE_URL",
+    "NIXO_DATABASE_URL",
   ] as const;
 }
 
@@ -85,6 +88,7 @@ export function validateRuntimeConfig(env: DeployEnvName = currentDeployEnv()): 
     if (demo === "true") errors.push("demo inbox must be off in production");
     if (!productionEmailOk()) errors.push("production email provider missing");
     if (!productionSmsOk()) errors.push("production sms provider missing");
+    if (!productionPersistOk()) errors.push("production database url missing");
     if (!process.env.NIXO_BACKUP_KEY) warnings.push("backup key unset");
     if (!process.env.NIXO_DATA_KEY || process.env.NIXO_DATA_KEY.replace(/0/g, "") === "") warnings.push("data key looks empty");
   } else if (env === "staging") {

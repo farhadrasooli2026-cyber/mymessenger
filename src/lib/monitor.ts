@@ -448,7 +448,8 @@ export async function publicHealth(probe?: string | null) {
   const ready = { ok: db.ok && db.ready && !isShuttingDown() && start.ok, schema: db.schemaVersion };
   if (probe === "ready") {
     const { otpProvidersReady } = await import("@/lib/otp-delivery");
-    return { ok: ready.ok, ready, startup: start.ok, otp: otpProvidersReady() };
+    const { persistHealth } = await import("@/lib/persist");
+    return { ok: ready.ok, ready, startup: start.ok, otp: otpProvidersReady(), persist: persistHealth() };
   }
   return {
     ok: db.ok && liveProbe.ok,

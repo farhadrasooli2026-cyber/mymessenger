@@ -4,9 +4,11 @@ import { config } from "@/lib/config";
 import { isDemoInboxEnabled } from "@/lib/env-config";
 import {
   dummyOtpCompare,
+  decryptText,
   encryptText,
   hashOtp,
   hmacIdentifier,
+  identifierHashSet,
   maskEmail,
   maskPhone,
   newSalt,
@@ -14,7 +16,7 @@ import {
   randomId,
   randomOtp,
 } from "@/lib/crypto-utils";
-import { normalizeIdentifier } from "@/lib/identifiers";
+import { canonicalizeEmail, normalizeIdentifier } from "@/lib/identifiers";
 import { getOutbox } from "@/lib/outbox";
 import { dispatchChallengeOtp, deliveryFailureReason, OTP_DELIVERY_CLIENT_ERROR } from "@/lib/otp-delivery";
 import {
@@ -41,6 +43,7 @@ export const startSchema = z.object({
     .optional(),
   humanToken: z.string().min(8).max(128),
   website: z.string().max(200).optional().default(""),
+  intent: z.enum(["login", "register"]).optional(),
 });
 
 export const verifySchema = z.object({
@@ -123,7 +126,9 @@ export async function startRegistration(input: z.infer<typeof startSchema>, ipHa
     };
   }
 
-  const identifierHash = hmacIdentifier(normalized);
+  const identifierHash = hmacIdentifier(
+    input.channel === "email" ? (canonicalizeEmail(normalized) ?? normalized) : normalized,
+  );
   const masked = input.channel === "phone" ? maskPhone(normalized) : maskEmail(normalized);
 
   const result = await mutateStore((data) => {
@@ -177,6 +182,7 @@ export async function startRegistration(input: z.infer<typeof startSchema>, ipHa
       createdAt: now,
       invalidatedAt: null,
       ipHash,
+      intent: (input.intent === "login" ? "login" : "register") as "login" | "register",
       deliveryStatus: "pending" as const,
     };
     data.challenges.push(challenge);
@@ -338,8 +344,22 @@ export async function verifyOtp(challengeId: string, code: string, ipHash: strin
     challenge.usedAt = now;
     clearFailedCycles(data, challenge.identifierHash);
 
-    let user = data.users.find((u) => u.identifierHash === challenge.identifierHash);
+    let destination = "";
+    try {
+      destination = decryptText(challenge.identifierCipher);
+    } catch {
+      destination = "";
+    }
+    const hashes = new Set<string>([challenge.identifierHash]);
+    if (destination.includes("@") || destination.startsWith("+") || destination.startsWith("0")) {
+      for (const h of identifierHashSet(destination)) hashes.add(h);
+    }
+    let user = data.users.find((u) => hashes.has(u.identifierHash));
     if (!user) {
+      if (challenge.intent === "login") {
+        dummyOtpCompare(code);
+        return publicError("حسابی با این شناسه یافت نشد. ثبت‌نام کنید.", 404, { reason: "no_account" });
+      }
       user = {
         id: randomId(),
         status: "pending_profile",

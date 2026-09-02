@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { hashIp } from "./crypto-utils";
-import { normalizeEmail, normalizePhone, toE164Phone, detectChannel, normalizePhoneWithCountry } from "./identifiers";
+import { canonicalizeEmail, normalizeEmail, normalizePhone, toE164Phone, detectChannel, normalizePhoneWithCountry } from "./identifiers";
 import { searchDialCountries } from "./dial-codes";
 import { getOutbox } from "./outbox";
 import { completeProfile } from "./profile";
@@ -31,9 +31,9 @@ describe("identifiers", () => {
     expect(toE164Phone("+14155552671")).toBe("+14155552671");
   });
 
-  it("normalizes email", () => {
-    expect(normalizeEmail("  A@B.Com ")).toBe("a@b.com");
-    expect(normalizeEmail("bad")).toBeNull();
+  it("canonicalizes Gmail aliases to one mailbox", () => {
+    expect(canonicalizeEmail("A.B+promo@Gmail.com")).toBe("ab@gmail.com");
+    expect(canonicalizeEmail("ab@gmail.com")).toBe("ab@gmail.com");
   });
 
   it("detects email vs phone from a unified identifier", () => {
@@ -176,6 +176,71 @@ describe("registration security", () => {
     }
     const late = await verifyOtp(start.challengeId, real, ip);
     expect(late.ok).toBe(false);
+  });
+
+  it("reuses the same user id for the same email on a second OTP", async () => {
+    const firstToken = await readyHuman();
+    const start = await startRegistration(
+      { channel: "email", identifier: "same.person@nixo.test", humanToken: firstToken, website: "", intent: "register" },
+      ip,
+    );
+    expect(start.ok).toBe(true);
+    if (!start.ok) return;
+    const code = getOutbox(start.challengeId)?.body.match(/\b(\d{6})\b/)?.[1] ?? "";
+    const first = await verifyOtp(start.challengeId, code, ip);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const secondToken = await readyHuman();
+    const again = await startRegistration(
+      { channel: "email", identifier: "same.person@nixo.test", humanToken: secondToken, website: "", intent: "register" },
+      ip,
+    );
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    const code2 = getOutbox(again.challengeId)?.body.match(/\b(\d{6})\b/)?.[1] ?? "";
+    const second = await verifyOtp(again.challengeId, code2, ip);
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.userId).toBe(first.userId);
+    const after = await readStoreSnapshot();
+    expect(after.users.filter((u) => u.identifierMasked.includes("nixo.test")).length).toBe(1);
+  });
+
+  it("does not create a user when login intent has no account", async () => {
+    const token = await readyHuman();
+    const start = await startRegistration(
+      { channel: "email", identifier: "ghost@nixo.test", humanToken: token, website: "", intent: "login" },
+      ip,
+    );
+    expect(start.ok).toBe(true);
+    if (!start.ok) return;
+    const code = getOutbox(start.challengeId)?.body.match(/\b(\d{6})\b/)?.[1] ?? "";
+    const verified = await verifyOtp(start.challengeId, code, ip);
+    expect(verified.ok).toBe(false);
+    if (verified.ok) return;
+    expect(verified.status).toBe(404);
+    const after = await readStoreSnapshot();
+    expect(after.users).toHaveLength(0);
+  });
+
+  it("keeps two emails as two separate users", async () => {
+    async function make(email: string) {
+      const token = await readyHuman();
+      const start = await startRegistration(
+        { channel: "email", identifier: email, humanToken: token, website: "", intent: "register" },
+        ip,
+      );
+      if (!start.ok) throw new Error("start");
+      const code = getOutbox(start.challengeId)?.body.match(/\b(\d{6})\b/)?.[1] ?? "";
+      const verified = await verifyOtp(start.challengeId, code, ip);
+      if (!verified.ok) throw new Error("verify");
+      return verified.userId;
+    }
+    const a = await make("user-a@nixo.test");
+    const b = await make("user-b@nixo.test");
+    expect(a).not.toBe(b);
+    const after = await readStoreSnapshot();
+    expect(after.users).toHaveLength(2);
   });
 
   it("returns a generic success when the honeypot is filled", async () => {

@@ -79,6 +79,7 @@ import { emptyCloudPersist, hydrateCloudPersist, type CloudPersist } from "@/lib
 import { emptyEdgePersist, hydrateEdgePersist, type EdgePersist } from "@/lib/edge-persist";
 import { emptyGraphPersist, hydrateGraphPersist, pruneGraphPersist, purgeGraphSubject, type GraphPersist } from "@/lib/graph-types";
 import { currentDeployEnv } from "@/lib/env-config";
+import { loadPersistedJson, persistMode, savePersistedJson } from "@/lib/persist";
 import type {
   AdminAlert,
   AdminAuditRow,
@@ -107,6 +108,7 @@ function hydrateChallenge(c: ChallengeRecord): ChallengeRecord {
     deliveryAt: c.deliveryAt ?? null,
     deliveryError: typeof c.deliveryError === "string" ? c.deliveryError.slice(0, 80) : "",
     deliveryFailedAt: c.deliveryFailedAt ?? null,
+    intent: c.intent === "login" ? "login" : "register",
   };
 }
 
@@ -888,6 +890,7 @@ export type ChallengeRecord = {
   createdAt: number;
   invalidatedAt: number | null;
   ipHash: string;
+  intent?: "login" | "register";
   deliveryStatus?: "pending" | "sent" | "failed" | "dev-outbox";
   deliveryProvider?: string;
   deliveryAt?: number | null;
@@ -2380,7 +2383,13 @@ function enqueue<T>(fn: () => Promise<T>): Promise<T> {
 
 async function readStore(): Promise<StoreData> {
   try {
-    const raw = await readFile(STORE_PATH, "utf8");
+    let raw: string | null = null;
+    if (persistMode() === "postgres") {
+      raw = await loadPersistedJson();
+      if (!raw) return structuredClone(EMPTY);
+    } else {
+      raw = await readFile(STORE_PATH, "utf8");
+    }
     const parsed = JSON.parse(raw) as StoreData;
     return {
       users: (parsed.users ?? []).map(hydrateUser),
@@ -2641,9 +2650,14 @@ async function readStore(): Promise<StoreData> {
 }
 
 async function writeStore(data: StoreData): Promise<void> {
+  const json = JSON.stringify(data);
+  if (persistMode() === "postgres") {
+    await savePersistedJson(json);
+    return;
+  }
   await mkdir(path.dirname(STORE_PATH), { recursive: true });
   const tmp = `${STORE_PATH}.${process.pid}.tmp`;
-  await writeFile(tmp, JSON.stringify(data), "utf8");
+  await writeFile(tmp, json, "utf8");
   const { rename } = await import("node:fs/promises");
   await rename(tmp, STORE_PATH);
 }
