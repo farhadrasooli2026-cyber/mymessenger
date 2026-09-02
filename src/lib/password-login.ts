@@ -14,6 +14,7 @@ const GENERIC =
 export const passwordLoginSchema = z.object({
   identifier: z.string().min(3).max(254),
   password: z.string().min(1).max(200),
+  channel: z.enum(["phone", "email"]).optional(),
   humanToken: z.string().min(8).max(128),
   website: z.string().max(200).optional().default(""),
 });
@@ -27,7 +28,7 @@ function sleep(ms: number) {
 }
 
 export async function loginWithPassword(input: z.infer<typeof passwordLoginSchema>, ipHash: string) {
-  const channel = detectChannel(input.identifier);
+  const channel = input.channel ?? detectChannel(input.identifier);
   const normalized = normalizeIdentifier(channel, input.identifier);
   if (!normalized) {
     return publicError(

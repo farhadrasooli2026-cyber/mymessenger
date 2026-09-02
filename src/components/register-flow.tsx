@@ -10,15 +10,19 @@ import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Label } from "@/components/ui/label";
 import { NixoHeroLogo } from "@/components/nixo-mark";
-import { detectChannel } from "@/lib/identifiers";
+import { normalizeEmail, normalizePhone } from "@/lib/identifiers";
 import { cn } from "@/lib/utils";
 
 type Step = "start" | "verify" | "profile" | "complete" | "twostep" | "device" | "recover";
 type Method = "otp" | "password";
+type IdMode = "phone" | "email";
 
 type SessionPayload = {
   ok: boolean;
   step: Step;
+  channel?: IdMode;
+  masked?: string;
+  ttlSeconds?: number;
   user?: {
     identifierMasked: string;
     displayName: string | null;
@@ -38,6 +42,7 @@ export function RegisterFlow() {
   const [boot, setBoot] = useState(true);
   const [step, setStep] = useState<Step>("start");
   const [method, setMethod] = useState<Method>("otp");
+  const [idMode, setIdMode] = useState<IdMode>("phone");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [humanToken, setHumanToken] = useState("");
@@ -49,7 +54,6 @@ export function RegisterFlow() {
   const [busy, setBusy] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [ttl, setTtl] = useState(0);
-  const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
   const [inbox, setInbox] = useState<string | null>(null);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [twoStepPassword, setTwoStepPassword] = useState("");
@@ -128,7 +132,18 @@ export function RegisterFlow() {
         router.replace("/setup");
         return;
       }
-      setStep(session.step);
+      if (session.step === "verify") {
+        setStep("verify");
+        if (session.channel === "email" || session.channel === "phone") setIdMode(session.channel);
+        if (session.masked) setMasked(session.masked);
+        if (typeof session.ttlSeconds === "number") setTtl(session.ttlSeconds);
+      } else if (session.step === "twostep") {
+        setStep("twostep");
+        if (session.hasPasskeys) setHasPasskeys(true);
+      } else {
+        setStep("start");
+        setIdMode("phone");
+      }
       if (session.hasPasskeys) setHasPasskeys(true);
       if (session.user) {
         setMasked(session.user.identifierMasked);
@@ -155,9 +170,6 @@ export function RegisterFlow() {
 
   async function parseError(res: Response) {
     const data = (await res.json()) as { error?: string; remainingAttempts?: number };
-    if (typeof data.remainingAttempts === "number") {
-      setRemainingAttempts(data.remainingAttempts);
-    }
     return data.error ?? "خطایی رخ داد.";
   }
 
@@ -172,12 +184,20 @@ export function RegisterFlow() {
         return;
       }
       setHumanToken(token);
-      const nextChannel = detectChannel(identifier);
+      if (idMode === "phone") {
+        if (!normalizePhone(identifier)) {
+          setError("شماره موبایل معتبر نیست. از قالب 09xxxxxxxxx یا + و کد کشور استفاده کنید.");
+          return;
+        }
+      } else if (!normalizeEmail(identifier)) {
+        setError("ایمیل واردشده معتبر نیست.");
+        return;
+      }
       const res = await fetch("/api/register/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          channel: nextChannel,
+          channel: idMode,
           identifier,
           humanToken: token,
           website: honeypot,
@@ -192,12 +212,13 @@ export function RegisterFlow() {
         masked: string;
         cooldownSeconds: number;
         ttlSeconds: number;
+        channel?: IdMode;
       };
       setMasked(data.masked);
+      if (data.channel) setIdMode(data.channel);
       setCooldown(data.cooldownSeconds);
       setTtl(data.ttlSeconds);
       setCode("");
-      setRemainingAttempts(null);
       setInbox(null);
       setStep("verify");
       toast.success("کد تأیید ارسال شد.");
@@ -223,6 +244,7 @@ export function RegisterFlow() {
         body: JSON.stringify({
           identifier,
           password,
+          channel: idMode,
           humanToken: token,
           website: honeypot,
         }),
@@ -309,7 +331,6 @@ export function RegisterFlow() {
       setTtl(data.ttlSeconds);
       setCode("");
       setInbox(null);
-      setRemainingAttempts(null);
       toast.success("کد جدید ارسال شد. کد قبلی دیگر معتبر نیست.");
     } finally {
       setBusy(false);
@@ -438,18 +459,26 @@ export function RegisterFlow() {
     setInbox(null);
     setError(null);
     setPassword("");
+    setMasked("");
     await loadChallenge();
   }
 
-  function onChangeIdentifier() {
-    if (step === "verify" || step === "twostep") {
-      void onReset();
-      return;
-    }
+  function switchToEmail() {
+    if (step !== "start") void onReset();
+    setIdMode("email");
     setIdentifier("");
     setPassword("");
     setError(null);
-    document.getElementById("login-identifier")?.focus();
+    setMasked("");
+  }
+
+  function switchToPhone() {
+    if (step !== "start") void onReset();
+    setIdMode("phone");
+    setIdentifier("");
+    setPassword("");
+    setError(null);
+    setMasked("");
   }
 
   async function loadInbox() {
@@ -462,8 +491,6 @@ export function RegisterFlow() {
     setInbox(data.message?.body ?? "پیامی یافت نشد.");
     setInboxOpen(true);
   }
-
-  const looksEmail = identifier.includes("@");
 
   const shell = (inner: React.ReactNode) => (
     <div
@@ -530,11 +557,16 @@ export function RegisterFlow() {
 
           {method === "otp" ? (
             <form onSubmit={onStart} className="space-y-5">
-              <p className="text-center text-xs leading-6 text-slate-400">
-                کد را به ایمیل یا شماره موبایل شما ارسال می‌کنیم
-              </p>
+              {idMode === "email" ? (
+                <>
+                  <p className="text-center text-sm font-medium text-cyan-100">ورود با ایمیل</p>
+                  <p className="text-center text-xs leading-6 text-slate-400">کد را به ایمیل شما ارسال می‌کنیم</p>
+                </>
+              ) : (
+                <p className="text-center text-xs leading-6 text-slate-400">کد را به شماره موبایل شما ارسال می‌کنیم</p>
+              )}
               <div className="relative">
-                {looksEmail ? (
+                {idMode === "email" ? (
                   <Mail className="pointer-events-none absolute top-1/2 end-3 size-4 -translate-y-1/2 text-cyan-300/80" />
                 ) : (
                   <Smartphone className="pointer-events-none absolute top-1/2 end-3 size-4 -translate-y-1/2 text-cyan-300/80" />
@@ -542,8 +574,10 @@ export function RegisterFlow() {
                 <Input
                   id="login-identifier"
                   dir="ltr"
-                  autoComplete="username"
-                  placeholder="ایمیل یا شماره موبایل"
+                  autoComplete={idMode === "email" ? "email" : "tel"}
+                  inputMode={idMode === "email" ? "email" : "tel"}
+                  type={idMode === "email" ? "email" : "tel"}
+                  placeholder={idMode === "email" ? "آدرس ایمیل" : "شماره موبایل"}
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   className={cn(inputClass, "pe-11 text-left")}
@@ -566,8 +600,11 @@ export function RegisterFlow() {
             </form>
           ) : (
             <form onSubmit={onPassword} className="space-y-5">
+              {idMode === "email" ? (
+                <p className="text-center text-sm font-medium text-cyan-100">ورود با ایمیل</p>
+              ) : null}
               <div className="relative">
-                {looksEmail ? (
+                {idMode === "email" ? (
                   <Mail className="pointer-events-none absolute top-1/2 end-3 size-4 -translate-y-1/2 text-cyan-300/80" />
                 ) : (
                   <Smartphone className="pointer-events-none absolute top-1/2 end-3 size-4 -translate-y-1/2 text-cyan-300/80" />
@@ -575,8 +612,10 @@ export function RegisterFlow() {
                 <Input
                   id="login-identifier"
                   dir="ltr"
-                  autoComplete="username"
-                  placeholder="ایمیل یا شماره موبایل"
+                  autoComplete={idMode === "email" ? "email" : "tel"}
+                  inputMode={idMode === "email" ? "email" : "tel"}
+                  type={idMode === "email" ? "email" : "tel"}
+                  placeholder={idMode === "email" ? "آدرس ایمیل" : "شماره موبایل"}
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   className={cn(inputClass, "pe-11 text-left")}
@@ -608,9 +647,15 @@ export function RegisterFlow() {
 
           <div className="space-y-3">
             <p className="text-center text-xs text-slate-500">یا</p>
-            <Button type="button" className={ghostBtn} disabled={busy} onClick={onChangeIdentifier}>
-              تغییر شماره یا ایمیل
-            </Button>
+            {idMode === "phone" ? (
+              <Button type="button" className={ghostBtn} disabled={busy} onClick={switchToEmail}>
+                تغییر با ایمیل
+              </Button>
+            ) : (
+              <Button type="button" className={ghostBtn} disabled={busy} onClick={switchToPhone}>
+                تغییر با شماره
+              </Button>
+            )}
             <p className="pt-2 text-center text-sm text-slate-300">
               حساب کاربری ندارید؟{" "}
               <button
@@ -630,30 +675,16 @@ export function RegisterFlow() {
 
       {step === "verify" && (
         <form onSubmit={onVerify} className="space-y-5">
-          <p className="text-center text-sm text-slate-200">با حساب خود وارد شوید</p>
-          <div className="rounded-2xl border border-sky-400/15 bg-black/25 p-4 text-sm">
-            <p className="text-slate-300">کد به این شناسه ارسال شد:</p>
-            <p className="mt-1 font-medium tracking-wide text-white" dir="ltr">
-              {masked}
-            </p>
-            <p className="mt-2 text-xs text-slate-400">
-              اعتبار کد: {ttl > 0 ? `${ttl} ثانیه` : "منقضی شده"}
-              {remainingAttempts !== null ? ` · تلاش باقی‌مانده: ${remainingAttempts}` : ""}
-            </p>
-          </div>
-          <div className="space-y-3">
-            <Label htmlFor="otp" className="text-slate-200">
-              کد یک‌بارمصرف ۶ رقمی
-            </Label>
-            <div className="flex justify-center" dir="ltr">
-              <InputOTP maxLength={6} value={code} onChange={setCode} disabled={busy} aria-label="کد یک‌بارمصرف ۶ رقمی">
-                <InputOTPGroup>
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <InputOTPSlot key={i} index={i} className="size-10 border-sky-400/30 bg-black/40 text-lg" />
-                  ))}
-                </InputOTPGroup>
-              </InputOTP>
-            </div>
+          <p className="text-center text-lg font-medium text-white">کد تأیید</p>
+          <p className="text-center text-sm text-slate-300">کد ۶ رقمی ارسال‌شده را وارد کنید.</p>
+          <div className="flex justify-center" dir="ltr">
+            <InputOTP maxLength={6} value={code} onChange={setCode} disabled={busy} aria-label="کد یک‌بارمصرف ۶ رقمی">
+              <InputOTPGroup>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <InputOTPSlot key={i} index={i} className="size-10 border-sky-400/30 bg-black/40 text-lg" />
+                ))}
+              </InputOTPGroup>
+            </InputOTP>
           </div>
           <Button type="submit" className={primaryBtn} disabled={busy || code.length !== 6}>
             {busy ? (
@@ -665,18 +696,26 @@ export function RegisterFlow() {
               "تأیید کد"
             )}
           </Button>
-          <Button
-            type="button"
-            className={ghostBtn}
-            disabled={busy || cooldown > 0}
-            onClick={onResend}
-          >
+          <Button type="button" className={ghostBtn} disabled={busy || cooldown > 0} onClick={onResend}>
             {cooldown > 0 ? `ارسال مجدد (${cooldown})` : "ارسال مجدد کد"}
           </Button>
-          <p className="text-center text-xs text-slate-500">یا</p>
-          <Button type="button" className={ghostBtn} disabled={busy} onClick={onChangeIdentifier}>
-            تغییر شماره یا ایمیل
-          </Button>
+          <p className="text-center text-xs text-slate-400">
+            {idMode === "email" ? "کد به ایمیل شما ارسال شد" : "کد به شماره شما ارسال شد"}
+            {masked ? (
+              <span className="mt-1 block tracking-wide text-slate-500" dir="ltr">
+                {masked}
+              </span>
+            ) : null}
+          </p>
+          {idMode === "phone" ? (
+            <Button type="button" className={ghostBtn} disabled={busy} onClick={switchToEmail}>
+              تغییر با ایمیل
+            </Button>
+          ) : (
+            <Button type="button" className={ghostBtn} disabled={busy} onClick={switchToPhone}>
+              تغییر با شماره
+            </Button>
+          )}
           {demoInbox ? (
             <div className="space-y-2">
               <Button type="button" className={ghostBtn} onClick={loadInbox} disabled={busy}>
@@ -721,8 +760,8 @@ export function RegisterFlow() {
               ورود با Passkey
             </Button>
           )}
-          <Button type="button" className={ghostBtn} disabled={busy} onClick={onChangeIdentifier}>
-            تغییر شماره یا ایمیل
+          <Button type="button" className={ghostBtn} disabled={busy} onClick={idMode === "email" ? switchToPhone : switchToEmail}>
+            {idMode === "email" ? "تغییر با شماره" : "تغییر با ایمیل"}
           </Button>
         </form>
       )}

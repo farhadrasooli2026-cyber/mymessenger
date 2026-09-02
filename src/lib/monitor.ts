@@ -446,7 +446,10 @@ export async function publicHealth(probe?: string | null) {
   const db = await dbHealth();
   const start = startupGate();
   const ready = { ok: db.ok && db.ready && !isShuttingDown() && start.ok, schema: db.schemaVersion };
-  if (probe === "ready") return { ok: ready.ok, ready, startup: start.ok };
+  if (probe === "ready") {
+    const { otpProvidersReady } = await import("@/lib/otp-delivery");
+    return { ok: ready.ok, ready, startup: start.ok, otp: otpProvidersReady() };
+  }
   return {
     ok: db.ok && liveProbe.ok,
     live: liveProbe,

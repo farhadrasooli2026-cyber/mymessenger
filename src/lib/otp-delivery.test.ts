@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { encryptText } from "./crypto-utils";
-import { deliverOtpMessage, dispatchChallengeOtp } from "./otp-delivery";
+import { deliverOtpMessage, dispatchChallengeOtp, liveOtpProviderEnabled } from "./otp-delivery";
 import { mutateStore, resetStoreForTests } from "./store";
 import { validateRuntimeConfig } from "./env-config";
 
@@ -130,5 +130,24 @@ describe("OTP providers", () => {
   it("requires email and sms providers in production config", () => {
     expect(validateRuntimeConfig("production").errors.some((e) => e.includes("email"))).toBe(true);
     expect(validateRuntimeConfig("production").errors.some((e) => e.includes("sms"))).toBe(true);
+  });
+
+  it("uses the demo inbox in tests unless a live provider is forced", () => {
+    expect(liveOtpProviderEnabled()).toBe(false);
+    process.env.NIXO_OTP_FORCE_PROVIDER = "1";
+    expect(liveOtpProviderEnabled()).toBe(true);
+  });
+
+  it("fails closed with a logged config error when live email is forced without env", async () => {
+    process.env.NIXO_OTP_FORCE_PROVIDER = "1";
+    delete process.env.NIXO_EMAIL_PROVIDER;
+    const sent = await deliverOtpMessage({
+      channel: "email",
+      to: "user@nixo.test",
+      body: "کد تأیید NIXO: 123456",
+      challengeId: "ch-cfg",
+    });
+    expect(sent.ok).toBe(false);
+    expect(sent.error).toBe("not_configured");
   });
 });

@@ -25,7 +25,9 @@ describe("identifiers", () => {
     expect(normalizePhone("۰۹۱۲۳۴۵۶۷۸۹")).toBe("09123456789");
     expect(normalizePhone("+98 912 345 6789")).toBe("09123456789");
     expect(normalizePhone("123")).toBeNull();
+    expect(normalizePhone("+14155552671")).toBe("+14155552671");
     expect(toE164Phone("09123456789")).toBe("+989123456789");
+    expect(toE164Phone("+14155552671")).toBe("+14155552671");
   });
 
   it("normalizes email", () => {

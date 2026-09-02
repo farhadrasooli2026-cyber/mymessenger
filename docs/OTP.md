@@ -14,7 +14,7 @@
 
 ## وضعیت ارسال
 
-روی چالش: `pending` → `sent` | `failed` | `dev-outbox`. خطای Provider در لاگ ساخت‌یافته بدون متن کد و بدون API Key ثبت می‌شود. اگر ارسال ثبت‌نام شکست بخورد، کلاینت خطای عمومی ۵۰۲ می‌گیرد و می‌تواند Resend کند.
+روی چالش: `pending` → `sent` | `failed` | `dev-outbox`. اگر Demo Inbox روشن باشد (development/testing) ارسال زنده Provider صدا زده نمی‌شود مگر `NIXO_OTP_FORCE_PROVIDER=1`. در Production همیشه Provider واقعی استفاده می‌شود. خطای Provider در لاگ ساخت‌یافته (`otp_send_failed` / `otp_provider_http`) بدون متن کد و بدون API Key ثبت می‌شود؛ کلاینت خطای عمومی ۵۰۲ می‌گیرد و نشست Verify فقط بعد از ارسال موفق ساخته می‌شود. `GET /api/health?probe=ready` فیلد `otp.email` / `otp.sms` را بدون Secret برمی‌گرداند.
 
 ## متغیرهای Render (Environment)
 

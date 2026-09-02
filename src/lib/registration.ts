@@ -16,7 +16,7 @@ import {
 } from "@/lib/crypto-utils";
 import { normalizeIdentifier } from "@/lib/identifiers";
 import { getOutbox } from "@/lib/outbox";
-import { dispatchChallengeOtp, OTP_DELIVERY_CLIENT_ERROR } from "@/lib/otp-delivery";
+import { dispatchChallengeOtp, deliveryFailureReason, OTP_DELIVERY_CLIENT_ERROR } from "@/lib/otp-delivery";
 import {
   clearFailedCycles,
   isIdentifierLocked,
@@ -190,7 +190,15 @@ export async function startRegistration(input: z.infer<typeof startSchema>, ipHa
 
   if (result.ok && "otpCode" in result && result.otpCode) {
     const delivery = await dispatchChallengeOtp(result.challengeId, result.otpCode);
-    if (!delivery.ok) return publicError(OTP_DELIVERY_CLIENT_ERROR, 502, { challengeId: result.challengeId });
+    if (!delivery.ok) {
+      await mutateStore((data) => {
+        const ch = data.challenges.find((c) => c.id === result.challengeId);
+        if (ch && !ch.usedAt) ch.invalidatedAt = Date.now();
+      });
+      return publicError(OTP_DELIVERY_CLIENT_ERROR, 502, {
+        reason: deliveryFailureReason(delivery.error),
+      });
+    }
     return {
       ok: true as const,
       status: 200,
@@ -253,7 +261,11 @@ export async function resendOtp(challengeId: string, ipHash: string) {
 
   if (result.ok && "otpCode" in result && result.otpCode) {
     const delivery = await dispatchChallengeOtp(challengeId, result.otpCode);
-    if (!delivery.ok) return publicError(OTP_DELIVERY_CLIENT_ERROR, 502, { challengeId });
+    if (!delivery.ok) {
+      return publicError(OTP_DELIVERY_CLIENT_ERROR, 502, {
+        reason: deliveryFailureReason(delivery.error),
+      });
+    }
     return {
       ok: true as const,
       status: 200,
@@ -350,6 +362,16 @@ export async function verifyOtp(challengeId: string, code: string, ipHash: strin
 export async function getUserById(userId: string) {
   const data = await readStoreSnapshot();
   return data.users.find((u) => u.id === userId) ?? null;
+}
+
+export async function getDeliveredChallenge(challengeId: string) {
+  const data = await readStoreSnapshot();
+  const ch = data.challenges.find((c) => c.id === challengeId);
+  if (!ch || ch.usedAt || ch.invalidatedAt) return null;
+  if (ch.deliveryStatus !== "sent" && ch.deliveryStatus !== "dev-outbox") return null;
+  const ttlSeconds = Math.max(0, Math.ceil((ch.expiresAt - Date.now()) / 1000));
+  if (ttlSeconds <= 0) return null;
+  return { masked: ch.identifierMasked, channel: ch.channel, ttlSeconds };
 }
 
 export async function readInbox(challengeId: string) {
