@@ -11,7 +11,7 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 import { Label } from "@/components/ui/label";
 import { NixoHeroLogo } from "@/components/nixo-mark";
 import { CountryCodeSelect } from "@/components/country-code-select";
-import { normalizeEmail, normalizePhoneWithCountry } from "@/lib/identifiers";
+import { normalizeEmail, normalizePhoneWithCountry, toEnglishDigits } from "@/lib/identifiers";
 import { cn } from "@/lib/utils";
 
 type Step = "start" | "verify" | "profile" | "complete" | "twostep" | "device" | "recover";
@@ -737,7 +737,15 @@ export function RegisterFlow() {
         <form onSubmit={onVerify} className="space-y-5">
           <p className="text-center text-lg font-medium text-white">کد تأیید</p>
           <div className="flex justify-center" dir="ltr">
-            <InputOTP maxLength={6} value={code} onChange={setCode} disabled={busy} aria-label="کد یک‌بارمصرف ۶ رقمی">
+            <InputOTP
+              maxLength={6}
+              value={code}
+              onChange={(v) => setCode(toEnglishDigits(v).replace(/\D/g, "").slice(0, 6))}
+              disabled={busy}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              aria-label="کد یک‌بارمصرف ۶ رقمی"
+            >
               <InputOTPGroup>
                 {Array.from({ length: 6 }).map((_, i) => (
                   <InputOTPSlot key={i} index={i} className="size-10 border-sky-400/30 bg-black/40 text-lg" />

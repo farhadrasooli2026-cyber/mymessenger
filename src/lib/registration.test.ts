@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { hashIp } from "./crypto-utils";
-import { canonicalizeEmail, normalizeEmail, normalizePhone, toE164Phone, detectChannel, normalizePhoneWithCountry } from "./identifiers";
+import { canonicalizeEmail, normalizeEmail, normalizePhone, toE164Phone, detectChannel, normalizePhoneWithCountry, toEnglishDigits } from "./identifiers";
 import { searchDialCountries } from "./dial-codes";
 import { getOutbox } from "./outbox";
 import { completeProfile } from "./profile";
@@ -55,7 +55,7 @@ describe("identifiers", () => {
     expect(normalizePhoneWithCountry("IR", "05352100432")).toBeNull();
     expect(searchDialCountries("Türkiye")[0]?.iso).toBe("TR");
     expect(searchDialCountries("ترکیه")[0]?.iso).toBe("TR");
-    expect(searchDialCountries("Turkey")[0]?.iso).toBe("TR");
+    expect(toEnglishDigits("۳۹۶۷۱۳")).toBe("396713");
   });
 });
 

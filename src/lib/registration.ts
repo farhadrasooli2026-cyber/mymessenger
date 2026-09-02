@@ -16,7 +16,7 @@ import {
   randomId,
   randomOtp,
 } from "@/lib/crypto-utils";
-import { canonicalizeEmail, normalizeIdentifier } from "@/lib/identifiers";
+import { canonicalizeEmail, normalizeIdentifier, toEnglishDigits } from "@/lib/identifiers";
 import { getOutbox } from "@/lib/outbox";
 import { dispatchChallengeOtp, deliveryFailureReason, OTP_DELIVERY_CLIENT_ERROR } from "@/lib/otp-delivery";
 import {
@@ -47,7 +47,10 @@ export const startSchema = z.object({
 });
 
 export const verifySchema = z.object({
-  code: z.string().regex(/^\d{6}$/),
+  code: z
+    .string()
+    .transform((s) => toEnglishDigits(s).replace(/\D/g, ""))
+    .pipe(z.string().regex(/^\d{6}$/)),
 });
 
 function publicError(message: string, status = 400, extra?: Record<string, unknown>) {
@@ -331,7 +334,7 @@ export async function verifyOtp(challengeId: string, code: string, ipHash: strin
     }
 
     challenge.attemptCount += 1;
-    const submitted = hashOtp(code, challenge.salt);
+    const submitted = hashOtp(toEnglishDigits(code).replace(/\D/g, ""), challenge.salt);
     if (!otpHashesEqual(submitted, challenge.codeHash)) {
       const left = config.otp.maxVerifyAttempts - challenge.attemptCount;
       if (left <= 0) {
