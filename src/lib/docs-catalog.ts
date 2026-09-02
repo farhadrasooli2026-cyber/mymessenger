@@ -62,6 +62,8 @@ export const DOC_ENV_VARS = [
   "NIXO_SMS_API_KEY",
   "NIXO_SMS_API_SECRET",
   "NIXO_PUBLIC_HOST",
+  "DATABASE_URL",
+  "NIXO_DATABASE_URL",
 ] as const;
 
 export const DOC_SCRIPTS = ["dev", "build", "start", "lint", "test", "ci", "security:scan", "docs:check", "icons"] as const;

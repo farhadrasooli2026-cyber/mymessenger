@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { encryptText } from "./crypto-utils";
-import { deliverOtpMessage, dispatchChallengeOtp, liveOtpProviderEnabled } from "./otp-delivery";
+import { classifyProviderHttpError, deliverOtpMessage, dispatchChallengeOtp, liveOtpProviderEnabled } from "./otp-delivery";
 import { mutateStore, resetStoreForTests } from "./store";
 import { validateRuntimeConfig } from "./env-config";
 
@@ -220,5 +220,19 @@ describe("OTP providers", () => {
     });
     expect(sent.ok).toBe(false);
     expect(sent.error).toBe("not_configured");
+  });
+
+  it("classifies Resend test-mode and Twilio trial HTTP bodies", () => {
+    expect(
+      classifyProviderHttpError(
+        "resend",
+        403,
+        JSON.stringify({ message: "You can only send testing emails to your own email address." }),
+      ),
+    ).toBe("resend_test_mode");
+    expect(classifyProviderHttpError("twilio", 400, "The To number is unverified for trial account")).toBe(
+      "twilio_trial",
+    );
+    expect(classifyProviderHttpError("resend", 422, "unknown")).toBe("http_422");
   });
 });

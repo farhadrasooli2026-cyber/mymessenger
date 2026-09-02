@@ -14,7 +14,7 @@
 
 ## وضعیت ارسال
 
-روی چالش: `pending` → `sent` | `failed` | `dev-outbox`. اگر Demo Inbox روشن باشد (development/testing) ارسال زنده Provider صدا زده نمی‌شود مگر `NIXO_OTP_FORCE_PROVIDER=1`. در Production همیشه Provider واقعی استفاده می‌شود. خطای Provider در لاگ ساخت‌یافته (`otp_send_failed` / `otp_provider_http`) بدون متن کد و بدون API Key ثبت می‌شود؛ کلاینت خطای عمومی ۵۰۲ می‌گیرد و نشست Verify فقط بعد از ارسال موفق ساخته می‌شود. `GET /api/health?probe=ready` فیلد `otp.email` / `otp.sms` را بدون Secret برمی‌گرداند.
+روی چالش: `pending` → `sent` | `failed` | `dev-outbox`. اگر Demo Inbox روشن باشد (development/testing) ارسال زنده Provider صدا زده نمی‌شود مگر `NIXO_OTP_FORCE_PROVIDER=1`. در Production همیشه Provider واقعی استفاده می‌شود. خطای Provider در لاگ ساخت‌یافته (`otp_send_failed` / `otp_provider_http`) بدون متن کد و بدون API Key ثبت می‌شود؛ کلاینت خطای عمومی ۵۰۲ می‌گیرد و نشست Verify فقط بعد از ارسال موفق ساخته می‌شود. `GET /api/health?probe=ready` فیلدهای `otp.email` / `otp.sms` / `otp.emailSandbox` و `persist.driver` را بدون Secret برمی‌گرداند. `GET /api/version` فیلد `gitSha` را از `RENDER_GIT_COMMIT` می‌خواند.
 
 ## متغیرهای Render (Environment)
 
@@ -54,6 +54,6 @@ Secret را فقط در داشبورد Render بگذار؛ در Git commit نک�
 2. `GET /api/health?probe=ready` باید ۲۰۰ باشد (Demo Inbox و Providerها معتبر).
 3. ثبت‌نام با **ایمیل واقعی** که به دامنهٔ From اجازهٔ ارسال می‌دهد. کد فقط در Inbox آن ایمیل است؛ `/api/register/inbox` باید ۴۰۴ باشد.
 4. ثبت‌نام با **شماره واقعی** روی همان Provider (Twilio trial باید شماره را Verify کرده باشد؛ کاوه‌نگار طبق پنل).
-5. اگر ارسال شکست بخورد، در لاگ سرویس `otp_send_failed` با `challengeId` و `provider` می‌آید نه کد.
+5. اگر ارسال شکست بخورد، در لاگ سرویس `otp_send_failed` / `otp_provider_http` با `challengeId` و `provider` می‌آید نه کد. `error=resend_test_mode` یعنی From روی دامنهٔ آزمایشی Resend است و فقط به ایمیل صاحب حساب می‌رود. `error=twilio_trial` یعنی شماره در Twilio Verify نشده.
 
 تست خودکار در CI با Mock HTTP است (`NIXO_OTP_FORCE_PROVIDER=1`) تا Secret واقعی وارد Git نشود.

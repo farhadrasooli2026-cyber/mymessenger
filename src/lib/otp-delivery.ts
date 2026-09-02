@@ -6,6 +6,7 @@ import {
   emailApiKey,
   emailConfigured,
   emailFromAddress,
+  emailFromLooksSandbox,
   emailMissingVars,
   emailProviderName,
   mailgunDomain,
@@ -39,6 +40,7 @@ export type OtpDeliveryResult = {
 
 export {
   emailFromAddress,
+  emailFromLooksSandbox,
   emailProviderName,
   otpProvidersReady,
   smsProviderName,
@@ -74,15 +76,38 @@ function redactSnippet(text: string): string {
     .slice(0, 220);
 }
 
+export function classifyProviderHttpError(provider: string, status: number, raw: string): string {
+  const t = raw.toLowerCase();
+  if (provider === "resend") {
+    if (
+      t.includes("only send testing emails") ||
+      t.includes("can only send to your own") ||
+      t.includes("verify a domain")
+    ) {
+      return "resend_test_mode";
+    }
+    if (t.includes("domain is not verified") || t.includes("invalid `from`") || t.includes("invalid from")) {
+      return "resend_unverified_domain";
+    }
+  }
+  if (provider === "twilio") {
+    if (t.includes("unverified") || t.includes("trial account")) return "twilio_trial";
+  }
+  return `http_${status}`;
+}
+
 async function providerHttpError(provider: string, res: Response): Promise<OtpDeliveryResult> {
   const raw = await res.text().catch(() => "");
   const snippet = redactSnippet(raw);
+  const error = classifyProviderHttpError(provider, res.status, raw);
   logOtp("error", "otp_provider_http", {
     provider,
     httpStatus: res.status,
+    error,
     body: snippet || undefined,
+    emailSandbox: provider === "resend" ? emailFromLooksSandbox() : undefined,
   });
-  return { ok: false, status: "failed", provider, error: `http_${res.status}` };
+  return { ok: false, status: "failed", provider, error };
 }
 
 function catchSendError(provider: string, err: unknown): OtpDeliveryResult {
@@ -114,6 +139,9 @@ export function deliveryFailureReason(
   if (error === "destination_unavailable") return "database";
   if (error === "missing_challenge") return "api";
   if (error === "http_429" || error.startsWith("http_429")) return "rate_limit";
+  if (error === "resend_test_mode" || error === "resend_unverified_domain" || error === "twilio_trial") {
+    return "provider";
+  }
   return "provider";
 }
 

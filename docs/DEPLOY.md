@@ -66,3 +66,11 @@ NIXO_SMS_FROM=
 
 Disk fallback: mount a persistent disk at `.data` so the JSON store survives deploys. Health: `/api/health?probe=ready`. OTP details: [`docs/OTP.md`](./OTP.md).
 
+## Verify GitHub SHA vs Render
+
+1. GitHub `main` HEAD: `git ls-remote https://github.com/farhadrasooli2026-cyber/mymessenger.git refs/heads/main`
+2. After Render finishes a deploy of that branch, `GET https://<your-service>.onrender.com/api/version` must show the same `gitSha` as `RENDER_GIT_COMMIT` (Render injects this automatically).
+3. `GET /api/health?probe=ready` must be 200 with `persist.driver: "postgres"`, `otp.email: true`, `otp.sms: true`. If `otp.emailSandbox: true`, Resend is still on `*.resend.dev` and can only deliver to the Resend account owner — verify your own domain in Resend.
+
+`nixo.onrender.com` is an unrelated public site. Use the hostname of **this** Web Service from the Render dashboard.
+

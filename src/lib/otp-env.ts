@@ -122,8 +122,12 @@ export function smsConfigured(): boolean {
   return false;
 }
 
-export function otpProvidersReady(): { email: boolean; sms: boolean } {
-  return { email: emailConfigured(), sms: smsConfigured() };
+export function emailFromLooksSandbox(): boolean {
+  return /resend\.dev/i.test(emailFromAddress());
+}
+
+export function otpProvidersReady(): { email: boolean; sms: boolean; emailSandbox: boolean } {
+  return { email: emailConfigured(), sms: smsConfigured(), emailSandbox: emailFromLooksSandbox() };
 }
 
 export function emailMissingVars(): string {

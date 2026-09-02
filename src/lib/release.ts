@@ -26,7 +26,24 @@ export function semverGte(a: string, b: string): boolean {
   return x.patch >= y.patch;
 }
 
+/** Git SHA from the host (Render sets RENDER_GIT_COMMIT). Empty locally unless injected. */
+export function deployedGitSha(): string {
+  const candidates = [
+    process.env.RENDER_GIT_COMMIT,
+    process.env.SOURCE_VERSION,
+    process.env.COMMIT_SHA,
+    process.env.GIT_COMMIT,
+    process.env.VERCEL_GIT_COMMIT_SHA,
+  ];
+  for (const raw of candidates) {
+    const v = (raw ?? "").trim().toLowerCase();
+    if (/^[a-f0-9]{7,40}$/.test(v)) return v.slice(0, 40);
+  }
+  return "";
+}
+
 export function publicReleaseInfo() {
+  const gitSha = deployedGitSha();
   return {
     product: "NIXO",
     app: APP_VERSION,
@@ -34,5 +51,6 @@ export function publicReleaseInfo() {
     compat: "0",
     minClient: MIN_CLIENT_VERSION,
     mobileCompat: MOBILE_COMPAT,
+    gitSha,
   };
 }

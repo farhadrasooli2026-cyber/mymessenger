@@ -1,0 +1,15 @@
+# Blueprint for Render. Put API keys only in the dashboard.
+services:
+  - type: web
+    name: nixo
+    runtime: node
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health?probe=ready
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NIXO_ENV
+        value: production
+      - key: NIXO_DEMO_INBOX
+        value: "false"
