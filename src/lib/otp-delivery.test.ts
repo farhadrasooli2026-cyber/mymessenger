@@ -72,6 +72,38 @@ describe("OTP providers", () => {
     expect(sent.error).toBe("http_502");
   });
 
+  it("sends composed international numbers to Twilio as E.164", async () => {
+    process.env.NIXO_OTP_FORCE_PROVIDER = "1";
+    process.env.NIXO_SMS_PROVIDER = "twilio";
+    process.env.NIXO_SMS_API_KEY = "ACtestsidxxxxxxxxxxxxxxxxxxxx";
+    process.env.NIXO_SMS_API_SECRET = "testtoken";
+    process.env.NIXO_SMS_FROM = "+15005550006";
+    const seen: string[] = [];
+    globalThis.fetch = vi.fn(async (_url, init) => {
+      seen.push(String(init?.body));
+      return new Response(JSON.stringify({ sid: "SM1" }), { status: 201 });
+    }) as typeof fetch;
+    const { normalizePhoneWithCountry, toE164Phone } = await import("./identifiers");
+    for (const [iso, national, e164] of [
+      ["TR", "05352100432", "+905352100432"],
+      ["TR", "905352100432", "+905352100432"],
+      ["DE", "15123456789", "+4915123456789"],
+      ["GB", "7400123456", "+447400123456"],
+      ["IR", "09121234567", "+989121234567"],
+    ] as const) {
+      const canonical = normalizePhoneWithCountry(iso, national);
+      expect(toE164Phone(canonical!)).toBe(e164);
+      const sent = await deliverOtpMessage({
+        channel: "phone",
+        to: canonical!,
+        body: "کد تأیید NIXO: 111111",
+        challengeId: `ch-${iso}`,
+      });
+      expect(sent.ok).toBe(true);
+      expect(seen.at(-1)).toContain(`To=${encodeURIComponent(e164)}`);
+    }
+  });
+
   it("sends SMS through Kavenegar to the local Iranian number", async () => {
     process.env.NIXO_OTP_FORCE_PROVIDER = "1";
     process.env.NIXO_SMS_PROVIDER = "kavenegar";

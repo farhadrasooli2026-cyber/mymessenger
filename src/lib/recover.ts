@@ -24,6 +24,10 @@ const GENERIC = "اگر این حساب وجود داشته باشد، کد تأ
 export const recoverStartSchema = z.object({
   channel: z.enum(["phone", "email"]),
   identifier: z.string().min(3).max(254),
+  countryIso: z
+    .string()
+    .regex(/^[A-Za-z]{2}$/)
+    .optional(),
   humanToken: z.string().min(8).max(128),
   website: z.string().max(200).optional().default(""),
 });
@@ -33,7 +37,7 @@ function publicError(message: string, status = 400, extra?: Record<string, unkno
 }
 
 export async function startRecovery(input: z.infer<typeof recoverStartSchema>, ipHash: string) {
-  const normalized = normalizeIdentifier(input.channel, input.identifier);
+  const normalized = normalizeIdentifier(input.channel, input.identifier, input.countryIso?.toUpperCase());
   if (!normalized) {
     return publicError(input.channel === "phone" ? "شماره معتبر نیست." : "ایمیل معتبر نیست.");
   }

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { hashIp } from "./crypto-utils";
-import { normalizeEmail, normalizePhone, toE164Phone, detectChannel } from "./identifiers";
+import { normalizeEmail, normalizePhone, toE164Phone, detectChannel, normalizePhoneWithCountry } from "./identifiers";
+import { searchDialCountries } from "./dial-codes";
 import { getOutbox } from "./outbox";
 import { completeProfile } from "./profile";
 import {
@@ -39,6 +40,22 @@ describe("identifiers", () => {
     expect(detectChannel("user@nixo.test")).toBe("email");
     expect(detectChannel("09123456789")).toBe("phone");
     expect(detectChannel("+98 912 345 6789")).toBe("phone");
+  });
+
+  it("composes E.164 from a selected country code and national number", () => {
+    expect(normalizePhoneWithCountry("TR", "05352100432")).toBe("+905352100432");
+    expect(normalizePhoneWithCountry("TR", "905352100432")).toBe("+905352100432");
+    expect(normalizePhoneWithCountry("TR", "+90 535 210 0432")).toBe("+905352100432");
+    expect(toE164Phone(normalizePhoneWithCountry("TR", "05352100432")!)).toBe("+905352100432");
+    expect(normalizePhoneWithCountry("IR", "09121234567")).toBe("09121234567");
+    expect(toE164Phone(normalizePhoneWithCountry("IR", "09121234567")!)).toBe("+989121234567");
+    expect(normalizePhoneWithCountry("DE", "15123456789")).toBe("+4915123456789");
+    expect(normalizePhoneWithCountry("AF", "701234567")).toBe("+93701234567");
+    expect(normalizePhoneWithCountry("TR", "09121234567")).toBeNull();
+    expect(normalizePhoneWithCountry("IR", "05352100432")).toBeNull();
+    expect(searchDialCountries("Türkiye")[0]?.iso).toBe("TR");
+    expect(searchDialCountries("ترکیه")[0]?.iso).toBe("TR");
+    expect(searchDialCountries("Turkey")[0]?.iso).toBe("TR");
   });
 });
 

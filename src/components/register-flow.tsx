@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Mail, ShieldCheck, Smartphone } from "lucide-react";
+import { Loader2, Mail, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,8 @@ import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Label } from "@/components/ui/label";
 import { NixoHeroLogo } from "@/components/nixo-mark";
-import { normalizeEmail, normalizePhone } from "@/lib/identifiers";
+import { CountryCodeSelect } from "@/components/country-code-select";
+import { normalizeEmail, normalizePhoneWithCountry } from "@/lib/identifiers";
 import { cn } from "@/lib/utils";
 
 type Step = "start" | "verify" | "profile" | "complete" | "twostep" | "device" | "recover";
@@ -43,6 +44,7 @@ export function RegisterFlow() {
   const [step, setStep] = useState<Step>("start");
   const [method, setMethod] = useState<Method>("otp");
   const [idMode, setIdMode] = useState<IdMode>("phone");
+  const [countryIso, setCountryIso] = useState("IR");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [humanToken, setHumanToken] = useState("");
@@ -185,8 +187,8 @@ export function RegisterFlow() {
       }
       setHumanToken(token);
       if (idMode === "phone") {
-        if (!normalizePhone(identifier)) {
-          setError("شماره موبایل معتبر نیست. از قالب 09xxxxxxxxx یا + و کد کشور استفاده کنید.");
+        if (!normalizePhoneWithCountry(countryIso, identifier)) {
+          setError("شماره موبایل برای کشور انتخاب‌شده معتبر نیست.");
           return;
         }
       } else if (!normalizeEmail(identifier)) {
@@ -199,6 +201,7 @@ export function RegisterFlow() {
         body: JSON.stringify({
           channel: idMode,
           identifier,
+          countryIso: idMode === "phone" ? countryIso : undefined,
           humanToken: token,
           website: honeypot,
         }),
@@ -245,6 +248,7 @@ export function RegisterFlow() {
           identifier,
           password,
           channel: idMode,
+          countryIso: idMode === "phone" ? countryIso : undefined,
           humanToken: token,
           website: honeypot,
         }),
@@ -565,27 +569,43 @@ export function RegisterFlow() {
               ) : (
                 <p className="text-center text-xs leading-6 text-slate-400">کد را به شماره موبایل شما ارسال می‌کنیم</p>
               )}
-              <div className="relative">
-                {idMode === "email" ? (
+              {idMode === "email" ? (
+                <div className="relative">
                   <Mail className="pointer-events-none absolute top-1/2 end-3 size-4 -translate-y-1/2 text-cyan-300/80" />
-                ) : (
-                  <Smartphone className="pointer-events-none absolute top-1/2 end-3 size-4 -translate-y-1/2 text-cyan-300/80" />
-                )}
-                <Input
-                  id="login-identifier"
-                  dir="ltr"
-                  autoComplete={idMode === "email" ? "email" : "tel"}
-                  inputMode={idMode === "email" ? "email" : "tel"}
-                  type={idMode === "email" ? "email" : "tel"}
-                  placeholder={idMode === "email" ? "آدرس ایمیل" : "شماره موبایل"}
-                  value={identifier}
-                  onChange={(e) => setIdentifier(e.target.value)}
-                  className={cn(inputClass, "pe-11 text-left")}
-                  required
-                  aria-invalid={Boolean(error)}
-                  aria-describedby={error ? "register-error" : undefined}
-                />
-              </div>
+                  <Input
+                    id="login-identifier"
+                    dir="ltr"
+                    autoComplete="email"
+                    inputMode="email"
+                    type="email"
+                    placeholder="آدرس ایمیل"
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
+                    className={cn(inputClass, "pe-11 text-left")}
+                    required
+                    aria-invalid={Boolean(error)}
+                    aria-describedby={error ? "register-error" : undefined}
+                  />
+                </div>
+              ) : (
+                <div className="flex items-stretch gap-2">
+                  <CountryCodeSelect iso={countryIso} onChange={setCountryIso} disabled={busy} />
+                  <Input
+                    id="login-identifier"
+                    dir="ltr"
+                    autoComplete="tel-national"
+                    inputMode="numeric"
+                    type="tel"
+                    placeholder="شماره موبایل"
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
+                    className={cn(inputClass, "min-w-0 flex-1 text-left")}
+                    required
+                    aria-invalid={Boolean(error)}
+                    aria-describedby={error ? "register-error" : undefined}
+                  />
+                </div>
+              )}
               <Honeypot value={honeypot} onChange={setHoneypot} />
               <Button type="submit" className={primaryBtn} disabled={busy}>
                 {busy ? (
@@ -603,25 +623,39 @@ export function RegisterFlow() {
               {idMode === "email" ? (
                 <p className="text-center text-sm font-medium text-cyan-100">ورود با ایمیل</p>
               ) : null}
-              <div className="relative">
-                {idMode === "email" ? (
+              {idMode === "email" ? (
+                <div className="relative">
                   <Mail className="pointer-events-none absolute top-1/2 end-3 size-4 -translate-y-1/2 text-cyan-300/80" />
-                ) : (
-                  <Smartphone className="pointer-events-none absolute top-1/2 end-3 size-4 -translate-y-1/2 text-cyan-300/80" />
-                )}
-                <Input
-                  id="login-identifier"
-                  dir="ltr"
-                  autoComplete={idMode === "email" ? "email" : "tel"}
-                  inputMode={idMode === "email" ? "email" : "tel"}
-                  type={idMode === "email" ? "email" : "tel"}
-                  placeholder={idMode === "email" ? "آدرس ایمیل" : "شماره موبایل"}
-                  value={identifier}
-                  onChange={(e) => setIdentifier(e.target.value)}
-                  className={cn(inputClass, "pe-11 text-left")}
-                  required
-                />
-              </div>
+                  <Input
+                    id="login-identifier"
+                    dir="ltr"
+                    autoComplete="email"
+                    inputMode="email"
+                    type="email"
+                    placeholder="آدرس ایمیل"
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
+                    className={cn(inputClass, "pe-11 text-left")}
+                    required
+                  />
+                </div>
+              ) : (
+                <div className="flex items-stretch gap-2">
+                  <CountryCodeSelect iso={countryIso} onChange={setCountryIso} disabled={busy} />
+                  <Input
+                    id="login-identifier"
+                    dir="ltr"
+                    autoComplete="tel-national"
+                    inputMode="numeric"
+                    type="tel"
+                    placeholder="شماره موبایل"
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
+                    className={cn(inputClass, "min-w-0 flex-1 text-left")}
+                    required
+                  />
+                </div>
+              )}
               <Input
                 type="password"
                 autoComplete="current-password"

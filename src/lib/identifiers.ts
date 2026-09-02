@@ -1,3 +1,5 @@
+import { getDialCountry } from "@/lib/dial-codes";
+
 export type Channel = "phone" | "email";
 
 const PERSIAN_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
@@ -35,8 +37,10 @@ export function normalizeEmail(input: string): string | null {
   return raw;
 }
 
-export function normalizeIdentifier(channel: Channel, input: string): string | null {
-  return channel === "phone" ? normalizePhone(input) : normalizeEmail(input);
+export function normalizeIdentifier(channel: Channel, input: string, countryIso?: string | null): string | null {
+  if (channel === "email") return normalizeEmail(input);
+  if (countryIso) return normalizePhoneWithCountry(countryIso, input);
+  return normalizePhone(input);
 }
 
 /** Email if the value contains `@`, otherwise treat as phone. */
@@ -44,9 +48,41 @@ export function detectChannel(input: string): Channel {
   return input.trim().includes("@") ? "email" : "phone";
 }
 
+/**
+ * Combine a selected ISO country with a national number the user typed.
+ * Strips a local 0 and a repeated country code. Does not accept another
+ * country's number just because the digit length happens to match.
+ */
+export function normalizePhoneWithCountry(iso: string, national: string): string | null {
+  const country = getDialCountry(iso);
+  if (!country) return null;
+  let digits = toEnglishDigits(national).trim();
+  digits = digits.replace(/[\s\-()]/g, "");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  if (digits.startsWith("+")) digits = digits.slice(1);
+  digits = digits.replace(/\D/g, "");
+  if (!digits) return null;
+
+  if (digits.startsWith(country.dial)) {
+    const rest = digits.slice(country.dial.length);
+    if (rest.length >= country.nsnMin && rest.length <= country.nsnMax) {
+      digits = rest;
+    }
+  }
+  if (digits.startsWith("0")) digits = digits.slice(1);
+
+  if (digits.length < country.nsnMin || digits.length > country.nsnMax) return null;
+  if (country.nsnPattern && !country.nsnPattern.test(digits)) return null;
+
+  if (country.iso === "IR") return `0${digits}`;
+  return `+${country.dial}${digits}`;
+}
+
 /** E.164 for Twilio and similar. Iranian 09xxxxxxxxx → +98. */
 export function toE164Phone(input: string): string | null {
-  const n = normalizePhone(input);
+  const compact = toEnglishDigits(input).replace(/[\s\-()]/g, "");
+  if (/^\+[1-9]\d{7,14}$/.test(compact)) return compact;
+  const n = normalizePhone(compact);
   if (!n) return null;
   if (n.startsWith("+")) return n;
   if (/^09\d{9}$/.test(n)) return `+98${n.slice(1)}`;

@@ -15,6 +15,10 @@ export const passwordLoginSchema = z.object({
   identifier: z.string().min(3).max(254),
   password: z.string().min(1).max(200),
   channel: z.enum(["phone", "email"]).optional(),
+  countryIso: z
+    .string()
+    .regex(/^[A-Za-z]{2}$/)
+    .optional(),
   humanToken: z.string().min(8).max(128),
   website: z.string().max(200).optional().default(""),
 });
@@ -29,11 +33,11 @@ function sleep(ms: number) {
 
 export async function loginWithPassword(input: z.infer<typeof passwordLoginSchema>, ipHash: string) {
   const channel = input.channel ?? detectChannel(input.identifier);
-  const normalized = normalizeIdentifier(channel, input.identifier);
+  const normalized = normalizeIdentifier(channel, input.identifier, input.countryIso?.toUpperCase());
   if (!normalized) {
     return publicError(
       channel === "phone"
-        ? "شماره موبایل معتبر نیست. از قالب 09xxxxxxxxx استفاده کنید."
+        ? "شماره موبایل برای کشور انتخاب‌شده معتبر نیست."
         : "ایمیل واردشده معتبر نیست.",
     );
   }

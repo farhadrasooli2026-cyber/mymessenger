@@ -35,6 +35,10 @@ const GENERIC_SENT =
 export const startSchema = z.object({
   channel: z.enum(["phone", "email"]),
   identifier: z.string().min(3).max(254),
+  countryIso: z
+    .string()
+    .regex(/^[A-Za-z]{2}$/)
+    .optional(),
   humanToken: z.string().min(8).max(128),
   website: z.string().max(200).optional().default(""),
 });
@@ -92,11 +96,14 @@ export function consumeHumanInStore(data: StoreData, token: string, ipHash: stri
 
 export async function startRegistration(input: z.infer<typeof startSchema>, ipHash: string) {
   const now = Date.now();
-  const normalized = normalizeIdentifier(input.channel, input.identifier);
+  const normalized =
+    input.channel === "phone"
+      ? normalizeIdentifier("phone", input.identifier, input.countryIso?.toUpperCase())
+      : normalizeIdentifier("email", input.identifier);
   if (!normalized) {
     return publicError(
       input.channel === "phone"
-        ? "شماره موبایل معتبر نیست. از قالب 09xxxxxxxxx استفاده کنید."
+        ? "شماره موبایل برای کشور انتخاب‌شده معتبر نیست."
         : "ایمیل واردشده معتبر نیست.",
     );
   }
