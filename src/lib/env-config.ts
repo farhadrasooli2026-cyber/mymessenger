@@ -1,6 +1,7 @@
 import "server-only";
 import { APP_VERSION } from "@/lib/release";
 import { DEPLOY_ENVS, type DeployEnvName } from "@/lib/deploy-types";
+import { emailConfigured, smsConfigured } from "@/lib/otp-env";
 
 const DEV_PEPPER = "nixo-dev-pepper-not-for-production-use";
 const DEV_SESSION = "nixo-dev-session-secret-not-for-production";
@@ -24,25 +25,12 @@ export function isDemoInboxEnabled(): boolean {
   return currentDeployEnv() === "development" || currentDeployEnv() === "testing";
 }
 
-function has(name: string) {
-  return Boolean(process.env[name] && String(process.env[name]).trim());
-}
-
 function productionEmailOk() {
-  const p = (process.env.NIXO_EMAIL_PROVIDER || "").toLowerCase();
-  const from = process.env.NIXO_EMAIL_FROM || process.env.NIXO_SMTP_FROM;
-  if (p === "smtp") return has("NIXO_SMTP_HOST") && has("NIXO_SMTP_USER") && has("NIXO_SMTP_PASS") && Boolean(from);
-  if (p === "resend" || p === "sendgrid" || p === "postmark") return has("NIXO_EMAIL_API_KEY") && Boolean(from);
-  if (p === "mailgun") return has("NIXO_EMAIL_API_KEY") && Boolean(from);
-  return false;
+  return emailConfigured();
 }
 
 function productionSmsOk() {
-  const p = (process.env.NIXO_SMS_PROVIDER || "").toLowerCase();
-  if (p === "twilio") return has("NIXO_SMS_API_KEY") && has("NIXO_SMS_API_SECRET") && has("NIXO_SMS_FROM");
-  if (p === "kavenegar") return has("NIXO_SMS_API_KEY");
-  if (p === "smsir") return has("NIXO_SMS_API_KEY") && has("NIXO_SMS_FROM");
-  return false;
+  return smsConfigured();
 }
 
 export function envVarNames(): readonly string[] {

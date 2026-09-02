@@ -31,6 +31,7 @@ export function VoiceComposer({
   children,
   sendPath,
   replyToId,
+  showMic = true,
 }: {
   threadId: string;
   disabled?: boolean;
@@ -38,6 +39,7 @@ export function VoiceComposer({
   onRecordingChange?: (active: boolean) => void;
   children?: React.ReactNode;
   sendPath?: string;
+  showMic?: boolean;
   replyToId?: string | null;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
@@ -473,7 +475,7 @@ export function VoiceComposer({
       )}
       <div className="flex items-end gap-2">
         {!recording && phase !== "preview" && <div className="min-w-0 flex-1">{children}</div>}
-        {phase !== "preview" && (
+        {phase !== "preview" && showMic && (
           <button
             type="button"
             disabled={disabled || sending}

@@ -246,14 +246,8 @@ export async function resendOtp(challengeId: string, ipHash: string) {
       });
     }
 
-    const code = randomOtp(config.otp.length);
-    challenge.salt = newSalt();
-    challenge.codeHash = hashOtp(code, challenge.salt);
-    challenge.expiresAt = now + config.otp.ttlMs;
-    challenge.attemptCount = 0;
     challenge.sendCount += 1;
     challenge.lastSentAt = now;
-    challenge.usedAt = null;
     challenge.deliveryStatus = "pending";
 
     return {
@@ -262,17 +256,26 @@ export async function resendOtp(challengeId: string, ipHash: string) {
       message: GENERIC_SENT,
       cooldownSeconds: Math.ceil(config.otp.resendCooldownMs / 1000),
       ttlSeconds: Math.ceil(config.otp.ttlMs / 1000),
-      otpCode: code,
     };
   });
 
-  if (result.ok && "otpCode" in result && result.otpCode) {
-    const delivery = await dispatchChallengeOtp(challengeId, result.otpCode);
+  if (result.ok) {
+    const code = randomOtp(config.otp.length);
+    const delivery = await dispatchChallengeOtp(challengeId, code);
     if (!delivery.ok) {
       return publicError(OTP_DELIVERY_CLIENT_ERROR, 502, {
         reason: deliveryFailureReason(delivery.error),
       });
     }
+    await mutateStore((data) => {
+      const challenge = data.challenges.find((c) => c.id === challengeId);
+      if (!challenge || challenge.usedAt || challenge.invalidatedAt) return;
+      challenge.salt = newSalt();
+      challenge.codeHash = hashOtp(code, challenge.salt);
+      challenge.expiresAt = Date.now() + config.otp.ttlMs;
+      challenge.attemptCount = 0;
+      challenge.usedAt = null;
+    });
     return {
       ok: true as const,
       status: 200,

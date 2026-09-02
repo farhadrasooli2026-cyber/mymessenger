@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Ban, Bookmark, Flag, Globe, Lock, MessageCircle, Phone, Plus, Radio, Search, Send, Smile, Sparkles, Sticker, Store, Timer, UserRound, Users, Video } from "lucide-react";
+import { Ban, Bookmark, Check, CheckCheck, Flag, Lock, MessageCircle, MoreVertical, Phone, Search, Send, Sparkles, UserRound, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { useA11y } from "@/components/a11y-provider";
@@ -69,6 +69,7 @@ import { StoryViewer, type StoryItem } from "@/components/story-viewer";
 import { SearchPanel } from "@/components/search-panel";
 import { ChatSearch } from "@/components/chat-search";
 import { SavedPane } from "@/components/saved-pane";
+import { ContactsDesk } from "@/components/contacts-desk";
 import type { SearchHit } from "@/lib/search-types";
 import { useI18n } from "@/components/i18n-provider";
 
@@ -142,7 +143,7 @@ type Message = {
   clientNonce?: string | null;
 };
 
-type Tab = "chats" | "calls" | "spaces" | "shop" | "me";
+type Tab = "chats" | "calls" | "contacts" | "saved" | "me" | "spaces" | "shop";
 
 type WireMsg = {
   id: string;
@@ -408,6 +409,9 @@ export function Messenger({
   const [textTimer, setTextTimer] = useState<TimerChoice>("inherit");
   const [customMs, setCustomMs] = useState(120_000);
   const [timerOpen, setTimerOpen] = useState(false);
+  const [headerMore, setHeaderMore] = useState(false);
+  const [composerMore, setComposerMore] = useState(false);
+  const [msgMenuId, setMsgMenuId] = useState<string | null>(null);
   const [peerSheet, setPeerSheet] = useState(false);
   const [liveCall, setLiveCall] = useState<LiveCall | null>(null);
   const [waitingCall, setWaitingCall] = useState<LiveCall | null>(null);
@@ -1227,7 +1231,7 @@ export function Messenger({
   return (
     <VoiceQueueProvider>
     <div
-      className="flex min-h-dvh text-[var(--nixo-text,#ecfdf5)]"
+      className="flex min-h-dvh overflow-x-hidden text-[var(--nixo-text,#ecfdf5)]"
       style={{
         backgroundColor: "var(--nixo-bg,#071614)",
         ...backgroundPreview(appearance.appBackground),
@@ -1243,23 +1247,22 @@ export function Messenger({
           </Link>
         </div>
       )}
-      <nav className="hidden w-20 flex-col items-center gap-3 border-s border-white/10 bg-[#0b2421] py-4 md:flex" aria-label={t("nav.spaces")}>
+      <nav className="hidden w-[4.5rem] flex-col items-center gap-1 border-s border-white/10 bg-[#0b2421] py-3 md:flex" aria-label="ناوبری نیکسو">
+        <NixoMark size={36} />
         <NavBtn icon={MessageCircle} label={t("nav.chats")} active={tab === "chats"} onClick={() => setTab("chats")} />
         <NavBtn icon={Phone} label={t("nav.calls")} active={tab === "calls"} onClick={() => setTab("calls")} />
-        <button type="button" onClick={() => setTab("spaces")} aria-label={t("nav.spaces")} aria-current={tab === "spaces" ? "page" : undefined}>
-          <NixoMark size={44} />
-        </button>
-        <NavBtn icon={Store} label={t("nav.shop")} active={tab === "shop"} onClick={() => setTab("shop")} />
+        <NavBtn icon={Users} label={t("nav.contacts")} active={tab === "contacts"} onClick={() => setTab("contacts")} />
+        <NavBtn icon={Bookmark} label={t("nav.saved")} active={tab === "saved"} onClick={() => { setTab("saved"); setSavedOpen(true); }} />
         <NavBtn icon={UserRound} label={t("nav.me")} active={tab === "me"} onClick={() => setTab("me")} />
       </nav>
       <aside
         className={cn(
-          "flex w-full max-w-full flex-col border-white/10 bg-[#0b2421] md:w-[360px] md:border-s",
+          "flex w-full max-w-full flex-col border-white/10 bg-[#0b2421] max-md:max-w-none md:w-[320px] lg:w-[360px] md:border-s",
           mobileChat && "hidden md:flex",
         )}
         aria-label="فهرست گفتگو"
       >
-        <div className="flex items-center justify-between px-4 py-4">
+        <div className="flex items-center justify-between px-3 py-3">
           <div className="flex items-center gap-2">
             <NixoMark size={34} />
             <div>
@@ -1325,139 +1328,23 @@ export function Messenger({
           </div>
         </div>
 
-        <div className="flex gap-3 overflow-x-auto px-4 pb-3">
-          <button type="button" className="shrink-0 text-center" onClick={() => setStoryComposer(true)}>
-            <span className="grid size-14 place-items-center rounded-full border-2 border-dashed border-amber-300/70 bg-black/20">
-              <Plus className="size-5 text-amber-200" />
-            </span>
-            <span className="mt-1 block w-14 truncate text-[10px]">افزودن</span>
-          </button>
-          {storyRings.map((ring) => (
-            <button
-              key={ring.ownerId}
-              type="button"
-              className="shrink-0 text-center"
-              onClick={() => setViewingRing(ring)}
-            >
-              <span
-                className={cn(
-                  "grid size-14 place-items-center rounded-full border-2 text-xs",
-                  ring.viewedAll ? "border-white/20" : "border-amber-300",
-                  ring.muted && "opacity-50",
-                )}
-              >
-                {ring.name.slice(0, 1)}
-              </span>
-              <span className="mt-1 block w-14 truncate text-[10px]">
-                {ring.ownerId === userId ? "استوری من" : ring.name}
-              </span>
-              {ring.status?.text || ring.status?.preset ? (
-                <span className="block w-14 truncate text-[9px] text-emerald-100/50">
-                  {ring.status.text || ring.status.preset}
-                </span>
-              ) : null}
-            </button>
-          ))}
-        </div>
+        <div className="hidden" aria-hidden="true" />
 
-        <div className="space-y-2 px-4 pb-3">
-          <p className="text-xs text-emerald-100/55">{t("messenger.private_hint")}</p>
-          <Button
-            type="button"
-            variant="secondary"
-            className="h-9 w-full"
-            onClick={() => {
-              setSearchSeed(query);
-              setSearchOpen(true);
-            }}
-          >
-            <Search className="ms-1 size-3.5" />
-            {t("messenger.search")}
-          </Button>
-          <div className="flex gap-2">
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("messenger.search_placeholder")}
-              dir="auto"
-              className="h-11 bg-black/20 text-start text-xs"
-              aria-label="جستجو در فهرست گفتگو"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  setSearchSeed(query);
-                  setSearchOpen(true);
-                }
-              }}
-            />
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={() => {
+        <div className="space-y-2 px-3 pb-2 pt-1">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t("messenger.search_placeholder")}
+            dir="auto"
+            className="h-10 rounded-xl border-white/10 bg-black/25 text-start text-sm"
+            aria-label="جستجو در فهرست گفتگو"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
                 setSearchSeed(query);
                 setSearchOpen(true);
-              }}
-            >
-              <Search className="size-3.5" />
-            </Button>
-          </div>
-          <Link
-            href="/app/contacts"
-            className="inline-flex h-9 w-full items-center justify-center rounded-lg bg-amber-300 text-sm font-medium text-[#102824]"
-          >
-            <UserRound className="ml-1 size-3.5" />
-            مخاطبین و افراد
-          </Link>
-          <Button
-            type="button"
-            className="h-9 w-full bg-amber-300 text-[#102824]"
-            onClick={() => {
-              setSavedOpen(true);
-              setActiveGroupId(null);
-              setActiveCommunityId(null);
-              setActiveChannelId(null);
-              setTab("chats");
-              setMobileChat(true);
+              }
             }}
-          >
-            <Bookmark className="ml-1 size-3.5" />
-            Saved Messages
-          </Button>
-          <Button
-            type="button"
-            className="h-9 w-full bg-amber-300 text-[#102824]"
-            onClick={() => setCreateGroup(true)}
-          >
-            <Users className="ml-1 size-3.5" />
-            ایجاد گروه
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            className="h-9 w-full"
-            onClick={() => setDiscoverGroups(true)}
-          >
-            <Search className="ml-1 size-3.5" />
-            کشف گروه عمومی
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            className="h-9 w-full"
-            onClick={() => setCreateCommunity(true)}
-          >
-            <Globe className="ml-1 size-3.5" />
-            ایجاد جامعه
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            className="h-9 w-full"
-            onClick={() => setCreateChannel(true)}
-          >
-            <Radio className="ml-1 size-3.5" />
-            ایجاد کانال
-          </Button>
+          />
         </div>
 
         <ScrollArea className="flex-1">
@@ -1467,7 +1354,7 @@ export function Messenger({
 
       <section
         className={cn(
-          "relative min-w-0 flex-1 flex-col",
+          "relative min-w-0 flex-1 flex-col overflow-x-hidden pb-16 md:pb-0",
           mobileChat ? "flex" : "hidden md:flex",
         )}
       >
@@ -1569,17 +1456,19 @@ export function Messenger({
             id="nixo-main"
             role="main"
           >
-            <header className="flex items-center gap-3 border-b border-white/10 px-4 py-3">
+            <header className="flex h-14 shrink-0 items-center gap-2 border-b border-white/10 px-2 sm:px-3">
               <Button
                 type="button"
                 variant="ghost"
+                size="icon"
                 className="md:hidden text-white hover:bg-white/10"
                 onClick={() => setMobileChat(false)}
+                aria-label="بازگشت به گفتگوها"
               >
-                گفتگوها
+                →
               </Button>
               <span
-                className="grid size-10 cursor-pointer place-items-center rounded-2xl text-sm font-semibold text-[#071614]"
+                className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-full text-sm font-semibold text-[#071614]"
                 style={{ background: active.color }}
                 onClick={() => setPeerSheet(true)}
                 aria-hidden="true"
@@ -1587,82 +1476,40 @@ export function Messenger({
                 {active.peerName.slice(0, 1)}
               </span>
               <button type="button" className="min-w-0 flex-1 text-end" onClick={() => setPeerSheet(true)} aria-label={`گفتگو با ${active.peerName}`}>
-                <p className="truncate font-medium">{active.peerName}</p>
-                <p className="flex items-center gap-1 text-[11px] text-[color:var(--nixo-accent,#6ee7b7)]/80">
-                  <Lock className="size-3" />
-                  رمزنگاری سرتاسری روی این دستگاه · {active.peerTitle}
+                <p className="truncate text-sm font-medium">{active.peerName}</p>
+                <p className="truncate text-[11px] text-cyan-200/80">
+                  {peerTyping
+                    ? t("messenger.typing")
+                    : Date.now() - (active.lastAt || 0) < 180_000
+                      ? "آنلاین"
+                      : active.lastAt
+                        ? `آخرین بازدید ${new Date(active.lastAt).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}`
+                        : active.peerTitle}
                 </p>
               </button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="text-white hover:bg-white/10"
-                onClick={() => setChatSearchOpen((v) => !v)}
-                aria-label="جستجو در گفتگو"
-              >
+              <Button type="button" variant="ghost" size="icon" className="text-white hover:bg-white/10" onClick={() => setChatSearchOpen((v) => !v)} aria-label="جستجو">
                 <Search className="size-4" />
               </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="text-white hover:bg-white/10"
-                disabled={!active.callsAllowed}
-                onClick={() => void startCall(active.id, "voice")}
-                aria-label="تماس صوتی"
-              >
+              <Button type="button" variant="ghost" size="icon" className="text-white hover:bg-white/10" disabled={!active.callsAllowed} onClick={() => void startCall(active.id, "voice")} aria-label="تماس صوتی">
                 <Phone className="size-4" />
               </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="text-white hover:bg-white/10"
-                disabled={!active.callsAllowed}
-                onClick={() => void startCall(active.id, "video")}
-                aria-label="تماس تصویری"
-              >
+              <Button type="button" variant="ghost" size="icon" className="text-white hover:bg-white/10" disabled={!active.callsAllowed} onClick={() => void startCall(active.id, "video")} aria-label="تماس تصویری">
                 <Video className="size-4" />
               </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="text-xs text-amber-200 hover:bg-white/10"
-                onClick={() => {
-                  setChatBgDraft(active.background ?? appearance.chatBackground);
-                  setBgOpen(true);
-                }}
-              >
-                پس‌زمینه این چت
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="text-xs text-amber-200 hover:bg-white/10"
-                onClick={async () => {
-                  const res = await fetch(`/api/chats/${active.id}/media`);
-                  const data = await res.json();
-                  setSharedItems((data.items ?? []) as Message[]);
-                  setSharedOpen(true);
-                }}
-              >
-                رسانه‌ها
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="text-xs text-amber-200 hover:bg-white/10"
-                onClick={() => setTimerOpen((v) => !v)}
-              >
-                <Timer className="size-3.5" />
-                {active.disappearAfterMs ? labelDisappear(active.disappearAfterMs) : "تایمر"}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="text-white hover:bg-white/10"
-                onClick={() => setSafetyOpen((v) => !v)}
-              >
-                ایمنی
-              </Button>
+              <div className="relative">
+                <Button type="button" variant="ghost" size="icon" className="text-white hover:bg-white/10" onClick={() => setHeaderMore((v) => !v)} aria-label="بیشتر">
+                  <MoreVertical className="size-4" />
+                </Button>
+                {headerMore && (
+                  <div className="absolute end-0 top-11 z-40 w-48 rounded-2xl border border-white/10 bg-[#0b1824] p-1 text-sm shadow-xl">
+                    <button type="button" className="block w-full rounded-xl px-3 py-2 text-start hover:bg-white/10" onClick={() => { setChatBgDraft(active.background ?? appearance.chatBackground); setBgOpen(true); setHeaderMore(false); }}>پس‌زمینه</button>
+                    <button type="button" className="block w-full rounded-xl px-3 py-2 text-start hover:bg-white/10" onClick={async () => { const res = await fetch(`/api/chats/${active.id}/media`); const data = await res.json(); setSharedItems((data.items ?? []) as Message[]); setSharedOpen(true); setHeaderMore(false); }}>رسانه‌ها</button>
+                    <button type="button" className="block w-full rounded-xl px-3 py-2 text-start hover:bg-white/10" onClick={() => { setTimerOpen((v) => !v); setHeaderMore(false); }}>تایمر ناپدید</button>
+                    <button type="button" className="block w-full rounded-xl px-3 py-2 text-start hover:bg-white/10" onClick={() => { setSafetyOpen((v) => !v); setHeaderMore(false); }}>ایمنی</button>
+                    <button type="button" className="block w-full rounded-xl px-3 py-2 text-start hover:bg-white/10" onClick={() => { setPeerSheet(true); setHeaderMore(false); }}>پروفایل</button>
+                  </div>
+                )}
+              </div>
             </header>
             {chatSearchOpen && active && (
               <ChatSearch
@@ -1812,14 +1659,8 @@ export function Messenger({
                 className="pointer-events-none absolute inset-0"
                 style={backgroundPreview(active.background ?? appearance.chatBackground)}
               />
-              <div className="pointer-events-none absolute inset-0 opacity-[0.07]">
-                <svg className="h-full w-full">
-                  <line x1="8%" y1="0" x2="92%" y2="100%" stroke="#fbbf24" strokeWidth="8" />
-                  <line x1="92%" y1="0" x2="8%" y2="100%" stroke="#34d399" strokeWidth="8" />
-                </svg>
-              </div>
               <ScrollArea className="h-full">
-                <div className="relative space-y-3 px-4 py-5" dir="ltr">
+                <div className="relative min-h-full space-y-2 px-3 py-3 sm:px-4" dir="ltr">
                   {chatCursor && (
                     <button
                       type="button"
@@ -1872,14 +1713,14 @@ export function Messenger({
                           attachmentType: msg.kind && msg.kind !== "text" ? msg.kind : null,
                         })}
                         className={cn(
-                          "max-w-[80%]",
+                          "max-w-[min(85vw,28rem)] sm:max-w-[min(72vw,32rem)]",
                           bubbleClass(appearance.bubbleStyle),
                           textClass(appearance.textSize),
                           msg.locked
                             ? "bg-black/50 text-emerald-100/55"
                             : msg.sender === "me"
-                              ? "bg-[var(--nixo-bubble,#fbbf24)] text-[var(--nixo-bubble-text,#102824)]"
-                              : "bg-black/35 text-[var(--nixo-text,#ecfdf5)]",
+                              ? "bg-cyan-400 text-[#071614]"
+                              : "bg-white/10 text-[var(--nixo-text,#ecfdf5)]",
                         )}
                       >
                         {msg.kind === "sticker" ? (
@@ -1984,12 +1825,13 @@ export function Messenger({
                             <time className="sr-only" dateTime={new Date(msg.createdAt).toISOString()}>
                               {new Date(msg.createdAt).toLocaleString("fa-IR")}
                             </time>
-                            {msg.editedAt ? <p className="text-[10px] opacity-50" aria-live="polite">ویرایش‌شده</p> : null}
-                            {msg.sender === "me" && msg.state ? (
-                              <p className="text-[10px] opacity-50" aria-label={statusLabel(msg.state)}>
-                                {msg.state === "read" ? "خوانده شد" : msg.state === "delivered" ? "تحویل شد" : msg.state === "deleted" ? "حذف شد" : msg.state === "failed" ? "ارسال نشد" : "ارسال شد"}
-                              </p>
-                            ) : null}
+                            {msg.editedAt ? <span className="text-[10px] opacity-50">ویرایش‌شده</span> : null}
+                            <span className="inline-flex items-center gap-1 text-[10px] opacity-60">
+                              {new Date(msg.createdAt).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}
+                              {msg.sender === "me" && (
+                                msg.state === "read" ? <CheckCheck className="size-3.5 text-sky-700" /> : <Check className="size-3.5" />
+                              )}
+                            </span>
                             <ExpiryBadge
                               createdAt={msg.createdAt}
                               expireFrom={msg.expireFrom}
@@ -1999,7 +1841,23 @@ export function Messenger({
                             />
                           </div>
                         )}
-                        <div className="px-2 pb-1">
+                        <div className="relative px-2 pb-1">
+                          <button type="button" className="absolute -top-1 end-1 text-[10px] opacity-40" onClick={() => setMsgMenuId((id) => (id === msg.id ? null : msg.id))} aria-label="ابزار پیام">
+                            ⋮
+                          </button>
+                          {msgMenuId === msg.id && (
+                            <div className="mb-1 rounded-xl bg-black/40 p-1 text-[11px]">
+                              <button type="button" className="block w-full px-2 py-1 text-start" onClick={() => { void saveToVault(msg, active); setMsgMenuId(null); }}>ذخیره</button>
+                              <button type="button" className="block w-full px-2 py-1 text-start" onClick={async () => {
+                                await fetch("/api/saved", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: msg.kind === "photo" || msg.kind === "video" || msg.kind === "voice" || msg.kind === "file" ? msg.kind : "message", body: msg.text, bookmark: true, tag: "Important", source: { type: "chat", id: active.id, name: active.peerName, messageId: msg.id } }) });
+                                toast.success("ذخیره شد.");
+                                setMsgMenuId(null);
+                              }}>نشانک</button>
+                              {msg.text && !msg.expired && (["fa", "en", "tr"] as const).map((lng) => (
+                                <button key={lng} type="button" className="block w-full px-2 py-1 text-start" onClick={() => { toast.message(translateText(msg.text, lng).slice(0, 280)); setMsgMenuId(null); }}>ترجمه {lng}</button>
+                              ))}
+                            </div>
+                          )}
                           <ReactionBar
                             reactions={msg.reactions}
                             disabled={Boolean(msg.local) || !active.interactionsAllowed}
@@ -2008,38 +1866,9 @@ export function Messenger({
                             onRetry={() => void reactOn(msg.id, failedReact[msg.id])}
                           />
                         </div>
-                        <button
-                          type="button"
-                          className="block w-full px-3 pb-2 text-left text-[10px] opacity-70"
-                          onClick={() => void saveToVault(msg, active)}
-                        >
-                          Save Message
-                        </button>
-                        <button
-                          type="button"
-                          className="block w-full px-3 pb-1 text-left text-[10px] opacity-70"
-                          onClick={async () => {
-                            await fetch("/api/saved", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({
-                                kind: msg.kind === "photo" || msg.kind === "video" || msg.kind === "voice" || msg.kind === "file" ? msg.kind : "message",
-                                body: msg.text,
-                                bookmark: true,
-                                tag: "Important",
-                                source: { type: "chat", id: active.id, name: active.peerName, messageId: msg.id },
-                              }),
-                            });
-                            toast.success("Bookmark شد.");
-                          }}
-                        >
-                          Bookmark
-                        </button>
                         {msg.text && !msg.expired && (
-                          <div className="flex flex-wrap gap-2 px-3 pb-2 text-[10px] opacity-80">
-                            <button type="button" onClick={() => setReplyTo(msg)}>
-                              پاسخ
-                            </button>
+                          <div className="flex flex-wrap gap-2 px-3 pb-2 text-[10px] opacity-70">
+                            <button type="button" onClick={() => setReplyTo(msg)}>پاسخ</button>
                             {msg.sender === "me" && !msg.local && (
                               <button
                                 type="button"
@@ -2077,24 +1906,6 @@ export function Messenger({
                             )}
                           </div>
                         )}
-                        {msg.text && !msg.expired && (
-                          <div className="flex flex-wrap gap-1 px-3 pb-2">
-                            <span className="text-[10px] opacity-50">Translate</span>
-                            {(["fa", "en", "tr"] as const).map((lng) => (
-                              <button
-                                key={lng}
-                                type="button"
-                                className="text-[10px] text-amber-200"
-                                onClick={() => {
-                                  const out = translateText(msg.text, lng);
-                                  toast.message(out.slice(0, 280));
-                                }}
-                              >
-                                {lng}
-                              </button>
-                            ))}
-                          </div>
-                        )}
                       </div>
                     </div>
                     )
@@ -2103,23 +1914,11 @@ export function Messenger({
                 </div>
               </ScrollArea>
             </div>
-            <MediaDock
-              threadId={active.id}
-              disabled={!active.messagesAllowed || busy}
-              onSent={async () => {
-                const res = await fetch(`/api/chats/${active.id}`, { cache: "no-store" });
-                if (!res.ok) return;
-                const data = (await res.json()) as { messages: WireMsg[] };
-                const remote = await mapRemote(active.id, data.messages);
-                const key = await loadOrCreateThreadKey(active.id);
-                const local = await loadLocalMessages(active.id, key);
-                setMessages([...local.map((m) => ({ ...m, local: true as const })), ...remote].sort((a, b) => a.createdAt - b.createdAt));
-                await loadThreads();
-              }}
-            />
+            <div className="shrink-0 border-t border-white/10 bg-[#0b2421]/90 px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:pb-2">
             <VoiceComposer
               threadId={active.id}
               disabled={!active.messagesAllowed || busy}
+              showMic={!draft.trim()}
               onRecordingChange={setVoiceRec}
               onSent={async () => {
                 const res = await fetch(`/api/chats/${active.id}`, { cache: "no-store" });
@@ -2143,7 +1942,7 @@ export function Messenger({
                 await loadThreads();
               }}
             >
-              <form onSubmit={onSend} className="flex flex-col gap-2">
+              <form onSubmit={onSend} className="flex flex-col gap-1">
                 {replyTo && (
                   <div className="flex items-center justify-between rounded-lg bg-black/25 px-3 py-1 text-[11px] text-emerald-100/70" role="status">
                     <span className="truncate">پاسخ: {replyTo.text.slice(0, 80)}</span>
@@ -2155,41 +1954,28 @@ export function Messenger({
                 {editingId && (
                   <div className="flex items-center justify-between rounded-lg bg-black/25 px-3 py-1 text-[11px] text-amber-100/80" role="status">
                     <span>ویرایش پیام</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingId(null);
-                        setDraft("");
-                      }}
-                    >
-                      لغو
-                    </button>
+                    <button type="button" onClick={() => { setEditingId(null); setDraft(""); }}>لغو</button>
                   </div>
                 )}
-                <DisappearPicker
-                  value={textTimer}
-                  onChange={setTextTimer}
-                  customMs={customMs}
-                  onCustomMs={setCustomMs}
-                  allowInherit
+                <div className="flex items-end gap-1">
+                <MediaDock
+                  threadId={active.id}
+                  disabled={!active.messagesAllowed || busy}
+                  onSent={async () => {
+                    const res = await fetch(`/api/chats/${active.id}`, { cache: "no-store" });
+                    if (!res.ok) return;
+                    const data = (await res.json()) as { messages: WireMsg[] };
+                    const remote = await mapRemote(active.id, data.messages);
+                    const key = await loadOrCreateThreadKey(active.id);
+                    const local = await loadLocalMessages(active.id, key);
+                    setMessages([...local.map((m) => ({ ...m, local: true as const })), ...remote].sort((a, b) => a.createdAt - b.createdAt));
+                    await loadThreads();
+                  }}
                 />
-                <AiComposerTools
-                  draft={draft}
-                  onDraft={setDraft}
-                  lastIncoming={[...messages].reverse().find((m) => m.sender === "peer" && m.text)?.text}
-                />
-                <div className="flex gap-2">
-                <Button type="button" size="icon" variant="secondary" className="h-11 w-11" aria-label="Emoji" onClick={() => { setEmojiOpen((v) => !v); setStickerOpen(false); }}>
-                  <Smile className="size-4" />
-                </Button>
-                <Button type="button" size="icon" variant="secondary" className="h-11 w-11" aria-label="Stickers" onClick={() => { setStickerOpen((v) => !v); setEmojiOpen(false); }}>
-                  <Sticker className="size-4" />
-                </Button>
                 <Input
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   aria-label={editingId ? "ویرایش پیام" : "متن پیام"}
-                  aria-required="false"
                   dir="auto"
                   onKeyDown={(e) => {
                     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
@@ -2197,26 +1983,35 @@ export function Messenger({
                       (e.currentTarget.form as HTMLFormElement | null)?.requestSubmit();
                     }
                   }}
-                  placeholder={
-                    editingId
-                      ? "متن ویرایش‌شده…"
-                      : active.messagesAllowed
-                        ? "پیام رمزنگاری‌شده بنویس..."
-                        : "ارسال پیام محدود شده است"
-                  }
-                  className="h-11 flex-1 border-white/10 bg-black/20"
+                  placeholder={editingId ? "متن ویرایش‌شده…" : active.messagesAllowed ? "نوشتن پیام..." : "ارسال پیام محدود شده است"}
+                  className="h-11 min-w-0 flex-1 rounded-2xl border-white/10 bg-black/25 text-sm"
                   maxLength={2000}
                   disabled={!active.messagesAllowed}
                 />
-                <Button
-                  type="submit"
-                  size="lg"
-                  className="h-11 bg-amber-300 text-[#102824] hover:bg-amber-200"
-                  disabled={busy || !draft.trim() || !active.messagesAllowed}
-                >
-                  <Send className="size-4" />
-                  {editingId ? "ذخیره" : "ارسال"}
-                </Button>
+                <AiComposerTools
+                  draft={draft}
+                  onDraft={setDraft}
+                  lastIncoming={[...messages].reverse().find((m) => m.sender === "peer" && m.text)?.text}
+                />
+                <div className="relative">
+                  <Button type="button" size="icon" variant="ghost" className="size-10 text-white hover:bg-white/10" onClick={() => setComposerMore((v) => !v)} aria-label="ابزار بیشتر">
+                    <MoreVertical className="size-4" />
+                  </Button>
+                  {composerMore && (
+                    <div className="absolute bottom-12 end-0 z-30 w-44 rounded-2xl border border-white/10 bg-[#0b1824] p-1 text-xs shadow-xl">
+                      <button type="button" className="block w-full rounded-lg px-2 py-2 text-start hover:bg-white/10" onClick={() => { setEmojiOpen((v) => !v); setStickerOpen(false); setComposerMore(false); }}>ایموجی</button>
+                      <button type="button" className="block w-full rounded-lg px-2 py-2 text-start hover:bg-white/10" onClick={() => { setStickerOpen((v) => !v); setEmojiOpen(false); setComposerMore(false); }}>استیکر</button>
+                      <div className="px-1 py-1">
+                        <DisappearPicker value={textTimer} onChange={setTextTimer} customMs={customMs} onCustomMs={setCustomMs} allowInherit />
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {draft.trim() ? (
+                  <Button type="submit" size="icon" className="size-11 rounded-full bg-cyan-400 text-[#071614] hover:bg-cyan-300" disabled={busy || !active.messagesAllowed} aria-label={editingId ? "ذخیره" : "ارسال"}>
+                    <Send className="size-4" />
+                  </Button>
+                ) : null}
                 </div>
                 {emojiOpen && (
                   <EmojiPicker
@@ -2259,9 +2054,24 @@ export function Messenger({
                 )}
               </form>
             </VoiceComposer>
+            </div>
           </div>
         )}
 
+        {tab === "contacts" && (
+          <div className="min-h-0 flex-1 overflow-auto">
+            <ContactsDesk />
+          </div>
+        )}
+        {tab === "saved" && (
+          <SavedPane
+            onClose={() => {
+              setSavedOpen(false);
+              setTab("chats");
+              setMobileChat(false);
+            }}
+          />
+        )}
         {tab === "calls" && (
           <CallsTab
             calls={callHistory}
@@ -2725,13 +2535,11 @@ export function Messenger({
         )}
       </section>
 
-      <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-white/10 bg-[#0b2421]/95 pb-[env(safe-area-inset-bottom)] md:hidden" aria-label={t("nav.spaces")}>
+      <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-white/10 bg-[#0b2421]/95 pb-[env(safe-area-inset-bottom)] md:hidden" aria-label="ناوبری">
         <NavBtn icon={MessageCircle} label={t("nav.chats")} active={tab === "chats"} onClick={() => { setTab("chats"); setMobileChat(false); }} />
         <NavBtn icon={Phone} label={t("nav.calls")} active={tab === "calls"} onClick={() => { setTab("calls"); setMobileChat(true); }} />
-        <button type="button" className="-mt-4 grid place-items-center" onClick={() => { setTab("spaces"); setMobileChat(true); }} aria-label={t("nav.spaces")}>
-          <NixoMark size={52} />
-        </button>
-        <NavBtn icon={Store} label={t("nav.shop")} active={tab === "shop"} onClick={() => { setTab("shop"); setMobileChat(true); }} />
+        <NavBtn icon={Users} label={t("nav.contacts")} active={tab === "contacts"} onClick={() => { setTab("contacts"); setMobileChat(true); }} />
+        <NavBtn icon={Bookmark} label={t("nav.saved")} active={tab === "saved"} onClick={() => { setTab("saved"); setSavedOpen(true); setMobileChat(true); }} />
         <NavBtn icon={UserRound} label={t("nav.me")} active={tab === "me"} onClick={() => { setTab("me"); setMobileChat(true); }} />
       </nav>
 

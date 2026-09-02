@@ -6,6 +6,8 @@ export const ru: MessageCatalog = {
   "nav.shop": "Магазин",
   "nav.me": "Я",
   "nav.spaces": "Пространства",
+  "nav.contacts": "Контакты",
+  "nav.saved": "Избранное",
   "messenger.search": "Поиск NIXO",
   "messenger.search_placeholder": "Поиск чатов · @username или запрос…",
   "messenger.private_hint": "Личные чаты · ключи на этом устройстве",

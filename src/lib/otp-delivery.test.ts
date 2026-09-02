@@ -16,6 +16,11 @@ afterEach(async () => {
   delete process.env.NIXO_SMS_API_KEY;
   delete process.env.NIXO_SMS_API_SECRET;
   delete process.env.NIXO_SMS_FROM;
+  delete process.env.RESEND_API_KEY;
+  delete process.env.RESEND_FROM;
+  delete process.env.TWILIO_ACCOUNT_SID;
+  delete process.env.TWILIO_AUTH_TOKEN;
+  delete process.env.TWILIO_FROM;
   await resetStoreForTests();
 });
 
@@ -168,6 +173,40 @@ describe("OTP providers", () => {
     expect(liveOtpProviderEnabled()).toBe(false);
     process.env.NIXO_OTP_FORCE_PROVIDER = "1";
     expect(liveOtpProviderEnabled()).toBe(true);
+  });
+
+  it("accepts Resend and Twilio aliases used on Render", async () => {
+    process.env.NIXO_OTP_FORCE_PROVIDER = "1";
+    delete process.env.NIXO_EMAIL_PROVIDER;
+    delete process.env.NIXO_EMAIL_API_KEY;
+    delete process.env.NIXO_SMS_PROVIDER;
+    process.env.RESEND_API_KEY = "re_alias";
+    process.env.RESEND_FROM = "NIXO <noreply@nixo.test>";
+    process.env.TWILIO_ACCOUNT_SID = "ACtestsidxxxxxxxxxxxxxxxxxxxx";
+    process.env.TWILIO_AUTH_TOKEN = "tok";
+    process.env.TWILIO_FROM = "+15005550006";
+    const { emailConfigured, smsConfigured, emailProviderName, smsProviderName } = await import("./otp-env");
+    expect(emailProviderName()).toBe("resend");
+    expect(smsProviderName()).toBe("twilio");
+    expect(emailConfigured()).toBe(true);
+    expect(smsConfigured()).toBe(true);
+    globalThis.fetch = vi.fn(async (url, init) => {
+      expect(String(url)).toContain("api.resend.com");
+      expect(String(init?.body)).toContain("anyone@gmail.com");
+      return new Response(JSON.stringify({ id: "em_alias" }), { status: 200 });
+    }) as typeof fetch;
+    const sent = await deliverOtpMessage({
+      channel: "email",
+      to: "anyone@gmail.com",
+      body: "کد تأیید NIXO: 222222",
+      challengeId: "ch-alias",
+    });
+    expect(sent.ok).toBe(true);
+    delete process.env.RESEND_API_KEY;
+    delete process.env.RESEND_FROM;
+    delete process.env.TWILIO_ACCOUNT_SID;
+    delete process.env.TWILIO_AUTH_TOKEN;
+    delete process.env.TWILIO_FROM;
   });
 
   it("fails closed with a logged config error when live email is forced without env", async () => {

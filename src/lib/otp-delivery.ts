@@ -2,6 +2,27 @@ import "server-only";
 import { decryptText } from "@/lib/crypto-utils";
 import { toE164Phone } from "@/lib/identifiers";
 import { currentDeployEnv, isDemoInboxEnabled } from "@/lib/env-config";
+import {
+  emailApiKey,
+  emailConfigured,
+  emailFromAddress,
+  emailMissingVars,
+  emailProviderName,
+  mailgunDomain,
+  otpProvidersReady,
+  sendTimeoutMs,
+  smsApiKey,
+  smsApiSecret,
+  smsConfigured,
+  smsFrom,
+  smsMissingVars,
+  smsProviderName,
+  smtpHost,
+  smtpPass,
+  smtpPort,
+  smtpSecureFlag,
+  smtpUser,
+} from "@/lib/otp-env";
 import { buildOtpMessage, putOutbox } from "@/lib/outbox";
 import { config } from "@/lib/config";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
@@ -16,11 +37,12 @@ export type OtpDeliveryResult = {
   error?: string;
 };
 
-const SEND_TIMEOUT_MS = 8_000;
-
-function envTrim(name: string): string {
-  return (process.env[name] ?? "").trim();
-}
+export {
+  emailFromAddress,
+  emailProviderName,
+  otpProvidersReady,
+  smsProviderName,
+};
 
 function forceProvider(): boolean {
   return process.env.NIXO_OTP_FORCE_PROVIDER === "1";
@@ -28,50 +50,6 @@ function forceProvider(): boolean {
 
 function memoryTransport(): boolean {
   return Boolean(process.env.VITEST) && !forceProvider();
-}
-
-export function emailProviderName(): string {
-  return envTrim("NIXO_EMAIL_PROVIDER").toLowerCase();
-}
-
-export function smsProviderName(): string {
-  return envTrim("NIXO_SMS_PROVIDER").toLowerCase();
-}
-
-export function emailFromAddress(): string {
-  return envTrim("NIXO_EMAIL_FROM") || envTrim("NIXO_SMTP_FROM");
-}
-
-function emailConfigured(): boolean {
-  const p = emailProviderName();
-  if (p === "smtp") {
-    return Boolean(envTrim("NIXO_SMTP_HOST") && envTrim("NIXO_SMTP_USER") && envTrim("NIXO_SMTP_PASS") && emailFromAddress());
-  }
-  if (p === "resend" || p === "sendgrid" || p === "postmark") {
-    return Boolean(envTrim("NIXO_EMAIL_API_KEY") && emailFromAddress());
-  }
-  if (p === "mailgun") {
-    return Boolean(envTrim("NIXO_EMAIL_API_KEY") && emailFromAddress() && (envTrim("NIXO_MAILGUN_DOMAIN") || emailFromAddress().includes("@")));
-  }
-  return false;
-}
-
-function smsConfigured(): boolean {
-  const p = smsProviderName();
-  if (p === "twilio") {
-    return Boolean(envTrim("NIXO_SMS_API_KEY") && envTrim("NIXO_SMS_API_SECRET") && envTrim("NIXO_SMS_FROM"));
-  }
-  if (p === "kavenegar") {
-    return Boolean(envTrim("NIXO_SMS_API_KEY"));
-  }
-  if (p === "smsir") {
-    return Boolean(envTrim("NIXO_SMS_API_KEY") && envTrim("NIXO_SMS_FROM"));
-  }
-  return false;
-}
-
-export function otpProvidersReady(): { email: boolean; sms: boolean } {
-  return { email: emailConfigured(), sms: smsConfigured() };
 }
 
 export function otpProviderErrors(env = currentDeployEnv()): string[] {
@@ -125,49 +103,18 @@ export function liveOtpProviderEnabled(): boolean {
   return true;
 }
 
-export function deliveryFailureReason(error?: string): "config" | "provider" | "network" | "destination" | "database" | "api" {
+export function deliveryFailureReason(
+  error?: string,
+): "config" | "provider" | "network" | "destination" | "database" | "api" | "rate_limit" | "timeout" {
   if (!error) return "provider";
   if (error === "not_configured" || error === "unknown_provider") return "config";
-  if (error === "timeout" || error === "network" || error === "send_failed") return "network";
+  if (error === "timeout") return "timeout";
+  if (error === "network" || error === "send_failed") return "network";
   if (error === "bad_destination") return "destination";
   if (error === "destination_unavailable") return "database";
   if (error === "missing_challenge") return "api";
+  if (error === "http_429" || error.startsWith("http_429")) return "rate_limit";
   return "provider";
-}
-
-function emailMissingVars(): string {
-  const missing: string[] = [];
-  const p = emailProviderName();
-  if (!p) missing.push("NIXO_EMAIL_PROVIDER");
-  if (!emailFromAddress()) missing.push("NIXO_EMAIL_FROM");
-  if (p === "smtp") {
-    if (!envTrim("NIXO_SMTP_HOST")) missing.push("NIXO_SMTP_HOST");
-    if (!envTrim("NIXO_SMTP_USER")) missing.push("NIXO_SMTP_USER");
-    if (!envTrim("NIXO_SMTP_PASS")) missing.push("NIXO_SMTP_PASS");
-  } else if (p === "resend" || p === "sendgrid" || p === "postmark" || p === "mailgun") {
-    if (!envTrim("NIXO_EMAIL_API_KEY")) missing.push("NIXO_EMAIL_API_KEY");
-  }
-  if (p === "mailgun" && !envTrim("NIXO_MAILGUN_DOMAIN") && !emailFromAddress().includes("@")) {
-    missing.push("NIXO_MAILGUN_DOMAIN");
-  }
-  return missing.join(",") || "email_config";
-}
-
-function smsMissingVars(): string {
-  const missing: string[] = [];
-  const p = smsProviderName();
-  if (!p) missing.push("NIXO_SMS_PROVIDER");
-  if (p === "twilio") {
-    if (!envTrim("NIXO_SMS_API_KEY")) missing.push("NIXO_SMS_API_KEY");
-    if (!envTrim("NIXO_SMS_API_SECRET")) missing.push("NIXO_SMS_API_SECRET");
-    if (!envTrim("NIXO_SMS_FROM")) missing.push("NIXO_SMS_FROM");
-  } else if (p === "kavenegar") {
-    if (!envTrim("NIXO_SMS_API_KEY")) missing.push("NIXO_SMS_API_KEY");
-  } else if (p === "smsir") {
-    if (!envTrim("NIXO_SMS_API_KEY")) missing.push("NIXO_SMS_API_KEY");
-    if (!envTrim("NIXO_SMS_FROM")) missing.push("NIXO_SMS_FROM");
-  }
-  return missing.join(",") || "sms_config";
 }
 
 function smsDestinations(toRaw: string) {
@@ -183,7 +130,7 @@ function smsDestinations(toRaw: string) {
 
 async function fetchTimed(url: string, init: RequestInit): Promise<Response> {
   const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), SEND_TIMEOUT_MS);
+  const t = setTimeout(() => ac.abort(), sendTimeoutMs());
   try {
     return await fetch(url, { ...init, signal: ac.signal });
   } finally {
@@ -194,7 +141,7 @@ async function fetchTimed(url: string, init: RequestInit): Promise<Response> {
 async function sendEmail(to: string, body: string): Promise<OtpDeliveryResult> {
   const provider = emailProviderName();
   const from = emailFromAddress();
-  const key = envTrim("NIXO_EMAIL_API_KEY");
+  const key = emailApiKey();
   const subject = "کد تأیید نیکسو";
   if (!emailConfigured()) {
     logOtp("error", "otp_send_failed", {
@@ -243,7 +190,7 @@ async function sendEmail(to: string, body: string): Promise<OtpDeliveryResult> {
       return { ok: true, status: "sent", provider };
     }
     if (provider === "mailgun") {
-      const domain = envTrim("NIXO_MAILGUN_DOMAIN") || from.replace(/^.*@/, "").replace(/>$/, "");
+      const domain = mailgunDomain() || from.replace(/^.*@/, "").replace(/>$/, "");
       const auth = Buffer.from(`api:${key}`).toString("base64");
       const form = new URLSearchParams({ from, to, subject, text: body });
       const res = await fetchTimed(`https://api.mailgun.net/v3/${domain}/messages`, {
@@ -256,15 +203,16 @@ async function sendEmail(to: string, body: string): Promise<OtpDeliveryResult> {
     }
     if (provider === "smtp") {
       const nodemailer = (await import("nodemailer")).default;
-      const port = Number(envTrim("NIXO_SMTP_PORT") || "465");
-      const secure = envTrim("NIXO_SMTP_SECURE") !== "false" && port === 465;
+      const port = Number(smtpPort() || "465");
+      const timeout = sendTimeoutMs();
+      const secure = smtpSecureFlag() !== "false" && port === 465;
       const transporter = nodemailer.createTransport({
-        host: envTrim("NIXO_SMTP_HOST"),
+        host: smtpHost(),
         port,
-        secure: envTrim("NIXO_SMTP_SECURE") === "true" || secure,
-        auth: { user: envTrim("NIXO_SMTP_USER"), pass: envTrim("NIXO_SMTP_PASS") },
-        connectionTimeout: SEND_TIMEOUT_MS,
-        socketTimeout: SEND_TIMEOUT_MS,
+        secure: smtpSecureFlag() === "true" || secure,
+        auth: { user: smtpUser(), pass: smtpPass() },
+        connectionTimeout: timeout,
+        socketTimeout: timeout,
       });
       await transporter.sendMail({ from, to, subject, text: body });
       return { ok: true, status: "sent", provider };
@@ -290,11 +238,13 @@ async function sendSms(toRaw: string, body: string): Promise<OtpDeliveryResult> 
   try {
     if (provider === "twilio") {
       if (!e164) return { ok: false, status: "failed", provider, error: "bad_destination" };
-      const sid = envTrim("NIXO_SMS_API_KEY");
-      const token = envTrim("NIXO_SMS_API_SECRET");
-      const from = envTrim("NIXO_SMS_FROM");
+      const sid = smsApiKey();
+      const token = smsApiSecret();
+      const from = smsFrom();
       const auth = Buffer.from(`${sid}:${token}`).toString("base64");
-      const form = new URLSearchParams({ To: e164, From: from, Body: body });
+      const form = new URLSearchParams({ To: e164, Body: body });
+      if (from.startsWith("MG")) form.set("MessagingServiceSid", from);
+      else form.set("From", from);
       const res = await fetchTimed(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
         method: "POST",
         headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
@@ -304,8 +254,8 @@ async function sendSms(toRaw: string, body: string): Promise<OtpDeliveryResult> 
       return { ok: true, status: "sent", provider };
     }
     if (provider === "kavenegar") {
-      const key = envTrim("NIXO_SMS_API_KEY");
-      const sender = envTrim("NIXO_SMS_FROM");
+      const key = smsApiKey();
+      const sender = smsFrom();
       const params = new URLSearchParams({ receptor, message: body });
       if (sender) params.set("sender", sender);
       const res = await fetchTimed(`https://api.kavenegar.com/v1/${key}/sms/send.json`, {
@@ -327,8 +277,8 @@ async function sendSms(toRaw: string, body: string): Promise<OtpDeliveryResult> 
       return { ok: true, status: "sent", provider };
     }
     if (provider === "smsir") {
-      const key = envTrim("NIXO_SMS_API_KEY");
-      const line = envTrim("NIXO_SMS_FROM");
+      const key = smsApiKey();
+      const line = smsFrom();
       const res = await fetchTimed("https://api.sms.ir/v1/send/bulk", {
         method: "POST",
         headers: { "X-API-KEY": key, "Content-Type": "application/json", Accept: "application/json" },

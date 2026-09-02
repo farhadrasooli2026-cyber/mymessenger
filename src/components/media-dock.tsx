@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Camera, Image as ImageIcon, Paperclip, Send, Trash2, X } from "lucide-react";
+import { Camera, FileText, Image as ImageIcon, MapPin, Plus, Send, Trash2, UserRound, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,6 +51,7 @@ export function MediaDock({
   const fileRef = useRef<HTMLInputElement>(null);
   const camPhotoRef = useRef<HTMLInputElement>(null);
   const camVideoRef = useRef<HTMLInputElement>(null);
+  const [attachOpen, setAttachOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [active, setActive] = useState(0);
@@ -253,41 +254,95 @@ export function MediaDock({
 
   return (
     <>
-      <div className="mb-2 flex gap-1">
-        <Button type="button" size="sm" variant="ghost" className="text-amber-200" disabled={disabled} onClick={() => galleryRef.current?.click()} aria-label="گالری">
-          <ImageIcon className="size-4" />
+      <div className="relative">
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="size-11 shrink-0 rounded-full text-white hover:bg-white/10"
+          disabled={disabled}
+          aria-label="پیوست"
+          aria-expanded={attachOpen}
+          onClick={() => setAttachOpen((v) => !v)}
+        >
+          <Plus className="size-5" />
         </Button>
-        <Button type="button" size="sm" variant="ghost" className="text-amber-200" disabled={disabled} onClick={() => camPhotoRef.current?.click()} aria-label="دوربین عکس">
-          <Camera className="size-4" />
-        </Button>
-        <Button type="button" size="sm" variant="ghost" className="text-xs text-amber-200" disabled={disabled} onClick={() => camVideoRef.current?.click()}>
-          ویدیو
-        </Button>
-        <Button type="button" size="sm" variant="ghost" className="text-xs text-amber-200" disabled={disabled} onClick={async () => {
-          const res = await fetch("/api/gallery?kind=all", { cache: "no-store" });
-          const data = await res.json();
-          setNixoItems(data.items ?? []);
-          setNixoOpen(true);
-        }}>
-          نیکسو
-        </Button>
-        <Button type="button" size="sm" variant="ghost" className="text-xs text-amber-200" disabled={disabled} onClick={async () => {
-          const res = await fetch("/api/music", { cache: "no-store" });
-          const data = await res.json();
-          setAudioItems([...(data.catalog ?? []), ...(data.items ?? [])].map((t: { id: string; title: string; artist: string; streamUrl: string; catalog?: boolean }) => ({
-            id: t.id,
-            title: t.title,
-            artist: t.artist,
-            streamUrl: t.streamUrl,
-            catalog: Boolean(t.catalog),
-          })));
-          setAudioOpen(true);
-        }}>
-          صوت
-        </Button>
-        <Button type="button" size="sm" variant="ghost" className="text-amber-200" disabled={disabled} onClick={() => fileRef.current?.click()} aria-label="فایل">
-          <Paperclip className="size-4" />
-        </Button>
+        {attachOpen && (
+          <div className="absolute bottom-12 start-0 z-30 w-48 rounded-2xl border border-white/10 bg-[#0b1824]/95 p-1 shadow-xl backdrop-blur">
+            <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm hover:bg-white/10" onClick={() => { galleryRef.current?.click(); setAttachOpen(false); }}>
+              <ImageIcon className="size-4 text-cyan-300" /> عکس
+            </button>
+            <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm hover:bg-white/10" onClick={() => { camVideoRef.current?.click(); setAttachOpen(false); }}>
+              <Video className="size-4 text-cyan-300" /> ویدیو
+            </button>
+            <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm hover:bg-white/10" onClick={() => { fileRef.current?.click(); setAttachOpen(false); }}>
+              <FileText className="size-4 text-cyan-300" /> فایل
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm hover:bg-white/10"
+              onClick={() => {
+                setAttachOpen(false);
+                if (!navigator.geolocation) {
+                  toast.error("موقعیت روی این دستگاه در دسترس نیست.");
+                  return;
+                }
+                navigator.geolocation.getCurrentPosition(
+                  async (pos) => {
+                    try {
+                      const key = await loadOrCreateThreadKey(threadId);
+                      const envelope = await encryptText(key, `موقعیت: ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`);
+                      const sent = await fetch(sendPath ?? `/api/chats/${threadId}`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ ...envelope, kind: "text" }),
+                      });
+                      if (!sent.ok) throw new Error("send");
+                      onSent();
+                      toast.success("موقعیت ارسال شد.");
+                    } catch {
+                      toast.error("ارسال موقعیت انجام نشد.");
+                    }
+                  },
+                  () => toast.error("دسترسی موقعیت رد شد."),
+                );
+              }}
+            >
+              <MapPin className="size-4 text-cyan-300" /> موقعیت
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm hover:bg-white/10"
+              onClick={() => {
+                setAttachOpen(false);
+                const name = window.prompt("نام مخاطب");
+                if (!name) return;
+                const phone = window.prompt("شماره یا شناسه");
+                void (async () => {
+                  try {
+                    const key = await loadOrCreateThreadKey(threadId);
+                    const envelope = await encryptText(key, `مخاطب: ${name}${phone ? ` · ${phone}` : ""}`);
+                    const sent = await fetch(sendPath ?? `/api/chats/${threadId}`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ ...envelope, kind: "text" }),
+                    });
+                    if (!sent.ok) throw new Error("send");
+                    onSent();
+                    toast.success("مخاطب ارسال شد.");
+                  } catch {
+                    toast.error("ارسال مخاطب انجام نشد.");
+                  }
+                })();
+              }}
+            >
+              <UserRound className="size-4 text-cyan-300" /> مخاطب
+            </button>
+            <button type="button" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[11px] text-emerald-100/60 hover:bg-white/10" onClick={() => { camPhotoRef.current?.click(); setAttachOpen(false); }}>
+              <Camera className="size-4" /> دوربین
+            </button>
+          </div>
+        )}
         <input ref={galleryRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={(e) => e.target.files && addFiles(e.target.files)} />
         <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => e.target.files && addFiles(e.target.files)} />
         <input ref={camPhotoRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => e.target.files && addFiles(e.target.files)} />

@@ -44,7 +44,7 @@ export function RegisterFlow() {
   const [step, setStep] = useState<Step>("start");
   const [method, setMethod] = useState<Method>("otp");
   const [idMode, setIdMode] = useState<IdMode>("phone");
-  const [countryIso, setCountryIso] = useState("IR");
+  const [countryIso, setCountryIso] = useState("TR");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [humanToken, setHumanToken] = useState("");
@@ -171,7 +171,14 @@ export function RegisterFlow() {
   }, [ttl]);
 
   async function parseError(res: Response) {
-    const data = (await res.json()) as { error?: string; remainingAttempts?: number };
+    const data = (await res.json()) as { error?: string; remainingAttempts?: number; reason?: string };
+    if (data.reason === "destination") {
+      return idMode === "email" ? "ایمیل واردشده معتبر نیست." : "شماره موبایل معتبر نیست.";
+    }
+    if (data.reason === "rate_limit") return "تعداد درخواست‌ها زیاد است. کمی بعد دوباره تلاش کنید.";
+    if (data.reason === "timeout" || data.reason === "network") {
+      return "ارتباط با سرویس ارسال برقرار نشد. دوباره تلاش کنید.";
+    }
     return data.error ?? "خطایی رخ داد.";
   }
 
@@ -561,14 +568,9 @@ export function RegisterFlow() {
 
           {method === "otp" ? (
             <form onSubmit={onStart} className="space-y-5">
-              {idMode === "email" ? (
-                <>
-                  <p className="text-center text-sm font-medium text-cyan-100">ورود با ایمیل</p>
-                  <p className="text-center text-xs leading-6 text-slate-400">کد را به ایمیل شما ارسال می‌کنیم</p>
-                </>
-              ) : (
-                <p className="text-center text-xs leading-6 text-slate-400">کد را به شماره موبایل شما ارسال می‌کنیم</p>
-              )}
+              <p className="text-center text-sm font-medium text-cyan-100">
+                {idMode === "email" ? "ورود با ایمیل" : "ورود با شماره موبایل"}
+              </p>
               {idMode === "email" ? (
                 <div className="relative">
                   <Mail className="pointer-events-none absolute top-1/2 end-3 size-4 -translate-y-1/2 text-cyan-300/80" />
@@ -620,9 +622,9 @@ export function RegisterFlow() {
             </form>
           ) : (
             <form onSubmit={onPassword} className="space-y-5">
-              {idMode === "email" ? (
-                <p className="text-center text-sm font-medium text-cyan-100">ورود با ایمیل</p>
-              ) : null}
+              <p className="text-center text-sm font-medium text-cyan-100">
+                {idMode === "email" ? "ورود با ایمیل" : "ورود با شماره موبایل"}
+              </p>
               {idMode === "email" ? (
                 <div className="relative">
                   <Mail className="pointer-events-none absolute top-1/2 end-3 size-4 -translate-y-1/2 text-cyan-300/80" />

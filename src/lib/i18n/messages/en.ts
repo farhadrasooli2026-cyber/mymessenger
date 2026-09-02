@@ -6,6 +6,8 @@ export const en: MessageCatalog = {
   "nav.shop": "Shop",
   "nav.me": "Me",
   "nav.spaces": "Spaces",
+  "nav.contacts": "Contacts",
+  "nav.saved": "Saved",
   "messenger.search": "NIXO Search",
   "messenger.search_placeholder": "Search chats · @username or query…",
   "messenger.private_hint": "Private chats · keys stay on this device",

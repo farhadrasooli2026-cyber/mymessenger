@@ -6,6 +6,8 @@ export const ar: MessageCatalog = {
   "nav.shop": "المتجر",
   "nav.me": "أنا",
   "nav.spaces": "المساحات",
+  "nav.contacts": "جهات الاتصال",
+  "nav.saved": "المحفوظات",
   "messenger.search": "بحث نيكسو",
   "messenger.search_placeholder": "ابحث في المحادثات · @username أو عبارة…",
   "messenger.private_hint": "محادثات خاصة · المفاتيح على جهازك",

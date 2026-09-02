@@ -6,6 +6,8 @@ export const tr: MessageCatalog = {
   "nav.shop": "Mağaza",
   "nav.me": "Ben",
   "nav.spaces": "Alanlar",
+  "nav.contacts": "Kişiler",
+  "nav.saved": "Kayıtlı",
   "messenger.search": "NIXO Arama",
   "messenger.search_placeholder": "Sohbet ara · @kullanıcı veya ifade…",
   "messenger.private_hint": "Özel sohbetler · anahtar bu cihazda",

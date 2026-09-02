@@ -12,6 +12,7 @@ export async function POST() {
   if (!result.ok) {
     return jsonError(result.error, result.status, {
       retryAfterSec: "retryAfterSec" in result ? result.retryAfterSec : undefined,
+      reason: "reason" in result ? result.reason : undefined,
     });
   }
   return json({
