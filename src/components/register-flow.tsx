@@ -112,47 +112,50 @@ export function RegisterFlow() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [sessionRes] = await Promise.all([
-        fetch("/api/register/session", { cache: "no-store" }),
-        loadChallenge(),
-      ]);
-      const session = (await sessionRes.json()) as SessionPayload & { hasPasskeys?: boolean; demoInbox?: boolean };
-      if (cancelled) return;
-      setDemoInbox(Boolean(session.demoInbox));
-      if (session.step === "complete") {
-        router.replace("/app");
-        return;
-      }
-      if (session.step === "device") {
-        router.replace("/device");
-        return;
-      }
-      if (session.step === "recover") {
-        router.replace("/recover");
-        return;
-      }
-      if (session.step === "profile") {
-        router.replace("/setup");
-        return;
-      }
-      if (session.step === "verify") {
-        setStep("verify");
-        if (session.channel === "email" || session.channel === "phone") setIdMode(session.channel);
-        if (session.masked) setMasked(session.masked);
-        if (typeof session.ttlSeconds === "number") setTtl(session.ttlSeconds);
-      } else if (session.step === "twostep") {
-        setStep("twostep");
+      try {
+        const sessionRes = await fetch("/api/register/session", { cache: "no-store", signal: AbortSignal.timeout(8000) });
+        const session = (await sessionRes.json()) as SessionPayload & { hasPasskeys?: boolean; demoInbox?: boolean };
+        if (cancelled) return;
+        setDemoInbox(Boolean(session.demoInbox));
+        if (session.step === "complete") {
+          router.replace("/app");
+          return;
+        }
+        if (session.step === "device") {
+          router.replace("/device");
+          return;
+        }
+        if (session.step === "recover") {
+          router.replace("/recover");
+          return;
+        }
+        if (session.step === "profile") {
+          router.replace("/setup");
+          return;
+        }
+        if (session.step === "verify") {
+          setStep("verify");
+          if (session.channel === "email" || session.channel === "phone") setIdMode(session.channel);
+          if (session.masked) setMasked(session.masked);
+          if (typeof session.ttlSeconds === "number") setTtl(session.ttlSeconds);
+        } else if (session.step === "twostep") {
+          setStep("twostep");
+          if (session.hasPasskeys) setHasPasskeys(true);
+        } else {
+          setStep("start");
+          setIdMode("phone");
+          await loadChallenge();
+        }
         if (session.hasPasskeys) setHasPasskeys(true);
-      } else {
-        setStep("start");
-        setIdMode("phone");
+        if (session.user) {
+          setMasked(session.user.identifierMasked);
+          if (session.user.displayName) setDisplayName(session.user.displayName);
+        }
+      } catch {
+        if (!cancelled) setError("ارتباط با سرور برقرار نشد. صفحه را تازه کنید.");
+      } finally {
+        if (!cancelled) setBoot(false);
       }
-      if (session.hasPasskeys) setHasPasskeys(true);
-      if (session.user) {
-        setMasked(session.user.identifierMasked);
-        if (session.user.displayName) setDisplayName(session.user.displayName);
-      }
-      setBoot(false);
     })();
     return () => {
       cancelled = true;
