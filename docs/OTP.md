@@ -22,7 +22,7 @@ Secret را فقط در داشبورد Render بگذار؛ در Git commit نک�
 
 نام‌های `NIXO_*` ترجیح داده می‌شوند. اگر روی Render از نام رایج Provider استفاده کرده باشی، Backend همان را هم می‌خواند:
 
-- Email: `RESEND_API_KEY` / `RESEND_FROM` / `SENDGRID_API_KEY` / `POSTMARK_SERVER_TOKEN` / `MAILGUN_API_KEY` / `SMTP_HOST`+`SMTP_USER`+`SMTP_PASS`
+- Email: `RESEND_API_KEY` / `RESEND_FROM` / `NIXO_EMAIL` / `SENDGRID_API_KEY` / `POSTMARK_SERVER_TOKEN` / `MAILGUN_API_KEY` / `SMTP_HOST`+`SMTP_USER`+`SMTP_PASS`
 - SMS: `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` + `TWILIO_FROM` (یا `TWILIO_MESSAGING_SERVICE_SID`) / `KAVENEGAR_API_KEY` / `SMSIR_API_KEY`
 
 | Variable | Required in Production | Notes |

@@ -64,6 +64,12 @@ export const DOC_ENV_VARS = [
   "NIXO_PUBLIC_HOST",
   "DATABASE_URL",
   "NIXO_DATABASE_URL",
+  "NIXO_EMAIL",
+  "RESEND_API_KEY",
+  "RESEND_FROM",
+  "TWILIO_ACCOUNT_SID",
+  "TWILIO_AUTH_TOKEN",
+  "TWILIO_FROM",
 ] as const;
 
 export const DOC_SCRIPTS = ["dev", "build", "start", "lint", "test", "ci", "security:scan", "docs:check", "icons"] as const;

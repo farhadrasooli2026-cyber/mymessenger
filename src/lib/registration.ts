@@ -274,21 +274,29 @@ export async function resendOtp(challengeId: string, ipHash: string) {
 
   if (result.ok) {
     const code = randomOtp(config.otp.length);
-    const delivery = await dispatchChallengeOtp(challengeId, code);
-    if (!delivery.ok) {
-      return publicError(OTP_DELIVERY_CLIENT_ERROR, 502, {
-        reason: deliveryFailureReason(delivery.error),
-      });
-    }
-    await mutateStore((data) => {
+    const rotated = await mutateStore((data) => {
       const challenge = data.challenges.find((c) => c.id === challengeId);
-      if (!challenge || challenge.usedAt || challenge.invalidatedAt) return;
+      if (!challenge || challenge.usedAt || challenge.invalidatedAt) return false;
       challenge.salt = newSalt();
       challenge.codeHash = hashOtp(code, challenge.salt);
       challenge.expiresAt = Date.now() + config.otp.ttlMs;
       challenge.attemptCount = 0;
       challenge.usedAt = null;
+      return true;
     });
+    if (!rotated) {
+      return publicError("نشست تأیید معتبر نیست. ثبت‌نام را از ابتدا شروع کنید.", 401);
+    }
+    const delivery = await dispatchChallengeOtp(challengeId, code);
+    if (!delivery.ok) {
+      await mutateStore((data) => {
+        const ch = data.challenges.find((c) => c.id === challengeId);
+        if (ch && !ch.usedAt) ch.invalidatedAt = Date.now();
+      });
+      return publicError(OTP_DELIVERY_CLIENT_ERROR, 502, {
+        reason: deliveryFailureReason(delivery.error),
+      });
+    }
     return {
       ok: true as const,
       status: 200,

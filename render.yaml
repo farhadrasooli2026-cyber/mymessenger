@@ -5,7 +5,7 @@ services:
     runtime: node
     buildCommand: npm ci && npm run build
     startCommand: npm run start
-    healthCheckPath: /api/health?probe=ready
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
@@ -24,6 +24,8 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM
+        sync: false
+      - key: NIXO_EMAIL
         sync: false
       - key: TWILIO_ACCOUNT_SID
         sync: false

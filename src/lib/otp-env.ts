@@ -1,8 +1,17 @@
 /** OTP provider env resolution. Accepts NIXO_* names and common provider aliases used on Render. */
 
+const UNSET_PROVIDER = new Set(["", "none", "off", "false", "disabled", "unset", "null", "undefined", "-"]);
+
 export function envFirst(...names: string[]): string {
   for (const name of names) {
-    const v = (process.env[name] ?? "").trim();
+    let v = (process.env[name] ?? "").trim();
+    if (
+      (v.startsWith('"') && v.endsWith('"') && v.length >= 2) ||
+      (v.startsWith("'") && v.endsWith("'") && v.length >= 2)
+    ) {
+      v = v.slice(1, -1).trim();
+    }
+    v = v.replace(/\r?\n/g, "").trim();
     if (v) return v;
   }
   return "";
@@ -16,7 +25,7 @@ export function sendTimeoutMs(): number {
 
 export function emailProviderName(): string {
   const explicit = envFirst("NIXO_EMAIL_PROVIDER").toLowerCase();
-  if (explicit) return explicit;
+  if (explicit && !UNSET_PROVIDER.has(explicit)) return explicit;
   if (envFirst("RESEND_API_KEY", "RESEND_KEY")) return "resend";
   if (envFirst("SENDGRID_API_KEY")) return "sendgrid";
   if (envFirst("POSTMARK_SERVER_TOKEN", "POSTMARK_API_TOKEN")) return "postmark";
@@ -28,6 +37,7 @@ export function emailProviderName(): string {
 export function emailFromAddress(): string {
   return envFirst(
     "NIXO_EMAIL_FROM",
+    "NIXO_EMAIL",
     "NIXO_SMTP_FROM",
     "RESEND_FROM_EMAIL",
     "RESEND_FROM",
@@ -75,7 +85,7 @@ export function smtpSecureFlag(): string {
 
 export function smsProviderName(): string {
   const explicit = envFirst("NIXO_SMS_PROVIDER").toLowerCase();
-  if (explicit) return explicit;
+  if (explicit && !UNSET_PROVIDER.has(explicit)) return explicit;
   if (envFirst("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN")) return "twilio";
   if (envFirst("KAVENEGAR_API_KEY")) return "kavenegar";
   if (envFirst("SMSIR_API_KEY", "SMS_IR_API_KEY")) return "smsir";
@@ -90,8 +100,20 @@ export function smsApiSecret(): string {
   return envFirst("NIXO_SMS_API_SECRET", "TWILIO_AUTH_TOKEN");
 }
 
+export function normalizeSmsFrom(raw: string): string {
+  const v = raw.trim();
+  if (!v) return "";
+  if (/^MG[A-Za-z0-9]+$/i.test(v)) return v;
+  if (/^\+[1-9]\d{7,14}$/.test(v)) return v;
+  const digits = v.replace(/\D/g, "");
+  if (digits.length >= 8 && digits.length <= 15) return `+${digits}`;
+  return v;
+}
+
 export function smsFrom(): string {
-  return envFirst("NIXO_SMS_FROM", "TWILIO_FROM", "TWILIO_PHONE_NUMBER", "TWILIO_MESSAGING_SERVICE_SID", "SMSIR_LINE");
+  return normalizeSmsFrom(
+    envFirst("NIXO_SMS_FROM", "TWILIO_FROM", "TWILIO_PHONE_NUMBER", "TWILIO_MESSAGING_SERVICE_SID", "SMSIR_LINE"),
+  );
 }
 
 export function emailConfigured(): boolean {
@@ -126,8 +148,20 @@ export function emailFromLooksSandbox(): boolean {
   return /resend\.dev/i.test(emailFromAddress());
 }
 
-export function otpProvidersReady(): { email: boolean; sms: boolean; emailSandbox: boolean } {
-  return { email: emailConfigured(), sms: smsConfigured(), emailSandbox: emailFromLooksSandbox() };
+export function otpProvidersReady(): {
+  email: boolean;
+  sms: boolean;
+  emailSandbox: boolean;
+  missingEmail: string;
+  missingSms: string;
+} {
+  return {
+    email: emailConfigured(),
+    sms: smsConfigured(),
+    emailSandbox: emailFromLooksSandbox(),
+    missingEmail: emailConfigured() ? "" : emailMissingVars(),
+    missingSms: smsConfigured() ? "" : smsMissingVars(),
+  };
 }
 
 export function emailMissingVars(): string {

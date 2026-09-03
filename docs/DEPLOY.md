@@ -62,7 +62,18 @@ NIXO_SMS_API_SECRET=
 NIXO_SMS_FROM=
 ```
 
-**Persistence:** set `DATABASE_URL` (Render Postgres) so accounts survive restart and redeploy. The app stores the signed document in table `nixo_store`. Without it, production health is unready unless `NIXO_ALLOW_FILE_STORE=1` and a persistent disk is mounted at `.data`.
+Required names (aliases in parentheses are also accepted):
+
+```
+DATABASE_URL
+RESEND_API_KEY
+RESEND_FROM   (or NIXO_EMAIL)
+TWILIO_ACCOUNT_SID
+TWILIO_AUTH_TOKEN
+TWILIO_FROM
+```
+
+**Persistence:** set `DATABASE_URL` (Render Postgres) so accounts and OTP hashes survive restart, redeploy, and multiple web processes. Writes take a Postgres advisory lock plus `SELECT … FOR UPDATE` on `nixo_store`. Without `DATABASE_URL`, production health is unready unless `NIXO_ALLOW_FILE_STORE=1` and a persistent disk is mounted at `.data`.
 
 Disk fallback: mount a persistent disk at `.data` so the JSON store survives deploys. Health: `/api/health?probe=ready`. OTP details: [`docs/OTP.md`](./OTP.md).
 

@@ -18,6 +18,7 @@ afterEach(async () => {
   delete process.env.NIXO_SMS_FROM;
   delete process.env.RESEND_API_KEY;
   delete process.env.RESEND_FROM;
+  delete process.env.NIXO_EMAIL;
   delete process.env.TWILIO_ACCOUNT_SID;
   delete process.env.TWILIO_AUTH_TOKEN;
   delete process.env.TWILIO_FROM;
@@ -236,5 +237,32 @@ describe("OTP providers", () => {
       "twilio_trial",
     );
     expect(classifyProviderHttpError("resend", 422, "unknown")).toBe("http_422");
+  });
+
+  it("accepts quoted Twilio secrets, NIXO_EMAIL from-address, and ignores dummy NIXO_SMS_PROVIDER", async () => {
+    process.env.NIXO_SMS_PROVIDER = "none";
+    process.env.TWILIO_ACCOUNT_SID = '"ACtestsidxxxxxxxxxxxxxxxxxxxx"';
+    process.env.TWILIO_AUTH_TOKEN = "'tok'";
+    process.env.TWILIO_FROM = '"+15005550006"';
+    process.env.RESEND_API_KEY = "re_x";
+    process.env.NIXO_EMAIL = "NIXO <noreply@nixo.test>";
+    delete process.env.NIXO_EMAIL_FROM;
+    delete process.env.RESEND_FROM;
+    const { smsConfigured, smsProviderName, emailFromAddress, emailConfigured, otpProvidersReady } =
+      await import("./otp-env");
+    expect(smsProviderName()).toBe("twilio");
+    expect(smsConfigured()).toBe(true);
+    expect(emailFromAddress()).toContain("noreply@nixo.test");
+    expect(emailConfigured()).toBe(true);
+    expect(otpProvidersReady().missingSms).toBe("");
+  });
+
+  it("normalizes Twilio From numbers that omit the plus sign", async () => {
+    process.env.TWILIO_ACCOUNT_SID = "ACtestsidxxxxxxxxxxxxxxxxxxxx";
+    process.env.TWILIO_AUTH_TOKEN = "tok";
+    process.env.TWILIO_FROM = "15005550006";
+    const { smsFrom, smsConfigured } = await import("./otp-env");
+    expect(smsFrom()).toBe("+15005550006");
+    expect(smsConfigured()).toBe(true);
   });
 });

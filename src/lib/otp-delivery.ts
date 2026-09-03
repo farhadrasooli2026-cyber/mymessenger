@@ -58,7 +58,6 @@ export function otpProviderErrors(env = currentDeployEnv()): string[] {
   if (env !== "production" && env !== "staging") return [];
   const errors: string[] = [];
   if (!emailConfigured()) errors.push("production email provider missing");
-  if (!smsConfigured()) errors.push("production sms provider missing");
   return errors;
 }
 

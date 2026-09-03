@@ -456,6 +456,12 @@ export async function publicHealth(probe?: string | null) {
     ...start.errors,
     ...(!persistReady ? ["database unreachable"] : []),
   ];
+  if (probe === "ready" && !persistReady) {
+    nixoLog("error", "database", "postgres not ready for health probe");
+  }
+  if (probe === "ready" && !start.ok) {
+    nixoLog("error", "auth", `startup blockers: ${start.errors.join("; ")}`);
+  }
   if (probe === "ready") {
     const { otpProvidersReady } = await import("@/lib/otp-delivery");
     const { deployedGitSha } = await import("@/lib/release");

@@ -79,7 +79,7 @@ import { emptyCloudPersist, hydrateCloudPersist, type CloudPersist } from "@/lib
 import { emptyEdgePersist, hydrateEdgePersist, type EdgePersist } from "@/lib/edge-persist";
 import { emptyGraphPersist, hydrateGraphPersist, pruneGraphPersist, purgeGraphSubject, type GraphPersist } from "@/lib/graph-types";
 import { currentDeployEnv } from "@/lib/env-config";
-import { loadPersistedJson, persistMode, savePersistedJson } from "@/lib/persist";
+import { loadPersistedJson, persistMode, savePersistedJson, withPostgresDocument } from "@/lib/persist";
 import type {
   AdminAlert,
   AdminAuditRow,
@@ -2381,10 +2381,13 @@ function enqueue<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-async function readStore(): Promise<StoreData> {
+async function readStore(lockedJson?: string | null): Promise<StoreData> {
   try {
     let raw: string | null = null;
-    if (persistMode() === "postgres") {
+    if (arguments.length > 0) {
+      raw = lockedJson ?? null;
+      if (!raw) return structuredClone(EMPTY);
+    } else if (persistMode() === "postgres") {
       raw = await loadPersistedJson();
       if (!raw) return structuredClone(EMPTY);
     } else {
@@ -2694,6 +2697,15 @@ export function bumpDiscoveryCaches(data: StoreData) {
 
 export function mutateStore<T>(mutator: (data: StoreData) => T | Promise<T>): Promise<T> {
   return enqueue(async () => {
+    if (persistMode() === "postgres") {
+      return withPostgresDocument(async (raw) => {
+        const data = await readStore(raw);
+        ensureCatalog(data);
+        prune(data, Date.now());
+        const result = await mutator(data);
+        return { json: JSON.stringify(data), result };
+      });
+    }
     const data = await readStore();
     ensureCatalog(data);
     prune(data, Date.now());

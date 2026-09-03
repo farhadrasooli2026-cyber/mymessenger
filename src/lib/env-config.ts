@@ -60,6 +60,12 @@ export function envVarNames(): readonly string[] {
     "NIXO_SMS_API_KEY",
     "NIXO_SMS_API_SECRET",
     "NIXO_PUBLIC_HOST",
+    "NIXO_EMAIL",
+    "RESEND_API_KEY",
+    "RESEND_FROM",
+    "TWILIO_ACCOUNT_SID",
+    "TWILIO_AUTH_TOKEN",
+    "TWILIO_FROM",
     "DATABASE_URL",
     "NIXO_DATABASE_URL",
   ] as const;
