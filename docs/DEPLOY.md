@@ -72,5 +72,5 @@ Disk fallback: mount a persistent disk at `.data` so the JSON store survives dep
 2. After Render finishes a deploy of that branch, `GET https://<your-service>.onrender.com/api/version` must show the same `gitSha` as `RENDER_GIT_COMMIT` (Render injects this automatically).
 3. `GET /api/health?probe=ready` must be 200 with `persist.driver: "postgres"`, `otp.email: true`, `otp.sms: true`. If `otp.emailSandbox: true`, Resend is still on `*.resend.dev` and can only deliver to the Resend account owner — verify your own domain in Resend.
 
-`nixo.onrender.com` is an unrelated public site. Use the hostname of **this** Web Service from the Render dashboard.
+`nixo.onrender.com` is an unrelated public site. This project’s Render hostname is `https://mymessenger-1.onrender.com`.
 
