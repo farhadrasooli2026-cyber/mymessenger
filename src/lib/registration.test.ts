@@ -243,6 +243,15 @@ describe("registration security", () => {
     expect(after.users).toHaveLength(2);
   });
 
+  it("skips store human consume when the signed cookie already passed", async () => {
+    const start = await startRegistration(
+      { channel: "email", identifier: "cookie-human@nixo.test", humanToken: "not-in-store", website: "", intent: "register" },
+      ip,
+      { skipHuman: true },
+    );
+    expect(start.ok).toBe(true);
+  });
+
   it("returns a generic success when the honeypot is filled", async () => {
     const token = await readyHuman();
     const start = await startRegistration(

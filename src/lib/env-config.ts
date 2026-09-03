@@ -87,7 +87,7 @@ export function validateRuntimeConfig(env: DeployEnvName = currentDeployEnv()): 
     if (!session || session === DEV_SESSION || session.length < 16) errors.push("production session secret missing");
     if (demo === "true") errors.push("demo inbox must be off in production");
     if (!productionEmailOk()) errors.push("production email provider missing");
-    if (!productionSmsOk()) errors.push("production sms provider missing");
+    if (!productionSmsOk()) warnings.push("production sms provider missing");
     if (!productionPersistOk()) errors.push("production database url missing");
     if (!process.env.NIXO_BACKUP_KEY) warnings.push("backup key unset");
     if (!process.env.NIXO_DATA_KEY || process.env.NIXO_DATA_KEY.replace(/0/g, "") === "") warnings.push("data key looks empty");

@@ -29,6 +29,7 @@ import { fingerprintError, formatStructuredLog, redactMonitorText, shouldEmitLev
 import { requireStaff } from "@/lib/admin-moderation";
 import { isShuttingDown } from "@/lib/lifecycle";
 import { startupGate } from "@/lib/env-config";
+import { persistHealth } from "@/lib/persist";
 
 type Live = {
   api: ApiTotals;
@@ -445,16 +446,37 @@ export async function publicHealth(probe?: string | null) {
   if (probe === "live") return { ok: liveProbe.ok && !isShuttingDown(), live: { ...liveProbe, draining: isShuttingDown() } };
   const db = await dbHealth();
   const start = startupGate();
-  const ready = { ok: db.ok && db.ready && !isShuttingDown() && start.ok, schema: db.schemaVersion };
+  const persist = await persistHealth();
+  const persistReady = persist.connected;
+  const ready = {
+    ok: db.ok && db.ready && persistReady && !isShuttingDown() && start.ok,
+    schema: db.schemaVersion,
+  };
+  const blockers = [
+    ...start.errors,
+    ...(!persistReady ? ["database unreachable"] : []),
+  ];
   if (probe === "ready") {
     const { otpProvidersReady } = await import("@/lib/otp-delivery");
-    const { persistHealth } = await import("@/lib/persist");
-    return { ok: ready.ok, ready, startup: start.ok, otp: otpProvidersReady(), persist: persistHealth() };
+    const { deployedGitSha } = await import("@/lib/release");
+    return {
+      ok: ready.ok,
+      ready,
+      startup: start.ok,
+      blockers,
+      warnings: start.warnings ?? [],
+      gitSha: deployedGitSha(),
+      otp: otpProvidersReady(),
+      persist,
+    };
   }
   return {
-    ok: db.ok && liveProbe.ok,
+    ok: db.ok && liveProbe.ok && ready.ok,
     live: liveProbe,
     ready,
+    startup: start.ok,
+    blockers,
+    warnings: start.warnings ?? [],
     env: db.env,
     writerPool: db.writerPool,
   };

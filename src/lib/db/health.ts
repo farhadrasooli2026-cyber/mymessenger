@@ -14,7 +14,7 @@ export async function dbHealth(): Promise<{
   queryTimeoutMs: number;
   storeBytes: number | null;
   integrityIssues: number;
-  persist?: { driver: "postgres" | "file"; databaseUrlSet: boolean };
+  persist?: { driver: "postgres" | "file"; databaseUrlSet: boolean; connected: boolean };
 }> {
   try {
     const data = await readStoreSnapshot();
@@ -28,6 +28,7 @@ export async function dbHealth(): Promise<{
     const issues = collectIntegrityIssues(data);
     const ready = meta.version <= SCHEMA_VERSION;
     const { persistHealth } = await import("@/lib/persist");
+    const persist = await persistHealth();
     return {
       ok: true,
       ready,
@@ -37,7 +38,7 @@ export async function dbHealth(): Promise<{
       queryTimeoutMs: QUERY_TIMEOUT_MS,
       storeBytes,
       integrityIssues: issues.length,
-      persist: persistHealth(),
+      persist,
     };
   } catch {
     return {
@@ -49,7 +50,7 @@ export async function dbHealth(): Promise<{
       queryTimeoutMs: QUERY_TIMEOUT_MS,
       storeBytes: null,
       integrityIssues: -1,
-      persist: { driver: "file", databaseUrlSet: false },
+      persist: { driver: "file", databaseUrlSet: false, connected: false },
     };
   }
 }

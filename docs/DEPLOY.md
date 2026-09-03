@@ -66,7 +66,9 @@ NIXO_SMS_FROM=
 
 Disk fallback: mount a persistent disk at `.data` so the JSON store survives deploys. Health: `/api/health?probe=ready`. OTP details: [`docs/OTP.md`](./OTP.md).
 
-## Verify GitHub SHA vs Render
+## Health blockers (no secrets)
+
+`GET /api/health?probe=ready` returns 503 with `blockers` such as `production sms provider missing` or `production database url missing`. SMS missing is a **warning** so email OTP can still run; the process is unready if the database URL is missing or Postgres does not accept `SELECT 1`.
 
 1. GitHub `main` HEAD: `git ls-remote https://github.com/farhadrasooli2026-cyber/mymessenger.git refs/heads/main`
 2. After Render finishes a deploy of that branch, `GET https://<your-service>.onrender.com/api/version` must show the same `gitSha` as `RENDER_GIT_COMMIT` (Render injects this automatically).

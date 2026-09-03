@@ -84,6 +84,22 @@ export async function savePersistedJson(json: string): Promise<void> {
   );
 }
 
-export function persistHealth(): { driver: "postgres" | "file"; databaseUrlSet: boolean } {
-  return { driver: persistMode(), databaseUrlSet: Boolean(databaseUrl()) };
+export async function persistHealth(): Promise<{
+  driver: "postgres" | "file";
+  databaseUrlSet: boolean;
+  connected: boolean;
+}> {
+  const driver = persistMode();
+  const databaseUrlSet = Boolean(databaseUrl());
+  if (driver !== "postgres") {
+    return { driver, databaseUrlSet, connected: true };
+  }
+  try {
+    const client = await getPool();
+    await ensureTable(client);
+    await client.query("SELECT 1");
+    return { driver, databaseUrlSet, connected: true };
+  } catch {
+    return { driver, databaseUrlSet, connected: false };
+  }
 }

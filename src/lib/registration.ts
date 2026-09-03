@@ -100,7 +100,11 @@ export function consumeHumanInStore(data: StoreData, token: string, ipHash: stri
   return { ok: true as const };
 }
 
-export async function startRegistration(input: z.infer<typeof startSchema>, ipHash: string) {
+export async function startRegistration(
+  input: z.infer<typeof startSchema>,
+  ipHash: string,
+  opts?: { skipHuman?: boolean },
+) {
   const now = Date.now();
   const normalized =
     input.channel === "phone"
@@ -135,7 +139,7 @@ export async function startRegistration(input: z.infer<typeof startSchema>, ipHa
   const masked = input.channel === "phone" ? maskPhone(normalized) : maskEmail(normalized);
 
   const result = await mutateStore((data) => {
-    const human = consumeHumanInStore(data, input.humanToken, ipHash, now);
+    const human = opts?.skipHuman ? { ok: true as const } : consumeHumanInStore(data, input.humanToken, ipHash, now);
     if (!human.ok) {
       return publicError("تأیید امنیتی انجام نشد. دوباره تلاش کنید.", 400);
     }

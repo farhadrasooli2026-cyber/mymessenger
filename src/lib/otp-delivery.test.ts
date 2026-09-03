@@ -164,9 +164,11 @@ describe("OTP providers", () => {
     expect(JSON.stringify(row)).not.toContain("real@nixo.test");
   });
 
-  it("requires email and sms providers in production config", () => {
-    expect(validateRuntimeConfig("production").errors.some((e) => e.includes("email"))).toBe(true);
-    expect(validateRuntimeConfig("production").errors.some((e) => e.includes("sms"))).toBe(true);
+  it("requires email in production; SMS missing is a warning not a startup blocker", () => {
+    const cfg = validateRuntimeConfig("production");
+    expect(cfg.errors.some((e) => e.includes("email"))).toBe(true);
+    expect(cfg.errors.some((e) => e.includes("sms"))).toBe(false);
+    expect(cfg.warnings.some((e) => e.includes("sms"))).toBe(true);
   });
 
   it("uses the demo inbox in tests unless a live provider is forced", () => {

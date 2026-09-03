@@ -1,5 +1,6 @@
 import { json, jsonError } from "@/lib/http";
 import { startRegistration, startSchema } from "@/lib/registration";
+import { consumeHumanCookie } from "@/lib/human-cookie";
 import { clientIpHash, writeSession } from "@/lib/session";
 
 export async function POST(request: Request) {
@@ -13,7 +14,8 @@ export async function POST(request: Request) {
   if (!parsed.success) return jsonError("اطلاعات واردشده معتبر نیست.");
 
   const ipHash = await clientIpHash();
-  const result = await startRegistration(parsed.data, ipHash);
+  const skipHuman = await consumeHumanCookie(parsed.data.humanToken);
+  const result = await startRegistration(parsed.data, ipHash, { skipHuman });
   if (!result.ok) {
     return jsonError(result.error, result.status, {
       retryAfterSec: "retryAfterSec" in result ? result.retryAfterSec : undefined,

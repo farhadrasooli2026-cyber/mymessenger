@@ -4,9 +4,11 @@ import { validateRuntimeConfig } from "./env-config";
 import { deployedGitSha } from "./release";
 
 describe("durable persist", () => {
-  it("uses the file store during tests", () => {
+  it("uses the file store during tests", async () => {
     expect(persistMode()).toBe("file");
-    expect(persistHealth().driver).toBe("file");
+    const health = await persistHealth();
+    expect(health.driver).toBe("file");
+    expect(health.connected).toBe(true);
   });
 
   it("requires a database URL in production unless file store is explicitly allowed", () => {

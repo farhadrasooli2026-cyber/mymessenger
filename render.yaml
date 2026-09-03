@@ -1,4 +1,4 @@
-# Blueprint for Render. Put API keys only in the dashboard.
+# Blueprint for Render. Secret values stay in the dashboard (sync: false).
 services:
   - type: web
     name: nixo
@@ -13,3 +13,21 @@ services:
         value: production
       - key: NIXO_DEMO_INBOX
         value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: NIXO_PEPPER
+        sync: false
+      - key: NIXO_SESSION_SECRET
+        sync: false
+      - key: NIXO_DATA_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM
+        sync: false
