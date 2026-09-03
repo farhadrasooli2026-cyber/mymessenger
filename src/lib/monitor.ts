@@ -471,7 +471,7 @@ export async function publicHealth(probe?: string | null) {
     };
   }
   return {
-    ok: db.ok && liveProbe.ok && ready.ok,
+    ok: db.ok && liveProbe.ok,
     live: liveProbe,
     ready,
     startup: start.ok,
