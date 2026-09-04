@@ -13,6 +13,6 @@ export async function GET() {
       draining: isShuttingDown(),
     },
     200,
-    { "Cache-Control": "public, max-age=15" },
+    { "Cache-Control": "private, no-store" },
   );
 }

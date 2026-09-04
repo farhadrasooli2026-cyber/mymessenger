@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { API_VERSION, statusToCode } from "@/lib/api-types";
-import { APP_VERSION } from "@/lib/release";
+import { APP_VERSION, deployedGitSha } from "@/lib/release";
 import { stripSensitive } from "@/lib/safe-web";
 
 export const SECURITY_HEADERS: Record<string, string> = {
@@ -19,6 +19,8 @@ export const SECURITY_HEADERS: Record<string, string> = {
 
 export function mergeHeaders(extra?: HeadersInit, correlationId?: string): Headers {
   const h = new Headers(SECURITY_HEADERS);
+  const sha = deployedGitSha();
+  if (sha) h.set("X-NIXO-Git-Sha", sha);
   if (correlationId) h.set("x-request-id", correlationId);
   if (extra) {
     const more = new Headers(extra);

@@ -24,8 +24,9 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=build /app/next.config.ts ./
+COPY --from=build /app/scripts ./scripts
 USER nixo
 EXPOSE 43151
 HEALTHCHECK --interval=20s --timeout=5s --start-period=25s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:43151/api/health?probe=ready >/dev/null || exit 1
-CMD ["npm", "run", "start"]
+  CMD wget -qO- http://127.0.0.1:${PORT:-43151}/api/health >/dev/null || exit 1
+CMD ["node", "scripts/start.mjs"]

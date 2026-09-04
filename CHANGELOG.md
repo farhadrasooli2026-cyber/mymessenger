@@ -2,6 +2,12 @@
 
 همهٔ نسخه‌ها Semver اپ هستند. API جدا با هدر `X-API-Version`.
 
+## 0.1.1
+
+- استارت Render با `scripts/start.mjs` روی `$PORT` و خروجی `.next` (نه `dist`)
+- Build ID از git SHA تا کش Cloudflare/مرورگر فایل‌های استاتیک قدیمی را قاطی نکند
+- متا `nixo-build` و هدر `X-NIXO-Git-Sha` برای تشخیص نسخهٔ دیپلوی
+
 ## 0.1.0
 
 - ثبت‌نام OTP، چت E2EE، گروه، کانال، استوری، تماس محلی، اعلان، جستجو، Vault

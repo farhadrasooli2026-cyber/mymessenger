@@ -10,6 +10,7 @@ import { A11yProvider } from "@/components/a11y-provider";
 import { ShortcutHelp } from "@/components/shortcut-help";
 import { localeDir, parseLocale } from "@/lib/i18n/languages";
 import { LANG_COOKIE, TZ_COOKIE, DEFAULT_TZ } from "@/lib/i18n/cookies";
+import { deployedGitSha, APP_VERSION } from "@/lib/release";
 import "./globals.css";
 
 const vazirmatn = Vazirmatn({
@@ -29,27 +30,35 @@ const notoAr = Noto_Sans_Arabic({
   weight: ["400", "600"],
 });
 
-export const metadata: Metadata = {
-  title: "NIXO نیکسو — اتصال. تبادل. فراتر از مرزها.",
-  description:
-    "نیکسو پیام‌رسان و پلتفرم ارتباطی نسل جدید است: خصوصی، سریع، امن و قابل توسعه — نه کپی واتساپ یا تلگرام.",
-  applicationName: "NIXO",
-  manifest: "/manifest.webmanifest",
-  icons: {
-    icon: [
-      { url: "/favicon.ico", sizes: "48x48" },
-      { url: "/icons/icon-32.png", sizes: "32x32", type: "image/png" },
-      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
-      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
-    ],
-    apple: [{ url: "/icons/icon-180.png", sizes: "180x180", type: "image/png" }],
-  },
-  appleWebApp: {
-    capable: true,
-    title: "NIXO",
-    statusBarStyle: "black-translucent",
-  },
-};
+export const dynamic = "force-dynamic";
+
+export async function generateMetadata(): Promise<Metadata> {
+  const sha = deployedGitSha();
+  return {
+    title: "NIXO نیکسو — اتصال. تبادل. فراتر از مرزها.",
+    description:
+      "نیکسو پیام‌رسان و پلتفرم ارتباطی نسل جدید است: خصوصی، سریع، امن و قابل توسعه — نه کپی واتساپ یا تلگرام.",
+    applicationName: "NIXO",
+    manifest: "/manifest.webmanifest",
+    other: {
+      "nixo-build": `${APP_VERSION}+${sha || "dev"}`,
+    },
+    icons: {
+      icon: [
+        { url: "/favicon.ico", sizes: "48x48" },
+        { url: "/icons/icon-32.png", sizes: "32x32", type: "image/png" },
+        { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+        { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+      ],
+      apple: [{ url: "/icons/icon-180.png", sizes: "180x180", type: "image/png" }],
+    },
+    appleWebApp: {
+      capable: true,
+      title: "NIXO",
+      statusBarStyle: "black-translucent",
+    },
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: "#05070f",
