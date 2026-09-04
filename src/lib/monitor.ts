@@ -6,6 +6,7 @@ import { randomId } from "@/lib/crypto-utils";
 import { dbHealth } from "@/lib/db/health";
 import { listSnapshots } from "@/lib/db/backup";
 import { getStorePath, mutateStore, readStoreSnapshot, type StoreData } from "@/lib/store";
+import { dataDir } from "@/lib/data-dir";
 import {
   ALERT_KEEP,
   emptyApiTotals,
@@ -50,7 +51,7 @@ const live: Live = {
 };
 
 function heartbeatPath() {
-  return path.join(process.cwd(), ".data", process.env.VITEST ? `monitor-hb.test.${process.env.VITEST_WORKER_ID ?? "0"}.json` : "monitor-heartbeat.json");
+  return path.join(dataDir(), process.env.VITEST ? `monitor-hb.test.${process.env.VITEST_WORKER_ID ?? "0"}.json` : "monitor-heartbeat.json");
 }
 
 function classifyRoute(pathname: string) {

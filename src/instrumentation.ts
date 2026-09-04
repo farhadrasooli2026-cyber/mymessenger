@@ -18,6 +18,7 @@ export async function register() {
         persist: {
           driver: persistMode(),
           databaseUrlSet: Boolean(databaseUrl()),
+          dataDir: (await import("@/lib/data-dir")).dataDir(),
           envPresent: {
             DATABASE_URL: Boolean(process.env.DATABASE_URL),
             NIXO_DATABASE_URL: Boolean(process.env.NIXO_DATABASE_URL),

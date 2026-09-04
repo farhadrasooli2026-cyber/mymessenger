@@ -4,8 +4,11 @@ import path from "node:path";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { config } from "@/lib/config";
 import { LIVE_RECORD_MAX_BYTES } from "@/lib/live-types";
+import { dataDir } from "@/lib/data-dir";
 
-const ROOT = path.join(process.cwd(), ".data", "live");
+function liveRoot() {
+  return path.join(dataDir(), "live");
+}
 
 function dataKey(): Buffer {
   const key = Buffer.from(config.dataKeyHex, "hex");
@@ -15,7 +18,7 @@ function dataKey(): Buffer {
 
 function recPath(hostUserId: string, recordingId: string) {
   if (!/^[a-zA-Z0-9_-]+$/.test(hostUserId) || !/^[a-zA-Z0-9_-]+$/.test(recordingId)) return null;
-  return path.join(ROOT, hostUserId, recordingId);
+  return path.join(liveRoot(), hostUserId, recordingId);
 }
 
 function encryptBytes(plain: Buffer): Buffer {

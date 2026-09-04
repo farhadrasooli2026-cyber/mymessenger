@@ -5,15 +5,16 @@ import path from "node:path";
 import { decryptBackupBytes, encryptBackupBytes, randomId, signBackupBlob, backupSignatureOk } from "@/lib/crypto-utils";
 import { SCHEMA_VERSION } from "@/lib/db/catalog";
 import { getStorePath, mutateStore, readStoreSnapshot } from "@/lib/store";
+import { dataDir } from "@/lib/data-dir";
 
 const MAX_SNAPSHOT_BYTES = 48 * 1024 * 1024;
 
 function backupDir() {
-  return path.join(process.cwd(), ".data", process.env.VITEST ? `backups.test.${process.env.VITEST_WORKER_ID ?? "0"}` : "backups");
+  return path.join(dataDir(), process.env.VITEST ? `backups.test.${process.env.VITEST_WORKER_ID ?? "0"}` : "backups");
 }
 
 function offsiteDir() {
-  return path.join(process.cwd(), ".data", process.env.VITEST ? `offsite.test.${process.env.VITEST_WORKER_ID ?? "0"}` : "offsite-backups");
+  return path.join(dataDir(), process.env.VITEST ? `offsite.test.${process.env.VITEST_WORKER_ID ?? "0"}` : "offsite-backups");
 }
 
 export type SnapshotMeta = {

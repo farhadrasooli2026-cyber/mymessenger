@@ -21,6 +21,7 @@ Staff → `/app/admin` → انتشار (`/api/deploy`) و آمادگی (`/api/p
 ## Containers and process
 
 - Native Render web service: `npm ci && npm run build` writes **`.next`** (this is not a Vite `dist/` app). Start with `node scripts/start.mjs` so the process binds `$PORT` and does not look for `dist/`.
+- File store and uploads use `dataDir()`: `NIXO_DATA_DIR` if set, otherwise `.data` under cwd, otherwise `/tmp/.data` when `/app` is not writable.
 - `Dockerfile` copies `.next`, `public`, and `scripts/` then `CMD node scripts/start.mjs`.
 - `docker-compose.yml` memory/CPU limits, stop grace, json logs.
 - `deploy/nixo.service` restart burst limit (anti restart-loop).

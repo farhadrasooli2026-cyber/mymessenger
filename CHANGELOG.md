@@ -5,6 +5,7 @@
 ## 0.1.1
 
 - استارت Render با `scripts/start.mjs` روی `$PORT` و خروجی `.next` (نه `dist`)
+- مسیر فایل محلی روی Render: `/tmp/.data` وقتی `/app` قابل نوشتن نیست
 - Build ID از git SHA تا کش Cloudflare/مرورگر فایل‌های استاتیک قدیمی را قاطی نکند
 - متا `nixo-build` و هدر `X-NIXO-Git-Sha` برای تشخیص نسخهٔ دیپلوی
 

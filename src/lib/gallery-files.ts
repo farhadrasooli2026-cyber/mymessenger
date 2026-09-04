@@ -1,12 +1,15 @@
 import "server-only";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { dataDir } from "@/lib/data-dir";
 
-const ROOT = path.join(process.cwd(), ".data", "gallery");
+function galleryRoot() {
+  return path.join(dataDir(), "gallery");
+}
 
 function itemPath(userId: string, itemId: string) {
   if (!/^[a-zA-Z0-9_-]+$/.test(userId) || !/^[a-zA-Z0-9_-]+$/.test(itemId)) return null;
-  return path.join(ROOT, userId, itemId);
+  return path.join(galleryRoot(), userId, itemId);
 }
 
 export async function writeGalleryBlob(userId: string, itemId: string, bytes: Buffer) {

@@ -80,6 +80,7 @@ import { emptyEdgePersist, hydrateEdgePersist, type EdgePersist } from "@/lib/ed
 import { emptyGraphPersist, hydrateGraphPersist, pruneGraphPersist, purgeGraphSubject, type GraphPersist } from "@/lib/graph-types";
 import { currentDeployEnv } from "@/lib/env-config";
 import { loadPersistedJson, persistMode, savePersistedJson, withPostgresDocument } from "@/lib/persist";
+import { dataDir } from "@/lib/data-dir";
 import type {
   AdminAlert,
   AdminAuditRow,
@@ -2365,8 +2366,7 @@ const EMPTY: StoreData = {
 };
 
 const STORE_PATH = path.join(
-  process.cwd(),
-  ".data",
+  dataDir(),
   process.env.VITEST ? `nixo-store.test.${process.env.VITEST_WORKER_ID ?? "0"}.json` : "nixo-store.json",
 );
 
@@ -2681,7 +2681,7 @@ export function writeStoreForTests(data: StoreData): Promise<void> {
 export function resetStoreForTests(): Promise<void> {
   return enqueue(async () => {
     await writeStore(structuredClone(EMPTY));
-    const lock = path.join(process.cwd(), ".data", `dr-lock.test.${process.env.VITEST_WORKER_ID ?? "0"}.json`);
+    const lock = path.join(dataDir(), `dr-lock.test.${process.env.VITEST_WORKER_ID ?? "0"}.json`);
     await unlink(lock).catch(() => undefined);
   });
 }

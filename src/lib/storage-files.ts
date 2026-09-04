@@ -2,15 +2,16 @@ import "server-only";
 import { mkdir, readFile, readdir, rm, stat, writeFile, copyFile } from "node:fs/promises";
 import path from "node:path";
 import { unwrapVaultBytes, wrapVaultBytes } from "@/lib/storage-crypto";
+import { dataDir } from "@/lib/data-dir";
 
 function root() {
   const name = process.env.VITEST ? `vault.test.${process.env.VITEST_WORKER_ID ?? "0"}` : "vault";
-  return path.join(process.cwd(), ".data", name);
+  return path.join(dataDir(), name);
 }
 
 function tmpRoot() {
   const name = process.env.VITEST ? `vault-tmp.test.${process.env.VITEST_WORKER_ID ?? "0"}` : "vault-tmp";
-  return path.join(process.cwd(), ".data", name);
+  return path.join(dataDir(), name);
 }
 
 function safeSeg(id: string) {
@@ -45,7 +46,7 @@ export async function readVaultBlob(ownerUserId: string, storageKey: string): Pr
 
 function backupRoot() {
   const name = process.env.VITEST ? `vault-backup.test.${process.env.VITEST_WORKER_ID ?? "0"}` : "vault-backup";
-  return path.join(process.cwd(), ".data", name);
+  return path.join(dataDir(), name);
 }
 
 /** Isolated encrypted replica. Never served by public media APIs. */

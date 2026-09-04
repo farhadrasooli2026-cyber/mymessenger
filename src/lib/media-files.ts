@@ -2,8 +2,11 @@ import "server-only";
 import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { MEDIA_MAX_CHUNKS } from "@/lib/media";
+import { dataDir } from "@/lib/data-dir";
 
-const ROOT = path.join(process.cwd(), ".data", "media");
+function mediaRoot() {
+  return path.join(dataDir(), "media");
+}
 const INCOMPLETE_MS = 60 * 60 * 1000;
 
 function blobDir(userId: string, blobId: string) {
@@ -12,7 +15,7 @@ function blobDir(userId: string, blobId: string) {
     /* user ids are hex from randomId */
   }
   if (!/^[a-zA-Z0-9_-]+$/.test(userId)) return null;
-  return path.join(ROOT, userId, blobId);
+  return path.join(mediaRoot(), userId, blobId);
 }
 
 export async function saveMediaChunk(
@@ -72,13 +75,13 @@ export type StoredBlobRef = { userId: string; blobId: string; createdAt: number 
 export async function listStoredBlobs(): Promise<StoredBlobRef[]> {
   const out: StoredBlobRef[] = [];
   try {
-    const users = await readdir(ROOT);
+    const users = await readdir(mediaRoot());
     for (const userId of users) {
       if (!/^[a-zA-Z0-9_-]+$/.test(userId)) continue;
-      const blobs = await readdir(path.join(ROOT, userId)).catch(() => []);
+      const blobs = await readdir(path.join(mediaRoot(), userId)).catch(() => []);
       for (const blobId of blobs) {
         if (!/^[a-f0-9]{8,64}$/i.test(blobId)) continue;
-        const dir = path.join(ROOT, userId, blobId);
+        const dir = path.join(mediaRoot(), userId, blobId);
         let createdAt = 0;
         try {
           const meta = JSON.parse(await readFile(path.join(dir, "meta.json"), "utf8")) as { createdAt?: number };

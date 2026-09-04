@@ -4,8 +4,11 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { config } from "@/lib/config";
 import { NIXO_TONES, type LicensedTone } from "@/lib/music-types";
+import { dataDir } from "@/lib/data-dir";
 
-const ROOT = path.join(process.cwd(), ".data", "music");
+function musicRoot() {
+  return path.join(dataDir(), "music");
+}
 
 function key() {
   return createHash("sha256").update(`nixo.music.${config.pepper}`).digest();
@@ -13,7 +16,7 @@ function key() {
 
 function itemPath(userId: string, itemId: string) {
   if (!/^[a-zA-Z0-9_-]+$/.test(userId) || !/^[a-zA-Z0-9_-]+$/.test(itemId)) return null;
-  return path.join(ROOT, userId, itemId);
+  return path.join(musicRoot(), userId, itemId);
 }
 
 export async function writeMusicBlob(userId: string, itemId: string, bytes: Buffer) {

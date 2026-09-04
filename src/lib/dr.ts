@@ -25,6 +25,7 @@ import {
   MAX_SNAPSHOT_BYTES,
 } from "@/lib/db/backup";
 import { mutateStore, readStoreSnapshot, type StoreData } from "@/lib/store";
+import { dataDir } from "@/lib/data-dir";
 import { hitRateLimit } from "@/lib/rate-limit";
 import { rememberPlatformMode } from "@/lib/dr-mode";
 import {
@@ -45,7 +46,7 @@ import {
 } from "@/lib/dr-types";
 
 function lockPath() {
-  return path.join(process.cwd(), ".data", process.env.VITEST ? `dr-lock.test.${process.env.VITEST_WORKER_ID ?? "0"}.json` : "dr-lock.json");
+  return path.join(dataDir(), process.env.VITEST ? `dr-lock.test.${process.env.VITEST_WORKER_ID ?? "0"}.json` : "dr-lock.json");
 }
 
 export type DrLock = {
