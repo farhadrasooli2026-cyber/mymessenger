@@ -154,17 +154,19 @@ export function RegisterFlow() {
         } else {
           setStep("start");
           setIdMode("phone");
-          await loadChallenge();
         }
         if (session.hasPasskeys) setHasPasskeys(true);
         if (session.user) {
           setMasked(session.user.identifierMasked);
           if (session.user.displayName) setDisplayName(session.user.displayName);
         }
-      } catch {
-        if (!cancelled) setError("ارتباط با سرور برقرار نشد. صفحه را تازه کنید.");
-      } finally {
         if (!cancelled) setBoot(false);
+        if (!cancelled && session.step === "start") void loadChallenge();
+      } catch {
+        if (!cancelled) {
+          setError("ارتباط با سرور برقرار نشد. صفحه را تازه کنید.");
+          setBoot(false);
+        }
       }
     })();
     return () => {
