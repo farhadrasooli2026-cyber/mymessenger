@@ -72,7 +72,7 @@ export const DOC_ENV_VARS = [
   "TWILIO_FROM",
 ] as const;
 
-export const DOC_SCRIPTS = ["dev", "build", "start", "lint", "test", "ci", "security:scan", "docs:check", "icons"] as const;
+export const DOC_SCRIPTS = ["dev", "build", "start", "lint", "test", "ci", "security:scan", "docs:check", "icons", "db:migrate"] as const;
 
 export const DOC_API_PATHS = [
   "/api/health",

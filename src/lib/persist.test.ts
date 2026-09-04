@@ -4,11 +4,11 @@ import { validateRuntimeConfig } from "./env-config";
 import { deployedGitSha } from "./release";
 
 describe("durable persist", () => {
-  it("uses the file store during tests", async () => {
-    expect(persistMode()).toBe("file");
-    const health = await persistHealth();
-    expect(health.driver).toBe("file");
-    expect(health.connected).toBe(true);
+  it("skips Postgres migrate during tests", async () => {
+    const { migratePostgres } = await import("./persist");
+    const result = await migratePostgres();
+    expect(result.ok).toBe(true);
+    expect(result.skipped).toBe(true);
   });
 
   it("requires a database URL in production unless file store is explicitly allowed", () => {

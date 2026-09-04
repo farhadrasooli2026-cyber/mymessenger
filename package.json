@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev -H 0.0.0.0 -p 43151",
     "build": "next build",
-    "start": "next start -H 0.0.0.0 -p ${PORT:-43151}",
+    "db:migrate": "node scripts/migrate-postgres.mjs",
+    "start": "node scripts/migrate-postgres.mjs && next start -H 0.0.0.0 -p ${PORT:-43151}",
     "lint": "eslint",
     "test": "vitest run",
     "security:scan": "node scripts/secret-scan.mjs",

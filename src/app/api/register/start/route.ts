@@ -15,7 +15,12 @@ export async function POST(request: Request) {
 
   const ipHash = await clientIpHash();
   const skipHuman = await consumeHumanCookie(parsed.data.humanToken);
-  const result = await startRegistration(parsed.data, ipHash, { skipHuman });
+  let result: Awaited<ReturnType<typeof startRegistration>>;
+  try {
+    result = await startRegistration(parsed.data, ipHash, { skipHuman });
+  } catch {
+    return jsonError("اتصال به پایگاه داده برقرار نشد. بعداً تلاش کنید.", 503);
+  }
   if (!result.ok) {
     return jsonError(result.error, result.status, {
       retryAfterSec: "retryAfterSec" in result ? result.retryAfterSec : undefined,

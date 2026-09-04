@@ -1,4 +1,8 @@
 import "server-only";
+import { setDefaultResultOrder } from "node:dns";
+import { NIXO_PG_MIGRATION_SQL } from "@/lib/pg-schema";
+
+setDefaultResultOrder("ipv4first");
 
 const DOC_ID = "main";
 const STORE_LOCK_KEY = 871234501;
@@ -59,6 +63,11 @@ function payloadToString(payload: unknown): string | null {
   return typeof payload === "string" ? payload : JSON.stringify(payload);
 }
 
+function resetPool() {
+  pool = null;
+  ready = false;
+}
+
 async function getPool(): Promise<SqlPool> {
   if (pool) return pool;
   const url = databaseUrl();
@@ -68,23 +77,58 @@ async function getPool(): Promise<SqlPool> {
     connectionString: url,
     max: 6,
     idleTimeoutMillis: 10_000,
-    connectionTimeoutMillis: 8_000,
+    connectionTimeoutMillis: 20_000,
+    keepAlive: true,
     ssl: sslOption(url),
-  }) as unknown as SqlPool;
-  pool = created;
-  return created;
+  });
+  created.on("error", (err: Error) => {
+    console.error(
+      JSON.stringify({
+        service: "persist",
+        level: "error",
+        msg: "postgres_pool_error",
+        detail: redactDbError(err),
+      }),
+    );
+    resetPool();
+  });
+  pool = created as unknown as SqlPool;
+  return pool;
 }
 
 async function ensureTable(client: SqlClient) {
   if (ready) return;
-  await client.query(`
-    CREATE TABLE IF NOT EXISTS nixo_store (
-      id TEXT PRIMARY KEY,
-      payload JSONB NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
+  await client.query(NIXO_PG_MIGRATION_SQL);
   ready = true;
+}
+
+export async function migratePostgres(): Promise<{
+  ok: boolean;
+  skipped: boolean;
+  applied: string[];
+  error?: string;
+}> {
+  if (persistMode() !== "postgres") {
+    return { ok: true, skipped: true, applied: [] };
+  }
+  try {
+    const client = await getPool();
+    await ensureTable(client);
+    await client.query("SELECT 1");
+    return { ok: true, skipped: false, applied: ["001_nixo_store"] };
+  } catch (err) {
+    resetPool();
+    const error = redactDbError(err);
+    console.error(
+      JSON.stringify({
+        service: "persist",
+        level: "error",
+        msg: "postgres_migrate_failed",
+        detail: error,
+      }),
+    );
+    return { ok: false, skipped: false, applied: [], error };
+  }
 }
 
 const UPSERT = `INSERT INTO nixo_store (id, payload, updated_at)
@@ -161,6 +205,7 @@ export async function persistHealth(): Promise<{
     await client.query("SELECT 1");
     return { driver, databaseUrlSet, connected: true };
   } catch (err) {
+    resetPool();
     console.error(
       JSON.stringify({
         service: "persist",

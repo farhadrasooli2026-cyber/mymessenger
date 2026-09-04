@@ -17,6 +17,7 @@
 - گراف اجتماعی و پیشنهاد (`/api/graph`): Friend/Follow موجود، Block، Mute، پیشنهاد با فیلتر مجوز، کش per-user، Rollback مدل
 - ارسال OTP واقعی از Backend (Resend/SendGrid/Postmark/Mailgun/SMTP و Twilio/Kavenegar/sms.ir)؛ Demo Inbox فقط غیر Production
 - ماندگاری حساب در Postgres (`DATABASE_URL`) با قفل تراکنشی تا OTP بین چند process گم نشود؛ `/api/version` با `gitSha`
+- `npm run db:migrate` هنگام استارت Render جدول‌های `nixo_store` و `nixo_schema_migrations` را می‌سازد
 - تشخیص `resend_test_mode` / `twilio_trial` در لاگ OTP وقتی Provider فقط یک مقصد آزمایشی را قبول می‌کند
 - صفحهٔ Login نئونی (کارت شیشه‌ای، تأیید با کد / ورود با رمز)؛ معرفی محصول در `/about`
 - Dependency اصلی: Next 16.3، React 19، Zod 4، Vitest 4، Tailwind 4

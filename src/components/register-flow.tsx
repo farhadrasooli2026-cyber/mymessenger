@@ -65,7 +65,7 @@ export function RegisterFlow() {
   const [demoInbox, setDemoInbox] = useState(false);
 
   async function loadChallenge() {
-    const res = await fetch("/api/register/challenge", { cache: "no-store" });
+    const res = await fetch("/api/register/challenge", { cache: "no-store", signal: AbortSignal.timeout(20_000) });
     const data = (await res.json()) as { ok: boolean; token?: string };
     if (data.ok && data.token) {
       setHumanToken(data.token);
@@ -113,8 +113,18 @@ export function RegisterFlow() {
     let cancelled = false;
     (async () => {
       try {
-        const sessionRes = await fetch("/api/register/session", { cache: "no-store", signal: AbortSignal.timeout(8000) });
-        const session = (await sessionRes.json()) as SessionPayload & { hasPasskeys?: boolean; demoInbox?: boolean };
+        const sessionRes = await fetch("/api/register/session", { cache: "no-store", signal: AbortSignal.timeout(20_000) });
+        let session: SessionPayload & { hasPasskeys?: boolean; demoInbox?: boolean };
+        try {
+          session = (await sessionRes.json()) as SessionPayload & { hasPasskeys?: boolean; demoInbox?: boolean };
+        } catch {
+          if (!cancelled) setError("ارتباط با سرور برقرار نشد. صفحه را تازه کنید.");
+          return;
+        }
+        if (!sessionRes.ok) {
+          if (!cancelled) setError("ارتباط با سرور برقرار نشد. صفحه را تازه کنید.");
+          return;
+        }
         if (cancelled) return;
         setDemoInbox(Boolean(session.demoInbox));
         if (session.step === "complete") {

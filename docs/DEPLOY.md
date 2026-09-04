@@ -73,7 +73,7 @@ TWILIO_AUTH_TOKEN
 TWILIO_FROM
 ```
 
-**Persistence:** set `DATABASE_URL` (Render Postgres) so accounts and OTP hashes survive restart, redeploy, and multiple web processes. Writes take a Postgres advisory lock plus `SELECT … FOR UPDATE` on `nixo_store`. Without `DATABASE_URL`, production health is unready unless `NIXO_ALLOW_FILE_STORE=1` and a persistent disk is mounted at `.data`.
+**Persistence:** `DATABASE_URL` must be set on the **web service** Environment (not only on the Postgres dashboard). Link the Render Postgres instance to that web service so Render injects `DATABASE_URL`. On boot, `npm run db:migrate` (`scripts/migrate-postgres.mjs`) creates `nixo_store` and `nixo_schema_migrations` if they do not exist. This project stores the app document as JSONB — it does not use Prisma or Drizzle. After a deploy, `GET /api/health?probe=ready` should show `persist.driver: "postgres"` and `persist.databaseUrlSet: true`. Also set `NIXO_PEPPER` and `NIXO_SESSION_SECRET` on the same web service.
 
 Disk fallback: mount a persistent disk at `.data` so the JSON store survives deploys. Health: `/api/health?probe=ready`. OTP details: [`docs/OTP.md`](./OTP.md).
 

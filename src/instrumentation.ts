@@ -3,10 +3,11 @@ export async function register() {
     const { installProcessGuards } = await import("@/lib/lifecycle");
     installProcessGuards();
     const { currentDeployEnv } = await import("@/lib/env-config");
-    const { persistMode, databaseUrl } = await import("@/lib/persist");
+    const { persistMode, databaseUrl, migratePostgres } = await import("@/lib/persist");
     const { otpProvidersReady } = await import("@/lib/otp-env");
     const { deployedGitSha } = await import("@/lib/release");
     const otp = otpProvidersReady();
+    const migrate = await migratePostgres();
     console.info(
       JSON.stringify({
         service: "boot",
@@ -14,7 +15,16 @@ export async function register() {
         msg: "nixo_runtime",
         env: currentDeployEnv(),
         gitSha: deployedGitSha(),
-        persist: { driver: persistMode(), databaseUrlSet: Boolean(databaseUrl()) },
+        persist: {
+          driver: persistMode(),
+          databaseUrlSet: Boolean(databaseUrl()),
+          envPresent: {
+            DATABASE_URL: Boolean(process.env.DATABASE_URL),
+            NIXO_DATABASE_URL: Boolean(process.env.NIXO_DATABASE_URL),
+            POSTGRES_URL: Boolean(process.env.POSTGRES_URL),
+          },
+          migrate,
+        },
         otp: {
           email: otp.email,
           sms: otp.sms,
