@@ -17,6 +17,7 @@ import {
   setStaff,
   subscribe,
   transferChannelOwner,
+  listMyChannels,
   moderateJoinRequest,
   cancelChannelJoinRequest,
   cancelScheduledPost,
@@ -73,6 +74,10 @@ describe("NIXO channels", () => {
     expect(created.channel.username).toBe("nixo_news");
     const post = await createPost(owner, created.channel.id, { body: "نسخه جدید آمد", kind: "text" });
     expect(post.ok).toBe(true);
+    const listed = await listMyChannels(owner);
+    const row = listed.find((c) => c.id === created.channel.id);
+    expect(row?.lastPreview).toContain("نسخه جدید آمد");
+    expect((row?.unreadCount ?? 0) >= 0).toBe(true);
     const clash = await createChannel(await activeUser("ch_two"), {
       name: "دیگر",
       username: "nixo_news",

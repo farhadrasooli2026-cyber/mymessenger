@@ -28,10 +28,24 @@ async function compressDataUrl(dataUrl: string): Promise<string> {
   return compressImage(new File([blob], "shot.jpg", { type: blob.type || "image/jpeg" }));
 }
 
-export function StoryComposer({ onClose, onPublished }: { onClose: () => void; onPublished: () => void }) {
-  const [step, setStep] = useState(0);
-  const [mode, setMode] = useState<"pick" | "camera" | "edit">("pick");
-  const [kind, setKind] = useState<StoryKind>("text");
+export function StoryComposer({
+  onClose,
+  onPublished,
+  initialKind,
+}: {
+  onClose: () => void;
+  onPublished: () => void;
+  initialKind?: StoryKind;
+}) {
+  const [step, setStep] = useState(initialKind === "text" || initialKind === "sticker" || initialKind === "location" ? 2 : initialKind === "photo" || initialKind === "video" || initialKind === "gif" ? 1 : 0);
+  const [mode, setMode] = useState<"pick" | "camera" | "edit">(
+    initialKind === "photo" || initialKind === "video" || initialKind === "gif"
+      ? "camera"
+      : initialKind === "text" || initialKind === "sticker" || initialKind === "location"
+        ? "edit"
+        : "pick",
+  );
+  const [kind, setKind] = useState<StoryKind>(initialKind ?? "text");
   const [body, setBody] = useState("");
   const [caption, setCaption] = useState("");
   const [bg, setBg] = useState(BGS[0]!);
@@ -68,6 +82,19 @@ export function StoryComposer({ onClose, onPublished }: { onClose: () => void; o
   const audioRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!initialKind) return;
+    if (initialKind === "photo" || initialKind === "video" || initialKind === "gif") {
+      setKind(initialKind);
+      setMode("camera");
+      setStep(1);
+    } else if (initialKind === "text" || initialKind === "sticker" || initialKind === "location") {
+      setKind(initialKind);
+      setMode("edit");
+      setStep(2);
+    }
+  }, [initialKind]);
 
   useEffect(() => {
     fetch("/api/stories?settings=1", { cache: "no-store" })
@@ -254,7 +281,7 @@ export function StoryComposer({ onClose, onPublished }: { onClose: () => void; o
             <div
               ref={previewRef}
               className="relative mt-2 flex min-h-64 items-center justify-center overflow-hidden rounded-3xl p-4"
-              style={{ background: bg, textAlign: align, fontFamily: font === "serif" ? "Georgia, serif" : "inherit" }}
+              style={{ background: bg, textAlign: align, fontFamily: font === "serif" ? "Georgia, serif" : font === "mono" ? "ui-monospace, monospace" : "inherit" }}
               onPointerDown={(e) => {
                 if (!drawing || !previewRef.current) return;
                 const r = previewRef.current.getBoundingClientRect();
@@ -305,7 +332,13 @@ export function StoryComposer({ onClose, onPublished }: { onClose: () => void; o
             <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
               <button type="button" className="rounded bg-white/10 px-2 py-1" onClick={() => setTextSize((s) => (s >= 36 ? 16 : s + 4))}>Size {textSize}</button>
               <button type="button" className="rounded bg-white/10 px-2 py-1" onClick={() => setAlign(align === "right" ? "center" : align === "center" ? "left" : "right")}>چینش</button>
-              <button type="button" className="rounded bg-white/10 px-2 py-1" onClick={() => setFont(font === "vazir" ? "serif" : "vazir")}>قلم</button>
+              <button
+                type="button"
+                className="rounded bg-white/10 px-2 py-1"
+                onClick={() => setFont(font === "vazir" ? "serif" : font === "serif" ? "mono" : "vazir")}
+              >
+                قلم {font === "serif" ? "Serif" : font === "mono" ? "Mono" : "Vazir"}
+              </button>
               <button type="button" className="rounded bg-white/10 px-2 py-1" onClick={() => setTextX((x) => (x + 10) % 100)}>جای افقی</button>
               <button type="button" className="rounded bg-white/10 px-2 py-1" onClick={() => setTextY((y) => (y + 10) % 100)}>جای عمودی</button>
             </div>

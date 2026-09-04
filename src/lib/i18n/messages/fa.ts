@@ -9,6 +9,7 @@ export const fa = {
   "nav.contacts": "مخاطبین",
   "nav.saved": "ذخیره‌شده",
   "nav.communities": "انجمن‌ها",
+  "nav.updates": "Updates",
   "messenger.search": "جستجو",
   "messenger.search_placeholder": "Ask Nixo AI or Search",
   "messenger.private_hint": "گفتگوهای خصوصی · رمز روی دستگاه تو",

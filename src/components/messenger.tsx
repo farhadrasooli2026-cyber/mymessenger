@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Ban, Bell, Bookmark, Check, CheckCheck, ChevronLeft, Database, Flag, Landmark, LogOut, MessageCircle, MoreVertical, Phone, Search, Send, Shield, Smile, Sparkles, UserRound, Users, Video } from "lucide-react";
+import { Ban, Bell, Bookmark, Check, CheckCheck, ChevronLeft, Database, Flag, Landmark, LogOut, MessageCircle, MoreVertical, Phone, Radio, Search, Send, Shield, Smile, Sparkles, UserRound, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { useA11y } from "@/components/a11y-provider";
@@ -71,6 +71,7 @@ import { ChatSearch } from "@/components/chat-search";
 import { SavedPane } from "@/components/saved-pane";
 import { ContactsDesk } from "@/components/contacts-desk";
 import { CommunitiesDesk } from "@/components/communities-desk";
+import { UpdatesDesk } from "@/components/updates-desk";
 import { NixoChrome, useNixoPrefs } from "@/components/nixo-chrome";
 import type { SearchHit } from "@/lib/search-types";
 import { useI18n } from "@/components/i18n-provider";
@@ -148,7 +149,7 @@ type Message = {
   clientNonce?: string | null;
 };
 
-type Tab = "chats" | "calls" | "contacts" | "saved" | "me" | "spaces" | "shop" | "communities";
+type Tab = "chats" | "calls" | "contacts" | "saved" | "me" | "spaces" | "shop" | "communities" | "updates";
 
 type WireMsg = {
   id: string;
@@ -392,7 +393,7 @@ export function Messenger({
   const [story, setStory] = useState<{ title: string; body: string; viewed: boolean } | null>(null);
   const [storyOpen, setStoryOpen] = useState(false);
   const [storyRings, setStoryRings] = useState<StoryRing[]>([]);
-  const [storyComposer, setStoryComposer] = useState(false);
+  const [storyComposer, setStoryComposer] = useState<false | "pick" | "photo" | "text">(false);
   const [viewingRing, setViewingRing] = useState<StoryRing | null>(null);
   const [query, setQuery] = useState("");
   const [bgOpen, setBgOpen] = useState(false);
@@ -1283,6 +1284,7 @@ export function Messenger({
       <nav className="hidden w-[4.5rem] flex-col items-center gap-1 border-s border-white/10 bg-[#0b2421] py-3 md:flex" aria-label="ناوبری نیکسو">
         <NixoMark size={36} />
         <NavBtn icon={MessageCircle} label={t("nav.chats")} active={tab === "chats"} onClick={() => setTab("chats")} />
+        <NavBtn icon={Radio} label={t("nav.updates")} active={tab === "updates"} onClick={() => { setTab("updates"); setMobileChat(true); }} />
         <NavBtn icon={Phone} label={t("nav.calls")} active={tab === "calls"} onClick={() => setTab("calls")} />
         <NavBtn icon={Users} label={t("nav.contacts")} active={tab === "contacts"} onClick={() => setTab("contacts")} />
         <NavBtn icon={Landmark} label={t("nav.communities")} active={tab === "communities"} onClick={() => setTab("communities")} />
@@ -1292,8 +1294,8 @@ export function Messenger({
       <aside
         className={cn(
           "nixo-glass-panel flex w-full max-w-full flex-col border-white/10 bg-[#0b2421] max-md:max-w-none md:w-[320px] lg:w-[360px] md:border-s",
-          (mobileChat || tab === "communities") && "hidden md:flex",
-          tab === "communities" && "md:hidden",
+          (mobileChat || tab === "communities" || tab === "updates") && "hidden md:flex",
+          (tab === "communities" || tab === "updates") && "md:hidden",
         )}
         aria-label="فهرست گفتگو"
       >
@@ -1317,7 +1319,7 @@ export function Messenger({
       <section
         className={cn(
           "relative min-w-0 flex-1 flex-col overflow-x-hidden pb-16 md:pb-0",
-          mobileChat || tab === "communities" ? "flex" : "hidden md:flex",
+          mobileChat || tab === "communities" || tab === "updates" ? "flex" : "hidden md:flex",
         )}
       >
         {tab === "chats" && savedOpen ? (
@@ -2130,6 +2132,25 @@ export function Messenger({
           />
         ) : null}
 
+        {tab === "updates" && (
+          <UpdatesDesk
+            userId={userId}
+            rings={storyRings}
+            onAddStatus={() => setStoryComposer("pick")}
+            onCamera={() => setStoryComposer("photo")}
+            onTextStatus={() => setStoryComposer("text")}
+            onOpenRing={(ring) => setViewingRing(ring)}
+            onOpenChannel={(id) => {
+              setActiveChannelId(id);
+              setActiveCommunityId(null);
+              setActiveGroupId(null);
+              setTab("chats");
+              setMobileChat(true);
+            }}
+            onCreateChannel={() => setCreateChannel(true)}
+          />
+        )}
+
         {tab === "contacts" && (
           <div className="min-h-0 flex-1 overflow-auto">
             <ContactsDesk />
@@ -2312,6 +2333,22 @@ export function Messenger({
                     </span>
                     <ChevronLeft className="size-4 text-emerald-100/30" />
                   </button>
+                  <button type="button" className="flex w-full items-center gap-3 border-t border-white/5 px-4 py-3.5 text-right hover:bg-white/5" onClick={() => { setTab("updates"); setMobileChat(true); }}>
+                    <span className="grid size-10 place-items-center rounded-xl bg-lime-400/20 text-lime-200"><Radio className="size-5" /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium">Updates</span>
+                      <span className="text-[12px] text-emerald-100/45">Status و کانال‌ها</span>
+                    </span>
+                    <ChevronLeft className="size-4 text-emerald-100/30" />
+                  </button>
+                  <button type="button" className="flex w-full items-center gap-3 border-t border-white/5 px-4 py-3.5 text-right hover:bg-white/5" onClick={() => { setTab("saved"); setSavedOpen(true); setMobileChat(true); }}>
+                    <span className="grid size-10 place-items-center rounded-xl bg-amber-400/20 text-amber-200"><Bookmark className="size-5" /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium">ذخیره‌شده</span>
+                      <span className="text-[12px] text-emerald-100/45">پیام‌ها و رسانه‌های نشان‌شده</span>
+                    </span>
+                    <ChevronLeft className="size-4 text-emerald-100/30" />
+                  </button>
                   <button type="button" className="flex w-full items-center gap-3 border-t border-white/5 px-4 py-3.5 text-right hover:bg-white/5" onClick={() => setMePanel("features")}>
                     <span className="grid size-10 place-items-center rounded-xl bg-violet-400/20 text-violet-200"><Sparkles className="size-5" /></span>
                     <span className="min-w-0 flex-1">
@@ -2345,6 +2382,7 @@ export function Messenger({
                     <Link href="/app/settings/devices" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">نشست‌ها و دستگاه‌ها</Link>
                     <Link href="/app/settings/calls" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">چه کسانی تماس بگیرند</Link>
                     <Link href="/app/settings/story" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">حریم استوری</Link>
+                    <Link href="/app/settings/ads" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">Ad preferences</Link>
                     <div className="border-t border-white/5 px-4 py-3.5">
                       <p className="mb-2 font-medium">چه کسانی تماس بگیرند</p>
                       {(
@@ -2489,10 +2527,10 @@ export function Messenger({
 
       <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-6 border-t border-white/10 bg-[#0b2421]/95 pb-[env(safe-area-inset-bottom)] md:hidden" aria-label="ناوبری">
         <NavBtn icon={MessageCircle} label={t("nav.chats")} active={tab === "chats"} onClick={() => { setTab("chats"); setMobileChat(false); }} />
+        <NavBtn icon={Radio} label={t("nav.updates")} active={tab === "updates"} onClick={() => { setTab("updates"); setMobileChat(true); }} />
         <NavBtn icon={Phone} label={t("nav.calls")} active={tab === "calls"} onClick={() => { setTab("calls"); setMobileChat(true); }} />
         <NavBtn icon={Users} label={t("nav.contacts")} active={tab === "contacts"} onClick={() => { setTab("contacts"); setMobileChat(true); }} />
         <NavBtn icon={Landmark} label={t("nav.communities")} active={tab === "communities"} onClick={() => { setTab("communities"); setMobileChat(true); }} />
-        <NavBtn icon={Bookmark} label={t("nav.saved")} active={tab === "saved"} onClick={() => { setTab("saved"); setSavedOpen(true); setMobileChat(true); }} />
         <NavBtn icon={UserRound} label={t("nav.me")} active={tab === "me"} onClick={() => { setTab("me"); setMobileChat(true); }} />
       </nav>
 
@@ -2507,6 +2545,7 @@ export function Messenger({
       )}
       {storyComposer && (
         <StoryComposer
+          initialKind={storyComposer === "pick" ? undefined : storyComposer}
           onClose={() => setStoryComposer(false)}
           onPublished={() => {
             setStoryComposer(false);

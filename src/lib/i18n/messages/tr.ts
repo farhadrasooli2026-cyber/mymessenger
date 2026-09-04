@@ -9,6 +9,7 @@ export const tr: MessageCatalog = {
   "nav.contacts": "Kişiler",
   "nav.saved": "Kayıtlı",
   "nav.communities": "Topluluklar",
+  "nav.updates": "Updates",
   "messenger.search": "NIXO Arama",
   "messenger.search_placeholder": "Sohbet ara · @kullanıcı veya ifade…",
   "messenger.private_hint": "Özel sohbetler · anahtar bu cihazda",

@@ -293,6 +293,13 @@ function publicChannel(channel: PubChannelRecord, viewerId: string | null, data:
     })
     .sort((a, b) => (b.publishedAt ?? b.createdAt) - (a.publishedAt ?? a.createdAt));
   const published = posts.filter((p) => p.status === "published" && !p.deleted);
+  const lastPost = published[0];
+  const inboxMeta = viewerId
+    ? (data.inboxMetas ?? []).find((m) => m.ownerUserId === viewerId && m.kind === "channel" && m.targetId === channel.id)
+    : undefined;
+  const lastRead = inboxMeta?.lastReadAt ?? 0;
+  let unreadCount = published.filter((p) => (p.publishedAt ?? p.createdAt) > lastRead).length;
+  if (inboxMeta?.markedUnread) unreadCount = Math.max(1, unreadCount);
   const subCount = channel.subscribers.filter(liveSub).length;
   const showCount = Boolean(staff) || Boolean(sub) || (channel.visibility === "public" && channel.showSubscriberCount !== false);
   const life = lifecycleOf(channel);
@@ -374,6 +381,11 @@ function publicChannel(channel: PubChannelRecord, viewerId: string | null, data:
     liveChatEnabled: channel.liveChatEnabled !== false,
     liveChat: channel.liveActive ? (channel.liveChat ?? []).slice(-40) : [],
     liveStreamId: channel.liveStreamId ?? null,
+    lastPostAt: lastPost ? (lastPost.publishedAt ?? lastPost.createdAt) : channel.updatedAt,
+    lastPreview: lastPost
+      ? (lastPost.caption || lastPost.body || (lastPost.kind === "photo" ? "Photo" : lastPost.kind === "video" ? "Video" : "Post")).slice(0, 120)
+      : channel.description || "",
+    unreadCount,
     stories: (channel.stories ?? []).filter((s) => s.expiresAt > Date.now()).map((s) => ({
       id: s.id,
       body: s.body,
