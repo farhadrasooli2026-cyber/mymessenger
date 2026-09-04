@@ -1,15 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Plus } from "lucide-react";
 import { toast } from "sonner";
-import { NixoMark } from "@/components/nixo-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { REPORT_CATEGORIES } from "@/lib/chat-copy";
-import { GraphDesk } from "@/components/graph-desk";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type Contact = {
   id: string;
@@ -74,12 +73,9 @@ const emptyForm = {
 export function ContactsDesk() {
   const router = useRouter();
   const [q, setQ] = useState("");
-  const [sort, setSort] = useState("name");
-  const [group, setGroup] = useState("");
-  const [tab, setTab] = useState<"all" | "fav" | "recent">("all");
+  const sort = "name";
+  const group = "";
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [favorites, setFavorites] = useState<Contact[]>([]);
-  const [recently, setRecently] = useState<Contact[]>([]);
   const [duplicates, setDuplicates] = useState<string[][]>([]);
   const [requestsIn, setRequestsIn] = useState<RequestRow[]>([]);
   const [requestsOut, setRequestsOut] = useState<RequestRow[]>([]);
@@ -95,22 +91,21 @@ export function ContactsDesk() {
   const [userLookup, setUserLookup] = useState("");
   const [idLookup, setIdLookup] = useState("");
   const [inviteUrl, setInviteUrl] = useState("");
-  const [scan, setScan] = useState("");
   const [suggestions, setSuggestions] = useState<{ id: string; username: string | null; displayName: string }[]>([]);
   const [photo, setPhoto] = useState("");
   const [busy, setBusy] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const pressTimer = useRef<number | null>(null);
 
   const load = useCallback(async () => {
     const params = new URLSearchParams({ q, sort });
     if (group) params.set("group", group);
-    if (tab === "fav") params.set("favorites", "1");
-    if (tab === "recent") params.set("recently", "1");
     const res = await fetch(`/api/contacts?${params}`);
     const data = await res.json();
     if (!data.ok) return;
     setContacts(data.contacts ?? []);
-    setFavorites(data.favorites ?? []);
-    setRecently(data.recently ?? []);
     setDuplicates(data.duplicates ?? []);
     setRequestsIn(data.requestsIn ?? []);
     setRequestsOut(data.requestsOut ?? []);
@@ -121,7 +116,7 @@ export function ContactsDesk() {
     setCursor(data.nextCursor ?? null);
     setPermission(data.permission ?? "unknown");
     setSyncEnabled(Boolean(data.syncEnabled));
-  }, [q, sort, group, tab]);
+  }, [q, sort, group]);
 
   useEffect(() => {
     const t = window.setTimeout(() => void load(), 0);
@@ -132,11 +127,17 @@ export function ContactsDesk() {
     return () => window.clearTimeout(t);
   }, [load]);
 
-  const shown = useMemo(() => {
-    if (tab === "fav") return favorites;
-    if (tab === "recent") return recently;
-    return contacts;
-  }, [tab, contacts, favorites, recently]);
+  const alphaGroups = useMemo(() => {
+    const sorted = [...contacts].sort((a, b) => (a.nickname || a.name).localeCompare(b.nickname || b.name, "fa"));
+    const map = new Map<string, Contact[]>();
+    for (const c of sorted) {
+      const letter = ((c.nickname || c.name).trim().slice(0, 1) || "#").toLocaleUpperCase("fa-IR");
+      const arr = map.get(letter) ?? [];
+      arr.push(c);
+      map.set(letter, arr);
+    }
+    return [...map.entries()];
+  }, [contacts]);
 
   async function save() {
     setBusy(true);
@@ -173,6 +174,7 @@ export function ContactsDesk() {
     setForm(emptyForm);
     setEditing(null);
     setPhoto("");
+    setAddOpen(false);
     void load();
   }
 
@@ -257,501 +259,299 @@ export function ContactsDesk() {
       nickname: c.nickname ?? "",
     });
     setPhoto(c.localPhoto);
+    setAddOpen(true);
   }
 
+  const menuContact = menu ? contacts.find((c) => c.id === menu.id) : undefined;
+
+  useEffect(() => {
+    const close = () => setMenu(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, []);
+
   return (
-    <div className="mx-auto min-h-dvh max-w-3xl bg-[#071614] px-4 py-6 text-emerald-50">
-      <header className="mb-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <NixoMark size={36} />
-          <div>
-            <h1 className="text-lg font-semibold">مخاطبین و افراد</h1>
-            <p className="text-[11px] text-emerald-100/60">دفترچه فقط مال توست. دیگران دفترچهٔ تو را نمی‌بینند.</p>
-          </div>
-        </div>
-        <Link href="/app" className="text-xs text-amber-200">
-          بازگشت به چت
-        </Link>
-      </header>
-
-      <GraphDesk />
-
-      {requestsOut.length > 0 && (
-        <section className="mb-4 rounded-2xl bg-white/5 p-3 text-sm">
-          <h2 className="font-medium">درخواست‌های ارسالی</h2>
-          {requestsOut.map((r) => (
-            <div key={r.id} className="mt-2 flex items-center justify-between text-xs">
-              <span>{r.peer?.displayName ?? "کاربر"}</span>
-              <Button size="sm" variant="secondary" className="h-7" onClick={() => void api("cancel-request", { id: r.id }).then(load)}>
-                لغو
-              </Button>
-            </div>
-          ))}
-        </section>
-      )}
-      {friends.length > 0 && (
-        <section className="mb-4 rounded-2xl bg-white/5 p-3 text-sm">
-          <h2 className="font-medium">دوستان ({friendCount})</h2>
-          <ul className="mt-1 text-xs">
-            {friends.map((f) => (
-              <li key={f.id} className="mt-1 flex items-center justify-between">
-                <Link className="text-amber-200" href={f.username ? `/app/u/${f.username}` : "/app/contacts"}>
-                  {f.displayName}
-                </Link>
-                <button type="button" className="text-rose-200" onClick={() => void api("unfriend", { userId: f.id }).then(load)}>
-                  حذف دوست
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-      {requestsIn.length > 0 && (
-        <section className="mb-4 rounded-2xl border border-amber-300/20 bg-amber-300/5 p-3 text-sm">
-          <h2 className="font-medium">درخواست‌های دوستی</h2>
-          {requestsIn.map((r) => (
-            <div key={r.id} className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-              <span>{r.peer?.displayName ?? "کاربر"} {r.peer?.username ? `@${r.peer.username}` : ""}</span>
-              <div className="flex gap-1">
-                <Button size="sm" className="h-7 bg-amber-300 text-[#102824]" onClick={() => void api("resolve-request", { id: r.id, resolve: "accept" }).then(load)}>
-                  Accept
-                </Button>
-                <Button size="sm" variant="secondary" className="h-7" onClick={() => void api("resolve-request", { id: r.id, resolve: "decline" }).then(load)}>
-                  Decline
-                </Button>
-                <Button size="sm" variant="secondary" className="h-7" onClick={() => void api("resolve-request", { id: r.id, resolve: "block" }).then(load)}>
-                  Block
-                </Button>
-                <Button size="sm" variant="secondary" className="h-7" onClick={() => void api("resolve-request", { id: r.id, resolve: "report" }).then(load)}>
-                  Report
-                </Button>
-              </div>
-            </div>
-          ))}
-        </section>
-      )}
-
-      <div className="mb-3 flex flex-wrap gap-2 text-xs">
-        {(["all", "fav", "recent"] as const).map((t) => (
-          <button key={t} type="button" onClick={() => setTab(t)} className={`rounded-full px-3 py-1 ${tab === t ? "bg-amber-300 text-[#102824]" : "bg-white/10"}`}>
-            {t === "all" ? "همه" : t === "fav" ? "علاقه‌مندی" : "اخیراً تماس"}
-          </button>
-        ))}
-        {GROUPS.map((g) => (
-          <button key={g.id || "x"} type="button" onClick={() => setGroup(g.id)} className={`rounded-full px-3 py-1 ${group === g.id ? "bg-white/20" : "bg-white/5"}`}>
-            {g.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="mb-3 flex flex-col gap-2 sm:flex-row">
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجو: نام، @username، شماره، ایمیل" className="h-9 bg-black/20" />
-        <select value={sort} onChange={(e) => setSort(e.target.value)} className="h-9 rounded-lg bg-black/20 px-2 text-xs">
-          <option value="name">نام</option>
-          <option value="added">تازه‌اضافه‌شده</option>
-          <option value="contacted">اخیراً تماس</option>
-          <option value="favorites">علاقه‌مندی</option>
-        </select>
-      </div>
-
-      <section className="mb-4 rounded-2xl bg-white/5 p-4 text-sm">
-        <h2 className="font-medium">{editing ? "ویرایش مخاطب" : "افزودن مخاطب"}</h2>
-        <p className="mt-1 text-[11px] opacity-60">نام سفارشی، یادداشت و عکس محلی فقط در حساب تو دیده می‌شود و عکس پروفایل واقعی طرف را عوض نمی‌کند.</p>
-        <div className="mt-2 grid gap-2 sm:grid-cols-2">
-          <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="نام" className="h-9 bg-black/20" />
-          <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="شماره" dir="ltr" className="h-9 bg-black/20" />
-          <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="ایمیل" dir="ltr" className="h-9 bg-black/20" />
-          <Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} placeholder="@username" dir="ltr" className="h-9 bg-black/20" />
-          <Input value={form.nickname} onChange={(e) => setForm({ ...form, nickname: e.target.value })} placeholder="نام مستعار خصوصی" className="h-9 bg-black/20" />
-        </div>
-        <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="یادداشت خصوصی" className="mt-2 min-h-16 bg-black/20" />
-        <div className="mt-2 grid gap-2 sm:grid-cols-2">
-          <select value={form.group} onChange={(e) => setForm({ ...form, group: e.target.value })} className="h-9 rounded-lg bg-black/20 px-2 text-xs">
-            {GROUPS.map((g) => (
-              <option key={g.id || "none"} value={g.id}>
-                دسته: {g.label}
-              </option>
-            ))}
-          </select>
-          <Input value={form.labels} onChange={(e) => setForm({ ...form, labels: e.target.value })} placeholder="برچسب‌ها با ویرگول" className="h-9 bg-black/20" />
-        </div>
-        <Textarea value={form.custom} onChange={(e) => setForm({ ...form, custom: e.target.value })} placeholder="اطلاعات سفارشی (هر خط: کلید: مقدار)" className="mt-2 min-h-14 bg-black/20 text-xs" />
-        <label className="mt-2 block text-[11px] opacity-70">
-          عکس محلی
-          <input
-            type="file"
-            accept="image/*"
-            className="mt-1 block text-xs"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              const reader = new FileReader();
-              reader.onload = () => setPhoto(String(reader.result ?? "").slice(0, 80_000));
-              reader.readAsDataURL(file);
-            }}
-          />
-        </label>
-        <div className="mt-3 flex gap-2">
-          <Button type="button" className="bg-amber-300 text-[#102824]" disabled={busy} onClick={() => void save()}>
-            ذخیره
-          </Button>
-          {editing && (
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => {
-                setEditing(null);
-                setForm(emptyForm);
-                setPhoto("");
-              }}
-            >
-              انصراف
-            </Button>
-          )}
-        </div>
-      </section>
-
-      <section className="mb-4 rounded-2xl bg-white/5 p-4 text-sm">
-        <h2 className="font-medium">مخاطبین گوشی و همگام‌سازی</h2>
-        <p className="mt-1 text-[11px] leading-5 opacity-70">
-          مجوز: {permission === "allow" ? "Allow" : permission === "limited" ? "Limited Access" : permission === "deny" ? "Deny" : "نامشخص"}. نیکسو بدون Permission سیستم‌عامل دفترچه را نمی‌خواند. اگر مجوز را از تنظیمات مرورگر برداری، همگام‌سازی متوقف می‌شود.
-        </p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Button type="button" size="sm" variant="secondary" onClick={() => void pickPhoneContacts()}>
-            خواندن مخاطبین (Picker)
-          </Button>
-          <Button type="button" size="sm" variant="secondary" onClick={() => void api("permission", { permission: "deny" }).then(load)}>
-            لغو مجوز
-          </Button>
-          <span className="self-center text-[11px] opacity-60">Sync: {syncEnabled ? "روشن" : "خاموش"} — از حریم خصوصی هم قابل تنظیم است.</span>
-        </div>
-      </section>
-
-      <section className="mb-4 rounded-2xl bg-white/5 p-4 text-sm">
-        <h2 className="font-medium">پیدا کردن افراد</h2>
-        <form
-          className="mt-2 flex gap-2"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const res = await fetch(`/api/contacts?action=username&q=${encodeURIComponent(userLookup)}`);
-            const data = await res.json();
-            if (data.user?.username) router.push(`/app/u/${data.user.username}`);
-            else toast.message("طبق حریم، نتیجه‌ای نیست.");
-          }}
-        >
-          <Input value={userLookup} onChange={(e) => setUserLookup(e.target.value)} placeholder="@username یکتا" dir="ltr" className="h-9 bg-black/20" />
-          <Button type="submit" size="sm" variant="secondary">
-            Username
-          </Button>
-        </form>
-        <form
-          className="mt-2 flex gap-2"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const res = await fetch(`/api/contacts?action=discover&q=${encodeURIComponent(idLookup)}`);
-            const data = await res.json();
-            if (data.user?.username) router.push(`/app/u/${data.user.username}`);
-            else toast.message("طبق حریم، نتیجه‌ای نیست.");
-          }}
-        >
-          <Input value={idLookup} onChange={(e) => setIdLookup(e.target.value)} placeholder="شماره یا ایمیل (با حفاظت enumeration)" dir="ltr" className="h-9 bg-black/20" />
-          <Button type="submit" size="sm" variant="secondary">
-            Discovery
-          </Button>
-        </form>
-        <form
-          className="mt-2 flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            try {
-              const parsed = JSON.parse(scan) as { u?: string };
-              if (parsed.u) router.push(`/app/u/${parsed.u}`);
-              else if (scan.startsWith("@") || /^[a-z]/.test(scan)) router.push(`/app/u/${scan.replace(/^@/, "")}`);
-              else toast.message("QR فقط نام کاربری عمومی دارد، نه شماره.");
-            } catch {
-              router.push(`/app/u/${scan.replace(/^@/, "")}`);
-            }
-          }}
-        >
-          <Input value={scan} onChange={(e) => setScan(e.target.value)} placeholder="اسکن QR: @username یا JSON" dir="ltr" className="h-9 bg-black/20" />
-          <Button type="submit" size="sm" variant="secondary">
-            باز کردن QR
-          </Button>
-        </form>
-      </section>
-
-      <section className="mb-4 rounded-2xl bg-white/5 p-4 text-sm">
-        <h2 className="font-medium">دعوت دوستان</h2>
-        <Button type="button" size="sm" className="mt-2 bg-amber-300 text-[#102824]" onClick={() => void makeInvite()}>
-          ساخت Invite / QR (۷ روز)
-        </Button>
-        <Button
+    <div className="relative mx-auto min-h-dvh max-w-3xl bg-[#071614] text-emerald-50">
+      <header className="flex items-center gap-3 px-4 pb-2 pt-4">
+        <h1 className="flex-1 text-xl font-semibold">مخاطبین</h1>
+        <button type="button" className="text-xs text-emerald-100/60" onClick={() => setToolsOpen(true)}>
+          بیشتر
+        </button>
+        <button
           type="button"
-          size="sm"
-          variant="secondary"
-          className="mt-2 mr-2"
-          onClick={async () => {
-            const { res, data } = await api("invite", { maxUses: 1, ttlMs: 15 * 60_000 });
-            if (!res.ok) {
-              toast.error(data.error);
-              return;
-            }
-            const url = `${window.location.origin}${data.invite.path}`;
-            setInviteUrl(url);
-            toast.success("QR موقت ۱۵ دقیقه‌ای آماده است.");
+          className="grid size-10 place-items-center rounded-full bg-amber-300 text-[#102824]"
+          aria-label="افزودن مخاطب"
+          onClick={() => {
+            setEditing(null);
+            setForm(emptyForm);
+            setPhoto("");
+            setAddOpen(true);
           }}
         >
-          QR موقت ۱۵ دقیقه
-        </Button>
-        {inviteUrl && (
-          <p className="mt-2 break-all text-[11px]" dir="ltr">
-            {inviteUrl}
-          </p>
-        )}
-        {invites.filter((i) => !i.revokedAt).length > 0 && (
-          <ul className="mt-2 space-y-1 text-[11px]">
-            {invites
-              .filter((i) => !i.revokedAt)
-              .slice(0, 5)
-              .map((i) => (
-                <li key={i.token} className="flex items-center justify-between gap-2">
-                  <span className="truncate" dir="ltr">
-                    {i.path}
-                  </span>
-                  <Button size="sm" variant="secondary" className="h-7" onClick={() => void api("revoke-invite", { token: i.token }).then(load)}>
-                    باطل کردن
-                  </Button>
-                </li>
-              ))}
-          </ul>
-        )}
-      </section>
-
-      {suggestions.length > 0 && (
-        <section className="mb-4 rounded-2xl bg-white/5 p-4 text-sm">
-          <h2 className="font-medium">پیشنهاد (فقط با اجازهٔ پیدا شدن)</h2>
-          <ul className="mt-2 space-y-1 text-xs">
-            {suggestions.map((s) => (
-              <li key={s.id} className="flex items-center justify-between gap-2">
-                <Link className="text-amber-200" href={s.username ? `/app/u/${s.username}` : "/app/contacts"}>
-                  {s.displayName} {s.username ? `@${s.username}` : ""}
-                </Link>
-                <span className="flex gap-1">
-                  <button
-                    type="button"
-                    className="text-[10px] text-emerald-100/70"
-                    onClick={() => void api("hide-suggestion", { userId: s.id, mode: "hide" }).then(() => setSuggestions((cur) => cur.filter((x) => x.id !== s.id)))}
-                  >
-                    پنهان
-                  </button>
-                  <button
-                    type="button"
-                    className="text-[10px] text-emerald-100/70"
-                    onClick={() => void api("hide-suggestion", { userId: s.id, mode: "not-interested" }).then(() => setSuggestions((cur) => cur.filter((x) => x.id !== s.id)))}
-                  >
-                    مناسب نیست
-                  </button>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {duplicates.length > 0 && (
-        <section className="mb-4 rounded-2xl border border-white/10 p-3 text-xs">
-          <h2 className="font-medium">مخاطبین تکراری</h2>
-          {duplicates.map((ids, i) => (
-            <div key={i} className="mt-2 flex flex-wrap items-center gap-2">
-              <span>{ids.length} مورد مشابه</span>
-              <Button
-                size="sm"
-                variant="secondary"
-                className="h-7"
-                onClick={() => {
-                  if (!confirm("این دو مخاطب ادغام شوند؟ حساب نیکسو طرف حذف نمی‌شود.")) return;
-                  void api("merge", { keepId: ids[0], dropId: ids[1], confirm: true }).then(() => {
-                    toast.success("ادغام شد.");
-                    void load();
-                  });
+          <Plus className="size-5" />
+        </button>
+      </header>
+      <div className="px-4 pb-3">
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجو" className="h-10 rounded-full bg-white/10" />
+      </div>
+      <ul className="pb-24">
+        {alphaGroups.length === 0 && <li className="px-4 py-16 text-center text-sm text-emerald-100/50">مخاطبی نیست</li>}
+        {alphaGroups.map(([letter, rows]) => (
+          <li key={letter}>
+            <p className="sticky top-0 z-10 bg-[#071614] px-4 py-1 text-[12px] font-semibold text-amber-200/90">{letter}</p>
+            {rows.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-right hover:bg-white/5"
+                onClick={() => void openChat(c)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setMenu({ id: c.id, x: e.clientX, y: e.clientY });
+                }}
+                onTouchStart={(e) => {
+                  const t = e.changedTouches[0];
+                  if (pressTimer.current) window.clearTimeout(pressTimer.current);
+                  pressTimer.current = window.setTimeout(() => {
+                    if (t) setMenu({ id: c.id, x: t.clientX, y: t.clientY });
+                  }, 480);
+                }}
+                onTouchEnd={() => {
+                  if (pressTimer.current) window.clearTimeout(pressTimer.current);
+                }}
+                onTouchMove={() => {
+                  if (pressTimer.current) window.clearTimeout(pressTimer.current);
                 }}
               >
-                ادغام با تأیید
-              </Button>
-            </div>
-          ))}
-        </section>
-      )}
-
-      <ul className="space-y-2">
-        {shown.length === 0 && <li className="rounded-2xl bg-white/5 p-6 text-center text-sm opacity-70">مخاطبی در این فهرست نیست.</li>}
-        {shown.map((c) => (
-          <li key={c.id} className="flex items-start gap-3 rounded-2xl bg-white/5 p-3">
-            <div className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-2xl bg-emerald-900 text-lg">
-              {c.localPhoto ? <img src={c.localPhoto} alt="" className="size-full object-cover" /> : c.name.slice(0, 1)}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <p className="truncate font-medium">{c.nickname || c.name}</p>
-                {c.nickname && c.nickname !== c.name && <span className="truncate text-[10px] opacity-50">{c.name}</span>}
-                {c.favorite && <span className="text-[10px] text-amber-200">★</span>}
-              </div>
-              {c.username && (
-                <Link href={`/app/u/${c.username}`} className="text-[11px] text-amber-200" dir="ltr">
-                  @{c.username}
-                </Link>
-              )}
-              <p className="truncate text-[11px] opacity-60" dir="ltr">
-                {c.phone} {c.email}
-              </p>
-              {c.notes && <p className="mt-1 text-[11px] opacity-80">{c.notes}</p>}
-              <div className="mt-2 flex flex-wrap gap-1">
-                {c.nixoUserId && (
-                  <>
-                    <Button size="sm" className="h-7 bg-amber-300 text-[#102824]" onClick={() => void openChat(c)}>
-                      Message
-                    </Button>
-                    <Button size="sm" variant="secondary" className="h-7" onClick={() => void openChat(c, "voice")}>
-                      Voice Call
-                    </Button>
-                    <Button size="sm" variant="secondary" className="h-7" onClick={() => void openChat(c, "video")}>
-                      Video Call
-                    </Button>
-                  </>
-                )}
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="h-7"
-                  onClick={() => void api("save", { id: c.id, favorite: !c.favorite, name: c.name }).then(load)}
-                >
-                  Favorite
-                </Button>
-                {c.nixoUserId && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="h-7"
-                    onClick={() => void api(c.mutedUntil ? "unmute" : "mute", { userId: c.nixoUserId }).then(load)}
-                  >
-                    {c.mutedUntil ? "Unmute" : "Mute"}
-                  </Button>
-                )}
-                <Button size="sm" variant="secondary" className="h-7" onClick={() => edit(c)}>
-                  ویرایش
-                </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="h-7"
-                  onClick={() => {
-                    if (!confirm("از دفترچهٔ تو حذف شود؟ حساب نیکسو طرف پاک نمی‌شود.")) return;
-                    void api("delete", { id: c.id }).then(() => {
-                      toast.success("حذف شد.");
-                      void load();
-                    });
-                  }}
-                >
-                  حذف
-                </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="h-7"
-                  onClick={async () => {
-                    const { data } = await api("card", { id: c.id, fields: ["name", "username"] });
-                    if (data.vcard) {
-                      await navigator.clipboard.writeText(data.vcard);
-                      toast.success("کارت مخاطب (فقط فیلدهای مجاز) کپی شد.");
-                    }
-                  }}
-                >
-                  کارت
-                </Button>
-              </div>
-            </div>
+                <span className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-full bg-emerald-900 text-lg">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {c.localPhoto ? <img src={c.localPhoto} alt="" className="size-full object-cover" /> : (c.nickname || c.name).slice(0, 1)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[15px] font-medium">{c.nickname || c.name}</span>
+                  <span className="mt-0.5 block truncate text-[12px] text-emerald-100/50" dir="ltr">
+                    {c.username ? `@${c.username}` : c.phone || c.email || " "}
+                  </span>
+                </span>
+              </button>
+            ))}
           </li>
         ))}
       </ul>
       {hasMore && (
-        <Button
-          type="button"
-          variant="secondary"
-          className="mt-3 w-full"
-          onClick={async () => {
-            const params = new URLSearchParams({ q, sort });
-            if (group) params.set("group", group);
-            if (cursor) params.set("cursor", cursor);
-            const res = await fetch(`/api/contacts?${params}`);
-            const data = await res.json();
-            setContacts((prev) => [...prev, ...(data.contacts ?? [])]);
-            setHasMore(Boolean(data.hasMore));
-            setCursor(data.nextCursor ?? null);
-          }}
-        >
-          مخاطبین بیشتر
-        </Button>
-      )}
-
-      <section className="mt-6 rounded-2xl bg-white/5 p-4 text-xs leading-6 opacity-80">
-        <h2 className="font-medium text-sm">ورود و خروج داده</h2>
-        <div className="mt-2 flex flex-wrap gap-2">
+        <div className="px-4 pb-8">
           <Button
-            size="sm"
+            type="button"
             variant="secondary"
+            className="w-full"
             onClick={async () => {
-              const res = await fetch("/api/contacts?action=export");
+              const params = new URLSearchParams({ q, sort });
+              if (group) params.set("group", group);
+              if (cursor) params.set("cursor", cursor);
+              const res = await fetch(`/api/contacts?${params}`);
               const data = await res.json();
-              const blob = new Blob([JSON.stringify(data.contacts ?? [], null, 2)], { type: "application/json" });
-              const a = document.createElement("a");
-              a.href = URL.createObjectURL(blob);
-              a.download = "nixo-contacts.json";
-              a.click();
+              setContacts((prev) => [...prev, ...(data.contacts ?? [])]);
+              setHasMore(Boolean(data.hasMore));
+              setCursor(data.nextCursor ?? null);
             }}
           >
-            Export دفترچهٔ من
+            مخاطبین بیشتر
           </Button>
-          <Button
-            size="sm"
-            variant="secondary"
+        </div>
+      )}
+
+      {menu && menuContact && (
+        <div
+          className="fixed z-50 min-w-48 overflow-hidden rounded-2xl border border-white/10 bg-[#122e2a] py-1 text-sm shadow-2xl"
+          style={{ left: Math.min(menu.x, window.innerWidth - 200), top: Math.min(menu.y, window.innerHeight - 220) }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button type="button" className="block w-full px-4 py-2.5 text-right hover:bg-white/10" onClick={() => { setMenu(null); void openChat(menuContact); }}>
+            پیام
+          </button>
+          {menuContact.nixoUserId && (
+            <>
+              <button type="button" className="block w-full px-4 py-2.5 text-right hover:bg-white/10" onClick={() => { setMenu(null); void openChat(menuContact, "voice"); }}>
+                تماس صوتی
+              </button>
+              <button type="button" className="block w-full px-4 py-2.5 text-right hover:bg-white/10" onClick={() => { setMenu(null); void openChat(menuContact, "video"); }}>
+                تماس تصویری
+              </button>
+            </>
+          )}
+          <button type="button" className="block w-full px-4 py-2.5 text-right hover:bg-white/10" onClick={() => { setMenu(null); edit(menuContact); }}>
+            ویرایش
+          </button>
+          <button
+            type="button"
+            className="block w-full px-4 py-2.5 text-right text-rose-300 hover:bg-white/10"
             onClick={() => {
-              if (!confirm("همهٔ مخاطبین دفترچهٔ تو پاک شود؟ حساب‌های نیکسو حذف نمی‌شوند.")) return;
-              void api("clear").then(() => {
-                toast.success("دفترچه پاک شد.");
+              setMenu(null);
+              if (!confirm("از دفترچهٔ تو حذف شود؟")) return;
+              void api("delete", { id: menuContact.id }).then(() => {
+                toast.success("حذف شد.");
                 void load();
               });
             }}
           >
-            پاک کردن دفترچهٔ من
-          </Button>
-          <label className="inline-flex h-8 items-center rounded-lg bg-white/10 px-3">
-            Import JSON
-            <input
-              type="file"
-              accept="application/json"
-              className="hidden"
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                const rows = JSON.parse(await file.text()) as unknown[];
-                const { data } = await api("import", { rows });
-                toast.success(`${data.added ?? 0} مخاطب وارد شد.`);
-                void load();
-              }}
-            />
-          </label>
+            حذف
+          </button>
         </div>
-        <p className="mt-2">
-          گزارش، Block و لیست مسدودها در{" "}
-          <Link href="/app/settings/privacy" className="text-amber-200">
-            تنظیمات حریم خصوصی
-          </Link>
-          . اعلان پیوستن مخاطب شماره را در Lock Screen نشان نمی‌دهد.
-        </p>
-        <p>
-          {REPORT_CATEGORIES.map((c) => c.label).join(" · ")} از صفحهٔ پروفایل فرد قابل ارسال است.
-        </p>
-      </section>
+      )}
+
+      <Dialog
+        open={addOpen}
+        onOpenChange={(open) => {
+          setAddOpen(open);
+          if (!open) {
+            setEditing(null);
+            setForm(emptyForm);
+            setPhoto("");
+          }
+        }}
+      >
+        <DialogContent className="max-h-[85vh] overflow-y-auto bg-[#122e2a] text-emerald-50 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editing ? "ویرایش مخاطب" : "افزودن مخاطب"}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="نام" className="h-9 bg-black/20" />
+            <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="شماره" dir="ltr" className="h-9 bg-black/20" />
+            <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="ایمیل" dir="ltr" className="h-9 bg-black/20" />
+            <Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} placeholder="@username" dir="ltr" className="h-9 bg-black/20" />
+            <Input value={form.nickname} onChange={(e) => setForm({ ...form, nickname: e.target.value })} placeholder="نام مستعار" className="h-9 bg-black/20" />
+            <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="یادداشت خصوصی" className="min-h-16 bg-black/20" />
+            <select value={form.group} onChange={(e) => setForm({ ...form, group: e.target.value })} className="h-9 rounded-lg bg-black/20 px-2 text-xs">
+              {GROUPS.map((g) => (
+                <option key={g.id || "none"} value={g.id}>
+                  {g.label}
+                </option>
+              ))}
+            </select>
+            <label className="block text-[11px] opacity-70">
+              عکس
+              <input
+                type="file"
+                accept="image/*"
+                className="mt-1 block text-xs"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = () => setPhoto(String(reader.result ?? "").slice(0, 80_000));
+                  reader.readAsDataURL(file);
+                }}
+              />
+            </label>
+            <Button type="button" className="bg-amber-300 text-[#102824]" disabled={busy} onClick={() => void save()}>
+              ذخیره
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={toolsOpen} onOpenChange={setToolsOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto bg-[#122e2a] text-emerald-50 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>پیدا کردن و پیشنهادها</DialogTitle>
+          </DialogHeader>
+          {requestsOut.length > 0 && (
+            <section className="space-y-2 text-sm">
+              <p className="font-medium">درخواست‌های ارسالی</p>
+              {requestsOut.map((r) => (
+                <div key={r.id} className="flex items-center justify-between text-xs">
+                  <span>{r.peer?.displayName ?? "کاربر"}</span>
+                  <Button size="sm" variant="secondary" className="h-7" onClick={() => void api("cancel-request", { id: r.id }).then(load)}>
+                    لغو
+                  </Button>
+                </div>
+              ))}
+            </section>
+          )}
+          {friends.length > 0 && <p className="text-xs text-emerald-100/50">دوستان: {friendCount}</p>}
+          {duplicates.length > 0 && <p className="text-xs text-emerald-100/50">{duplicates.length} گروه تکراری</p>}
+          {invites.filter((i) => !i.revokedAt).length > 0 && <p className="text-[11px] opacity-60">{invites.filter((i) => !i.revokedAt).length} دعوت فعال</p>}
+          {requestsIn.length > 0 && (
+            <section className="space-y-2 text-sm">
+              <p className="font-medium">درخواست دوستی</p>
+              {requestsIn.map((r) => (
+                <div key={r.id} className="flex items-center justify-between gap-2 text-xs">
+                  <span>{r.peer?.displayName ?? "کاربر"}</span>
+                  <div className="flex gap-1">
+                    <Button size="sm" className="h-7 bg-amber-300 text-[#102824]" onClick={() => void api("resolve-request", { id: r.id, resolve: "accept" }).then(load)}>
+                      قبول
+                    </Button>
+                    <Button size="sm" variant="secondary" className="h-7" onClick={() => void api("resolve-request", { id: r.id, resolve: "decline" }).then(load)}>
+                      رد
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </section>
+          )}
+          <form
+            className="flex gap-2"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const res = await fetch(`/api/contacts?action=username&q=${encodeURIComponent(userLookup)}`);
+              const data = await res.json();
+              if (data.user?.username) router.push(`/app/u/${data.user.username}`);
+              else toast.message("نتیجه‌ای نیست.");
+            }}
+          >
+            <Input value={userLookup} onChange={(e) => setUserLookup(e.target.value)} placeholder="@username" dir="ltr" className="h-9 bg-black/20" />
+            <Button type="submit" size="sm" variant="secondary">
+              پیدا کن
+            </Button>
+          </form>
+          <form
+            className="flex gap-2"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const res = await fetch(`/api/contacts?action=discover&q=${encodeURIComponent(idLookup)}`);
+              const data = await res.json();
+              if (data.user?.username) router.push(`/app/u/${data.user.username}`);
+              else toast.message("نتیجه‌ای نیست.");
+            }}
+          >
+            <Input value={idLookup} onChange={(e) => setIdLookup(e.target.value)} placeholder="شماره یا ایمیل" dir="ltr" className="h-9 bg-black/20" />
+            <Button type="submit" size="sm" variant="secondary">
+              جستجو
+            </Button>
+          </form>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="secondary" onClick={() => void pickPhoneContacts()}>
+              همگام‌سازی گوشی
+            </Button>
+            <Button type="button" size="sm" className="bg-amber-300 text-[#102824]" onClick={() => void makeInvite()}>
+              دعوت
+            </Button>
+          </div>
+          {inviteUrl && (
+            <p className="break-all text-[11px]" dir="ltr">
+              {inviteUrl}
+            </p>
+          )}
+          {suggestions.length > 0 && (
+            <ul className="space-y-1 text-xs">
+              {suggestions.map((s) => (
+                <li key={s.id} className="flex items-center justify-between gap-2">
+                  <Link className="text-amber-200" href={s.username ? `/app/u/${s.username}` : "/app/contacts"}>
+                    {s.displayName}
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => void api("hide-suggestion", { userId: s.id, mode: "hide" }).then(() => setSuggestions((cur) => cur.filter((x) => x.id !== s.id)))}
+                  >
+                    پنهان
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-[11px] text-emerald-100/45">مجوز دفترچه: {permission} · همگام‌سازی {syncEnabled ? "روشن" : "خاموش"}</p>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

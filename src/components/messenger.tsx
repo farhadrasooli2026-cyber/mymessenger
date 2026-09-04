@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Ban, Bookmark, Check, CheckCheck, Flag, Lock, MessageCircle, MoreVertical, Phone, Search, Send, Smile, Sparkles, UserRound, Users, Video } from "lucide-react";
+import { Ban, Bell, Bookmark, Check, CheckCheck, ChevronLeft, Database, Flag, LogOut, MessageCircle, MoreVertical, Phone, Search, Send, Shield, Smile, Sparkles, UserRound, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { useA11y } from "@/components/a11y-provider";
@@ -362,6 +362,7 @@ export function Messenger({
   const { t } = useI18n();
   const { announce, prefs: a11yPrefs } = useA11y();
   const [tab, setTab] = useState<Tab>("chats");
+  const [mePanel, setMePanel] = useState<null | "privacy" | "notify" | "data" | "features">(null);
   const [pendingDeletion, setPendingDeletion] = useState(false);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -1241,7 +1242,7 @@ export function Messenger({
       <ThemeApplicator appearance={appearance} />
       {pendingDeletion && (
         <div className="fixed inset-x-0 top-0 z-40 bg-amber-300 px-3 py-2 text-center text-xs text-[#102824]">
-          حساب در دورهٔ بازیابی حذف است. از تنظیمات ← حساب می‌توانید لغو کنید.{" "}
+          حساب در دورهٔ بازیابی حذف است. از تنظیمات حساب می‌توانید لغو کنید.{" "}
           <Link href="/app/settings/account" className="underline">
             باز کردن
           </Link>
@@ -2079,46 +2080,6 @@ export function Messenger({
             filter={callFilter}
             onFilter={setCallFilter}
             onCall={(id, kind) => void startCall(id, kind)}
-            onDemoIncoming={async (kind) => {
-              const res = await fetch("/api/calls/incoming", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ kind }),
-              });
-              const data = await res.json();
-              if (!res.ok) {
-                toast.error(data.error ?? "تماس ورودی ساخته نشد.");
-                return;
-              }
-              setCallMin(false);
-              setLiveCall({ ...(data.call as LiveCall), mediaToken: data.mediaToken ?? null, bridged: Boolean(data.call?.bridged) });
-            }}
-            onClearHistory={async () => {
-              const res = await fetch("/api/calls", { method: "DELETE" });
-              if (!res.ok) {
-                toast.error("پاک‌کردن سابقه انجام نشد.");
-                return;
-              }
-              setCallHistory([]);
-              toast.success("سابقه تماس این حساب پاک شد.");
-            }}
-            onReport={async (c) => {
-              const res = await fetch("/api/reports", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  targetKind: "call",
-                  targetKey: c.id,
-                  threadId: c.threadId,
-                  category: "harassment",
-                  details: "گزارش تماس مزاحم",
-                }),
-              });
-              const data = await res.json();
-              if (!res.ok) toast.error(data.error ?? "گزارش ثبت نشد.");
-              else toast.success("گزارش تماس ثبت شد.");
-            }}
-            blockedHint={active && !active.callsAllowed ? "تماس با مخاطب فعلی مسدود است." : undefined}
           />
         )}
         {tab === "shop" && <BusinessDirectory embedded />}
@@ -2221,317 +2182,223 @@ export function Messenger({
           </div>
         )}
         {tab === "me" && (
-          <div className="flex-1 space-y-4 p-5">
-            <div className="flex items-center gap-3">
-              <Avatar className="size-14">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={photoUrl} alt="" className="size-14 rounded-full object-cover" />
-                <AvatarFallback className="bg-amber-300 text-[#102824]">{initials}</AvatarFallback>
-              </Avatar>
-              <div>
-                <p className="text-lg font-medium">{displayName}</p>
-                {username && (
-                  <p className="text-xs text-amber-200" dir="ltr">
-                    @{username}
-                  </p>
-                )}
-                <p className="text-xs text-emerald-100/60" dir="ltr">
-                  {identifierMasked}
-                </p>
-              </div>
-            </div>
-            {bio && <p className="text-sm text-emerald-50/80">{bio}</p>}
-            <Link
-              href="/app/settings/profile"
-              className="inline-flex h-10 items-center justify-center rounded-lg bg-amber-300 px-4 text-sm font-medium text-[#102824]"
-            >
-              تنظیمات → پروفایل
-            </Link>
-            <Link href="/app/settings/appearance" className="block text-sm text-amber-200">
-              تنظیمات → ظاهر → پس‌زمینه
-            </Link>
-            <Link href="/app/settings/chat-appearance" className="block text-sm text-amber-200">
-              تنظیمات → ظاهر گفتگو → پس‌زمینه چت
-            </Link>
-            <Link href="/app/contacts" className="block text-sm text-amber-200">
-              مخاطبین و افراد
-            </Link>
-            <Link href="/app/settings/privacy-center" className="block text-sm text-amber-200">
-              تنظیمات → مرکز حریم خصوصی و امنیت
-            </Link>
-            <Link href="/app/settings/privacy" className="block text-sm text-amber-200">
-              تنظیمات → حریم خصوصی
-            </Link>
-            <Link href="/app/settings/security" className="block text-sm text-amber-200">
-              تنظیمات → امنیت
-            </Link>
-            <Link href="/app/admin" className="block text-sm text-amber-200">
-              پنل مدیریت نیکسو
-            </Link>
-            <Link href="/app/settings/appeals" className="block text-sm text-amber-200">
-              اعتراض به محدودیت حساب
-            </Link>
-            <Link href="/app/settings/notifications" className="block text-sm text-amber-200">
-              تنظیمات → اعلان‌ها
-            </Link>
-            <Link href="/app/settings/chats" className="block text-sm text-amber-200">
-              تنظیمات → Chats → Chat Organization
-            </Link>
-            <Link href="/app/settings/stickers" className="block text-sm text-amber-200">
-              تنظیمات → Stickers & Emoji
-            </Link>
-            <Link href="/app/settings/account" className="block text-sm text-amber-200">
-              تنظیمات → حساب و پشتیبان
-            </Link>
-            <Link href="/app/settings/devices" className="block text-sm text-amber-200">
-              تنظیمات → دستگاه‌ها
-            </Link>
-            <Link href="/app/settings/connected-bots" className="block text-sm text-amber-200">
-              Settings → Privacy & Security → Connected Bots
-            </Link>
-            <Link href="/app/apps" className="block text-sm text-amber-200">
-              Mini Apps & Web Apps
-            </Link>
-            <Link href="/app/settings/apps" className="block text-sm text-amber-200">
-              Settings → Privacy & Security → Connected Apps
-            </Link>
-            <Link href="/app/bots" className="block text-sm text-amber-200">
-              تنظیمات → ربات‌ها و مینی‌اپ
-            </Link>
-            <Link href="/app/settings/bots" className="block text-sm text-amber-200">
-              تنظیمات → Developer Dashboard
-            </Link>
-            <Link href="/app/ai" className="block text-sm text-amber-200">
-              NIXO AI
-            </Link>
-            <Link href="/app/settings/ai" className="block text-sm text-amber-200">
-              تنظیمات → AI → Data Controls
-            </Link>
-            <Link href="/app/business" className="block text-sm text-amber-200">
-              فروشگاه و کسب‌وکار
-            </Link>
-            <Link href="/app/settings/business" className="block text-sm text-amber-200">
-              تنظیمات → Business
-            </Link>
-            <Link href="/app/settings/shop" className="block text-sm text-amber-200">
-              تنظیمات → Shop و پرداخت
-            </Link>
-            <Link href="/app/orders" className="block text-sm text-amber-200">
-              Profile → Orders
-            </Link>
-            <Link href="/app/wallet" className="block text-sm text-amber-200">
-              NIXO Wallet
-            </Link>
-            <Link href="/app/music" className="block text-sm text-amber-200">
-              موسیقی نیکسو
-            </Link>
-            <Link href="/app/settings/audio" className="block text-sm text-amber-200">
-              تنظیمات → Voice & Audio
-            </Link>
-            <Link href="/app/live" className="block text-sm text-amber-200">
-              Live Streaming
-            </Link>
-            <Link href="/app/settings/live" className="block text-sm text-amber-200">
-              تنظیمات → Live
-            </Link>
-            <Link href="/app/stickers" className="block text-sm text-amber-200">
-              ایموجی و استیکر
-            </Link>
-            <Link href="/app/settings/stickers" className="block text-sm text-amber-200">
-              تنظیمات → استیکر و ایموجی
-            </Link>
-            <Link href="/app/spaces" className="block text-sm text-amber-200">
-              گروه و کانال
-            </Link>
-            <Link href="/app/settings/spaces" className="block text-sm text-amber-200">
-              تنظیمات → گروه و کانال
-            </Link>
-            <Link href="/app/calls" className="block text-sm text-amber-200">
-              مرکز تماس
-            </Link>
-            <Link href="/app/settings/calls" className="block text-sm text-amber-200">
-              تنظیمات → تماس
-            </Link>
-            <Link href="/app/storage" className="block text-sm text-amber-200">
-              فضای رسانه و فایل
-            </Link>
-            <Link href="/app/files" className="block text-sm text-amber-200">
-              Files & Documents
-            </Link>
-            <Link href="/app/settings/files" className="block text-sm text-amber-200">
-              تنظیمات → Files & Storage
-            </Link>
-            <Link href="/app/gallery" className="block text-sm text-amber-200">
-              گالری نیکسو
-            </Link>
-            <Link href="/app/settings/media" className="block text-sm text-amber-200">
-              تنظیمات → Data & Storage → Media
-            </Link>
-            <Link href="/app/stories" className="block text-sm text-amber-200">
-              استوری و وضعیت
-            </Link>
-            <Link href="/app/settings/story" className="block text-sm text-amber-200">
-              تنظیمات → حریم خصوصی → استوری
-            </Link>
-            <button type="button" className="block text-sm text-amber-200" onClick={() => { setSavedOpen(true); setTab("chats"); setMobileChat(true); }}>
-              Saved Messages
-            </button>
-            <button
-              type="button"
-              className="block text-sm text-amber-200"
-              onClick={() => {
-                const next = !saveVoice;
-                setSaveVoice(next);
-                setVoiceSaveAllowed(next);
-              }}
-            >
-              ذخیرهٔ پیام صوتی روی دستگاه: {saveVoice ? "مجاز" : "غیرفعال"}
-            </button>
-            {voiceRec && tab === "me" && (
-              <p className="text-xs text-amber-200">ضبط صوتی در پس‌زمینهٔ همین برنامه ادامه دارد.</p>
+          <div className="flex-1 overflow-auto pb-24">
+            {!mePanel && (
+              <>
+                <Link href="/app/settings/profile" className="mx-4 mt-5 flex items-center gap-4 rounded-3xl bg-white/5 p-4">
+                  <Avatar className="size-20">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={photoUrl} alt="" className="size-20 rounded-full object-cover" />
+                    <AvatarFallback className="bg-amber-300 text-2xl text-[#102824]">{initials}</AvatarFallback>
+                  </Avatar>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-lg font-semibold">{displayName}</span>
+                    {username ? (
+                      <span className="mt-0.5 block text-sm text-amber-200" dir="ltr">
+                        @{username}
+                      </span>
+                    ) : (
+                      <span className="mt-0.5 block text-sm text-emerald-100/50" dir="ltr">
+                        {identifierMasked}
+                      </span>
+                    )}
+                    {bio ? <span className="mt-2 line-clamp-2 block text-sm text-emerald-100/70">{bio}</span> : <span className="mt-2 block text-sm text-emerald-100/40">بیو تنظیم نشده</span>}
+                  </span>
+                </Link>
+                <div className="mx-4 mt-5 overflow-hidden rounded-2xl bg-white/5">
+                  <button type="button" className="flex w-full items-center gap-3 px-4 py-3.5 text-right hover:bg-white/5" onClick={() => setMePanel("privacy")}>
+                    <span className="grid size-10 place-items-center rounded-xl bg-sky-500/20 text-sky-200"><Shield className="size-5" /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium">حریم خصوصی و امنیت</span>
+                      <span className="text-[12px] text-emerald-100/45">امنیت، نشست‌ها، مسدودشده‌ها</span>
+                    </span>
+                    <ChevronLeft className="size-4 text-emerald-100/30" />
+                  </button>
+                  <button type="button" className="flex w-full items-center gap-3 border-t border-white/5 px-4 py-3.5 text-right hover:bg-white/5" onClick={() => setMePanel("notify")}>
+                    <span className="grid size-10 place-items-center rounded-xl bg-amber-400/20 text-amber-200"><Bell className="size-5" /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium">اعلان‌ها و صدا</span>
+                      <span className="text-[12px] text-emerald-100/45">اعلان پیام، تماس و صدا</span>
+                    </span>
+                    <ChevronLeft className="size-4 text-emerald-100/30" />
+                  </button>
+                  <button type="button" className="flex w-full items-center gap-3 border-t border-white/5 px-4 py-3.5 text-right hover:bg-white/5" onClick={() => setMePanel("data")}>
+                    <span className="grid size-10 place-items-center rounded-xl bg-emerald-400/20 text-emerald-200"><Database className="size-5" /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium">داده و حافظه</span>
+                      <span className="text-[12px] text-emerald-100/45">دانلود خودکار، مدیریت حافظه</span>
+                    </span>
+                    <ChevronLeft className="size-4 text-emerald-100/30" />
+                  </button>
+                  <button type="button" className="flex w-full items-center gap-3 border-t border-white/5 px-4 py-3.5 text-right hover:bg-white/5" onClick={() => setMePanel("features")}>
+                    <span className="grid size-10 place-items-center rounded-xl bg-violet-400/20 text-violet-200"><Sparkles className="size-5" /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium">قابلیت‌ها و هوش مصنوعی</span>
+                      <span className="text-[12px] text-emerald-100/45">کیف پول، NIXO AI، استیکر، کسب‌وکار</span>
+                    </span>
+                    <ChevronLeft className="size-4 text-emerald-100/30" />
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="mx-4 mt-5 mb-8 flex w-[calc(100%-2rem)] items-center justify-center gap-2 rounded-2xl bg-rose-500/15 py-3.5 font-medium text-rose-300 hover:bg-rose-500/25"
+                  onClick={logout}
+                >
+                  <LogOut className="size-4" />
+                  خروج از حساب
+                </button>
+              </>
             )}
-            <div className="max-w-xl rounded-2xl border border-white/10 bg-white/5 p-4 text-xs leading-6">
-              <p className="text-sm font-medium">دانلود خودکار رسانه</p>
-              {(["photos", "videos", "files", "voice"] as const).map((key) => (
-                <label key={key} className="mt-2 flex items-center justify-between gap-2">
-                  <span>{key === "photos" ? "عکس" : key === "videos" ? "ویدیو" : key === "files" ? "فایل" : "پیام صوتی"}</span>
-                  <select
-                    className="rounded bg-black/30 px-2 py-1"
-                    value={autoMedia[key]}
-                    onChange={(e) => {
-                      const next = { ...autoMedia, [key]: e.target.value as AutoMode };
-                      setAutoMedia(next);
-                      saveAutoSettings(next);
-                    }}
-                  >
-                    <option value="always">همیشه</option>
-                    <option value="wifi">فقط Wi-Fi</option>
-                    <option value="mobile">داده همراه</option>
-                    <option value="never">هرگز</option>
-                  </select>
-                </label>
-              ))}
-              <label className="mt-3 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={gallerySave}
-                  onChange={(e) => {
-                    setGallerySave(e.target.checked);
-                    setAutoSaveGallery(e.target.checked);
-                  }}
-                />
-                ذخیرهٔ خودکار عکس‌های دریافتی (دانلود به دستگاه)
-              </label>
-            </div>
-            <div className="max-w-xl rounded-2xl border border-white/10 bg-white/5 p-4 text-xs leading-6">
-              <p className="text-sm font-medium">تماس</p>
-              <p className="mt-1 text-emerald-100/65">
-                چه کسانی بتوانند با تو تماس بگیرند. افراد مسدود نمی‌توانند تماس بگیرند. تماس ناشناس طبق همین حریم محدود می‌شود.
-              </p>
-              {(
-                [
-                  ["everyone", "همه"],
-                  ["contacts", "مخاطبین"],
-                  ["friends", "دوستان"],
-                  ["nobody", "هیچ‌کس"],
-                  ["selected", "افراد انتخاب‌شده"],
-                ] as const
-              ).map(([id, label]) => (
-                <label key={id} className="mt-1 flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="call-privacy"
-                    checked={callPrivacy === id}
-                    onChange={async () => {
-                      setCallPrivacy(id);
-                      await fetch("/api/calls/settings", {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ callPrivacy: id }),
-                      });
-                    }}
-                  />
-                  {label}
-                </label>
-              ))}
-              <label className="mt-3 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={lowDataCalls}
-                  onChange={async (e) => {
-                    setLowDataCalls(e.target.checked);
-                    await fetch("/api/calls/settings", {
-                      method: "PATCH",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ lowDataCalls: e.target.checked }),
-                    });
-                  }}
-                />
-                حالت کم‌مصرف برای تماس تصویری
-              </label>
-              <label className="mt-2 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={hideCallLock}
-                  onChange={async (e) => {
-                    setHideCallLock(e.target.checked);
-                    await fetch("/api/calls/settings", {
-                      method: "PATCH",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ hideCallOnLockScreen: e.target.checked }),
-                    });
-                  }}
-                />
-                مخفی کردن نام تماس‌گیرنده در اعلان
-              </label>
-            </div>
-            <div className="max-w-xl rounded-2xl border border-white/10 bg-white/5 p-4">
-              <p className="flex items-center gap-2 text-sm font-medium">
-                <Lock className="size-4 text-amber-200" />
-                امنیت چت نیکسو
-              </p>
-              <p className="mt-2 text-xs leading-6 text-emerald-100/70">
-                پیام‌های خصوصی با AES-GCM روی این دستگاه رمز می‌شوند و سرور فقط پاکت رمزنگاری‌شده را نگه می‌دارد. کلید نخ در همین مرورگر است. پس از انقضا، ciphertext از مسیر عادی حذف می‌شود و در پشتیبان معمولی برنمی‌گردد. View Once و پیام ناپدیدشونده دو قابلیت جدا هستند. نیکسو تضمین نمی‌کند هرگز قابل نفوذ نباشد و نمی‌تواند عکس گرفتن از صفحه با دوربین دستگاه دیگر را ۱۰۰٪ متوقف کند.
-              </p>
-            </div>
-            <div className="max-w-xl rounded-2xl border border-white/10 bg-white/5 p-4">
-              <p className="text-sm font-medium">مسدودشده‌ها</p>
-              {blockedList.length === 0 ? (
-                <p className="mt-2 text-xs text-emerald-100/55">کسی را مسدود نکرده‌ای.</p>
-              ) : (
-                <ul className="mt-2 space-y-2">
-                  {blockedList.map((row) => (
-                    <li key={row.peerKey} className="flex items-center justify-between text-sm">
-                      <span>{row.peerName}</span>
-                      {row.threadId && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="text-amber-200"
-                          onClick={async () => {
-                            await fetch(`/api/chats/${row.threadId}/block`, {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ blocked: false }),
-                            });
-                            await loadThreads();
-                          }}
-                        >
-                          رفع مسدودسازی
-                        </Button>
+            {mePanel && (
+              <div>
+                <button type="button" className="flex items-center gap-1 px-3 py-3 text-sm text-emerald-100/70" onClick={() => setMePanel(null)}>
+                  <ChevronLeft className="size-4 rotate-180" />
+                  بازگشت
+                </button>
+                {mePanel === "privacy" && (
+                  <div className="mx-4 overflow-hidden rounded-2xl bg-white/5 text-sm">
+                    <Link href="/app/settings/privacy-center" className="block px-4 py-3.5 hover:bg-white/5">مرکز حریم خصوصی</Link>
+                    <Link href="/app/settings/privacy" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">حریم خصوصی</Link>
+                    <Link href="/app/settings/security" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">امنیت</Link>
+                    <Link href="/app/settings/devices" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">نشست‌ها و دستگاه‌ها</Link>
+                    <Link href="/app/settings/calls" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">چه کسانی تماس بگیرند</Link>
+                    <Link href="/app/settings/story" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">حریم استوری</Link>
+                    <div className="border-t border-white/5 px-4 py-3.5">
+                      <p className="mb-2 font-medium">چه کسانی تماس بگیرند</p>
+                      {(
+                        [
+                          ["everyone", "همه"],
+                          ["contacts", "مخاطبین"],
+                          ["friends", "دوستان"],
+                          ["nobody", "هیچ‌کس"],
+                          ["selected", "افراد انتخاب‌شده"],
+                        ] as const
+                      ).map(([id, label]) => (
+                        <label key={id} className="mt-1 flex items-center gap-2 text-xs">
+                          <input
+                            type="radio"
+                            name="call-privacy"
+                            checked={callPrivacy === id}
+                            onChange={async () => {
+                              setCallPrivacy(id);
+                              await fetch("/api/calls/settings", {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ callPrivacy: id }),
+                              });
+                            }}
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                    <div className="border-t border-white/5 px-4 py-3.5">
+                      <p className="mb-2 font-medium">مسدودشده‌ها</p>
+                      {blockedList.length === 0 ? (
+                        <p className="text-xs text-emerald-100/50">کسی مسدود نیست</p>
+                      ) : (
+                        <ul className="space-y-2">
+                          {blockedList.map((row) => (
+                            <li key={row.peerKey} className="flex items-center justify-between">
+                              <span>{row.peerName}</span>
+                              {row.threadId && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-amber-200"
+                                  onClick={async () => {
+                                    await fetch(`/api/chats/${row.threadId}/block`, {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ blocked: false }),
+                                    });
+                                    await loadThreads();
+                                  }}
+                                >
+                                  رفع مسدودی
+                                </Button>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
                       )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <p className="max-w-xl text-sm leading-7 text-emerald-100/70">
-              نام، نام خانوادگی، نام کاربری، بیو و عکس پروفایل از همین مسیر قابل تغییرند و دائمی نیستند.
-            </p>
-            <Button type="button" variant="outline" className="border-white/15 bg-transparent text-white hover:bg-white/10" onClick={logout}>
-              خروج
-            </Button>
+                    </div>
+                  </div>
+                )}
+                {mePanel === "notify" && (
+                  <div className="mx-4 overflow-hidden rounded-2xl bg-white/5 text-sm">
+                    <Link href="/app/settings/notifications" className="block px-4 py-3.5 hover:bg-white/5">اعلان‌ها</Link>
+                    <Link href="/app/settings/audio" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">صدا و پیام صوتی</Link>
+                    <button
+                      type="button"
+                      className="block w-full border-t border-white/5 px-4 py-3.5 text-right hover:bg-white/5"
+                      onClick={() => {
+                        const next = !saveVoice;
+                        setSaveVoice(next);
+                        setVoiceSaveAllowed(next);
+                      }}
+                    >
+                      ذخیرهٔ پیام صوتی روی دستگاه: {saveVoice ? "روشن" : "خاموش"}
+                    </button>
+                  </div>
+                )}
+                {mePanel === "data" && (
+                  <div className="mx-4 space-y-3">
+                    <div className="overflow-hidden rounded-2xl bg-white/5 text-sm">
+                      <Link href="/app/storage" className="block px-4 py-3.5 hover:bg-white/5">مدیریت حافظه</Link>
+                      <Link href="/app/settings/media" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">رسانه و دانلود</Link>
+                      <Link href="/app/settings/files" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">فایل‌ها</Link>
+                      <Link href="/app/gallery" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">گالری</Link>
+                    </div>
+                    <div className="rounded-2xl bg-white/5 p-4 text-xs leading-6">
+                      <p className="text-sm font-medium">دانلود خودکار</p>
+                      {(["photos", "videos", "files", "voice"] as const).map((key) => (
+                        <label key={key} className="mt-2 flex items-center justify-between gap-2">
+                          <span>{key === "photos" ? "عکس" : key === "videos" ? "ویدیو" : key === "files" ? "فایل" : "پیام صوتی"}</span>
+                          <select
+                            className="rounded bg-black/30 px-2 py-1"
+                            value={autoMedia[key]}
+                            onChange={(e) => {
+                              const next = { ...autoMedia, [key]: e.target.value as AutoMode };
+                              setAutoMedia(next);
+                              saveAutoSettings(next);
+                            }}
+                          >
+                            <option value="always">همیشه</option>
+                            <option value="wifi">فقط Wi-Fi</option>
+                            <option value="mobile">داده همراه</option>
+                            <option value="never">هرگز</option>
+                          </select>
+                        </label>
+                      ))}
+                      <label className="mt-3 flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={gallerySave}
+                          onChange={(e) => {
+                            setGallerySave(e.target.checked);
+                            setAutoSaveGallery(e.target.checked);
+                          }}
+                        />
+                        ذخیرهٔ خودکار عکس‌های دریافتی
+                      </label>
+                    </div>
+                  </div>
+                )}
+                {mePanel === "features" && (
+                  <div className="mx-4 overflow-hidden rounded-2xl bg-white/5 text-sm">
+                    <Link href="/app/wallet" className="block px-4 py-3.5 hover:bg-white/5">کیف پول نیکسو</Link>
+                    <Link href="/app/ai" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">NIXO AI</Link>
+                    <Link href="/app/stickers" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">استیکر و ایموجی</Link>
+                    <Link href="/app/business" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">کسب‌وکار</Link>
+                    <Link href="/app/settings/business" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">حساب Business</Link>
+                    <Link href="/app/settings/shop" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">فروشگاه و پرداخت</Link>
+                    <Link href="/app/settings/appearance" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">ظاهر برنامه</Link>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </section>
