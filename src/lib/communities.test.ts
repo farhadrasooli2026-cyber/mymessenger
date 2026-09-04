@@ -11,6 +11,7 @@ import {
   createCommunity,
   deleteCommunity,
   joinByToken,
+  joinOpenCommunity,
   moderateMember,
   publishAnnouncement,
   publishPost,
@@ -79,6 +80,18 @@ describe("NIXO communities", () => {
     if (!promote.ok) expect(promote.status).toBe(403);
     const asAdmin = await moderateMember(owner, created.community.id, joiner, "role", { role: "admin" });
     expect(asAdmin.ok).toBe(true);
+  });
+
+  it("lets a user join an open community from the public examples list", async () => {
+    const owner = await activeUser("com_open_own");
+    const guest = await activeUser("com_open_guest");
+    const created = await createCommunity(owner, { name: "نمونه عمومی", joinMode: "open" });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const joined = await joinOpenCommunity(guest, created.community.id, { acceptRules: true });
+    expect(joined.ok).toBe(true);
+    if (!joined.ok) return;
+    expect(joined.community.myRole).toBe("member");
   });
 
   it("publishes announcements and channel posts for staff, not random members", async () => {

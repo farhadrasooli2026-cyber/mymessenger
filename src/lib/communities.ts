@@ -381,6 +381,42 @@ export async function joinByToken(userId: string, token: string, extra?: { accep
   });
 }
 
+export async function joinOpenCommunity(userId: string, communityId: string, extra?: { acceptRules?: boolean }) {
+  return mutateStore((data) => {
+    const now = Date.now();
+    const joinLimit = hitRateLimit(data, `cjoin:${userId}`, COMMUNITY_JOIN_WINDOW_MS, COMMUNITY_JOIN_MAX, now);
+    if (!joinLimit.allowed) {
+      return { ok: false as const, error: "پیوستن در این بازه به سقف رسیده است.", status: 429 };
+    }
+    const community = data.communities.find((c) => c.id === communityId && !c.deletedAt);
+    if (!community || community.joinMode !== "open" || community.searchVisible === false) {
+      return { ok: false as const, error: "این انجمن برای پیوستن عمومی نیست.", status: 404 };
+    }
+    const user = data.users.find((u) => u.id === userId);
+    if (!user) return { ok: false as const, error: "حساب فعال نیست.", status: 401 };
+    if (isBanned(community, userId, now)) return { ok: false as const, error: "از این انجمن بن شده‌ای.", status: 403 };
+    if (findMember(community, userId)) return { ok: true as const, community: publicCommunity(community, userId, data), already: true };
+    const blocked = rulesBlock(community, extra?.acceptRules);
+    if (blocked) return blocked;
+    community.members.push(
+      makeMember({
+        key: userId,
+        kind: "user",
+        role: "member",
+        name: user.displayName || user.username || "عضو",
+        username: user.username ?? null,
+        joinedAt: now,
+        mutedUntil: null,
+        restrictedUntil: null,
+        notifyMode: "all",
+        leftAt: null,
+      }),
+    );
+    community.updatedAt = now;
+    return { ok: true as const, community: publicCommunity(community, userId, data) };
+  });
+}
+
 export async function decideRequest(userId: string, communityId: string, requestId: string, approve: boolean) {
   return mutateStore((data) => {
     const community = data.communities.find((c) => c.id === communityId && !c.deletedAt);

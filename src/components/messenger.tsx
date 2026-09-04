@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Ban, Bell, Bookmark, Check, CheckCheck, ChevronLeft, Database, Flag, LogOut, MessageCircle, MoreVertical, Phone, Search, Send, Shield, Smile, Sparkles, UserRound, Users, Video } from "lucide-react";
+import { Ban, Bell, Bookmark, Check, CheckCheck, ChevronLeft, Database, Flag, Landmark, LogOut, MessageCircle, MoreVertical, Phone, Search, Send, Shield, Smile, Sparkles, UserRound, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { useA11y } from "@/components/a11y-provider";
@@ -70,6 +70,7 @@ import { SearchPanel } from "@/components/search-panel";
 import { ChatSearch } from "@/components/chat-search";
 import { SavedPane } from "@/components/saved-pane";
 import { ContactsDesk } from "@/components/contacts-desk";
+import { CommunitiesDesk } from "@/components/communities-desk";
 import { NixoChrome, useNixoPrefs } from "@/components/nixo-chrome";
 import type { SearchHit } from "@/lib/search-types";
 import { useI18n } from "@/components/i18n-provider";
@@ -147,7 +148,7 @@ type Message = {
   clientNonce?: string | null;
 };
 
-type Tab = "chats" | "calls" | "contacts" | "saved" | "me" | "spaces" | "shop";
+type Tab = "chats" | "calls" | "contacts" | "saved" | "me" | "spaces" | "shop" | "communities";
 
 type WireMsg = {
   id: string;
@@ -1285,13 +1286,15 @@ export function Messenger({
         <NavBtn icon={MessageCircle} label={t("nav.chats")} active={tab === "chats"} onClick={() => setTab("chats")} />
         <NavBtn icon={Phone} label={t("nav.calls")} active={tab === "calls"} onClick={() => setTab("calls")} />
         <NavBtn icon={Users} label={t("nav.contacts")} active={tab === "contacts"} onClick={() => setTab("contacts")} />
+        <NavBtn icon={Landmark} label={t("nav.communities")} active={tab === "communities"} onClick={() => setTab("communities")} />
         <NavBtn icon={Bookmark} label={t("nav.saved")} active={tab === "saved"} onClick={() => { setTab("saved"); setSavedOpen(true); }} />
         <NavBtn icon={UserRound} label={t("nav.me")} active={tab === "me"} onClick={() => setTab("me")} />
       </nav>
       <aside
         className={cn(
           "nixo-glass-panel flex w-full max-w-full flex-col border-white/10 bg-[#0b2421] max-md:max-w-none md:w-[320px] lg:w-[360px] md:border-s",
-          mobileChat && "hidden md:flex",
+          (mobileChat || tab === "communities") && "hidden md:flex",
+          tab === "communities" && "md:hidden",
         )}
         aria-label="فهرست گفتگو"
       >
@@ -1315,7 +1318,7 @@ export function Messenger({
       <section
         className={cn(
           "relative min-w-0 flex-1 flex-col overflow-x-hidden pb-16 md:pb-0",
-          mobileChat ? "flex" : "hidden md:flex",
+          mobileChat || tab === "communities" ? "flex" : "hidden md:flex",
         )}
       >
         {tab === "chats" && savedOpen ? (
@@ -2085,6 +2088,49 @@ export function Messenger({
           </div>
         )}
 
+        {tab === "communities" && activeCommunityId ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-white hover:bg-white/10"
+              onClick={() => setActiveCommunityId(null)}
+            >
+              انجمن‌ها
+            </Button>
+            <CommunityPane
+              key={activeCommunityId}
+              communityId={activeCommunityId}
+              userIdHint={userId}
+              onLeft={() => {
+                setActiveCommunityId(null);
+                void loadCommunities();
+              }}
+              onOpenGroup={(groupId) => {
+                setActiveCommunityId(null);
+                setActiveGroupId(groupId);
+                setTab("chats");
+                setMobileChat(true);
+              }}
+            />
+          </div>
+        ) : tab === "communities" ? (
+          <CommunitiesDesk
+            onCreate={() => setCreateCommunity(true)}
+            onOpenCommunity={(id) => {
+              setActiveCommunityId(id);
+              setActiveGroupId(null);
+              setActiveChannelId(null);
+            }}
+            onOpenGroup={(id) => {
+              setActiveGroupId(id);
+              setActiveCommunityId(null);
+              setTab("chats");
+              setMobileChat(true);
+            }}
+          />
+        ) : null}
+
         {tab === "contacts" && (
           <div className="min-h-0 flex-1 overflow-auto">
             <ContactsDesk />
@@ -2252,6 +2298,14 @@ export function Messenger({
                     <span className="min-w-0 flex-1">
                       <span className="block font-medium">داده و حافظه</span>
                       <span className="text-[12px] text-emerald-100/45">دانلود خودکار، مدیریت حافظه</span>
+                    </span>
+                    <ChevronLeft className="size-4 text-emerald-100/30" />
+                  </button>
+                  <button type="button" className="flex w-full items-center gap-3 border-t border-white/5 px-4 py-3.5 text-right hover:bg-white/5" onClick={() => { setTab("communities"); setMobileChat(true); }}>
+                    <span className="grid size-10 place-items-center rounded-xl bg-emerald-400/20 text-emerald-200"><Landmark className="size-5" /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium">انجمن‌ها</span>
+                      <span className="text-[12px] text-emerald-100/45">گروه‌های موضوعی و اعلانات</span>
                     </span>
                     <ChevronLeft className="size-4 text-emerald-100/30" />
                   </button>
@@ -2430,10 +2484,11 @@ export function Messenger({
         )}
       </section>
 
-      <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-white/10 bg-[#0b2421]/95 pb-[env(safe-area-inset-bottom)] md:hidden" aria-label="ناوبری">
+      <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-6 border-t border-white/10 bg-[#0b2421]/95 pb-[env(safe-area-inset-bottom)] md:hidden" aria-label="ناوبری">
         <NavBtn icon={MessageCircle} label={t("nav.chats")} active={tab === "chats"} onClick={() => { setTab("chats"); setMobileChat(false); }} />
         <NavBtn icon={Phone} label={t("nav.calls")} active={tab === "calls"} onClick={() => { setTab("calls"); setMobileChat(true); }} />
         <NavBtn icon={Users} label={t("nav.contacts")} active={tab === "contacts"} onClick={() => { setTab("contacts"); setMobileChat(true); }} />
+        <NavBtn icon={Landmark} label={t("nav.communities")} active={tab === "communities"} onClick={() => { setTab("communities"); setMobileChat(true); }} />
         <NavBtn icon={Bookmark} label={t("nav.saved")} active={tab === "saved"} onClick={() => { setTab("saved"); setSavedOpen(true); setMobileChat(true); }} />
         <NavBtn icon={UserRound} label={t("nav.me")} active={tab === "me"} onClick={() => { setTab("me"); setMobileChat(true); }} />
       </nav>
@@ -2852,7 +2907,7 @@ export function Messenger({
             setCreateCommunity(false);
             setActiveCommunityId(id);
             setActiveGroupId(null);
-            setTab("chats");
+            setTab("communities");
             setMobileChat(true);
             void loadCommunities();
           }}
