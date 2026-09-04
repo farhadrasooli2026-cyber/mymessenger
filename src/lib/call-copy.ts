@@ -46,6 +46,20 @@ export function formatCallWhen(ts: number): string {
   }).format(ts);
 }
 
+export function formatRecentCallWhen(ts: number): string {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (ts >= startToday) {
+    return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+  if (ts >= startToday - 86_400_000) return "Yesterday";
+  const weekAgo = startToday - 6 * 86_400_000;
+  if (ts >= weekAgo) return d.toLocaleDateString("en-US", { weekday: "long" });
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
 export function videoStateFa(state: string): string {
   if (state === "camera-off") return "دوربین خاموش";
   if (state === "camera-on") return "دوربین روشن";

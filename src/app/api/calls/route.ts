@@ -1,7 +1,7 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
 import { requestOriginAllowed } from "@/lib/security";
-import { activeCall, deleteCallHistory, listCalls, startOutgoing } from "@/lib/calls";
+import { activeCall, deleteCallHistory, listCalls, markCallsSeen, readAllMissedCalls, startOutgoing } from "@/lib/calls";
 import { listGroupCalls } from "@/lib/group-calls";
 import { callCenterDashboard, requestCallRecording, searchCallHistory, sweepCallInfra } from "@/lib/call-center";
 
@@ -61,6 +61,13 @@ export async function POST(request: Request) {
   if (body?.action === "clear-history") {
     const result = await deleteCallHistory(user.id, Array.isArray(body.ids) && body.ids.length ? body.ids : "all");
     return json({ ok: true, cleared: result.cleared });
+  }
+  if (body?.action === "read-all") {
+    return json(await readAllMissedCalls(user.id));
+  }
+  if (body?.action === "seen") {
+    const ids = Array.isArray(body.ids) ? body.ids.map(String) : [];
+    return json(await markCallsSeen(user.id, ids));
   }
   if (!body?.threadId || (body.kind !== "voice" && body.kind !== "video")) {
     return jsonError("درخواست تماس نامعتبر است.");

@@ -6,7 +6,7 @@ import { getOutbox } from "./outbox";
 import { listMessages, listThreads, openDm } from "./chat";
 import { setBlocked, fileReport } from "./safety";
 import { mutateStore, resetStoreForTests } from "./store";
-import { actOnCall, deleteCallHistory, listCalls, refuseCallRecording, startIncomingDemo, startOutgoing, updateCallSettings, CALL_RECONNECT_TIMEOUT_MS } from "./calls";
+import { actOnCall, deleteCallHistory, listCalls, readAllMissedCalls, refuseCallRecording, startIncomingDemo, startOutgoing, updateCallSettings, CALL_RECONNECT_TIMEOUT_MS } from "./calls";
 import { searchCallHistory, requestCallRecording } from "./call-center";
 import { mintTurnCredential } from "./ice";
 import { setMutedPeer } from "./privacy";
@@ -88,6 +88,10 @@ describe("voice and video calls", () => {
     await actOnCall(userId, again.call.id, "end");
     const missed = (await listCalls(userId, "missed")).find((c) => c.id === again.call.id);
     expect(missed?.status).toBe("missed");
+    expect(missed?.unreadMissed).toBe(true);
+    await readAllMissedCalls(userId);
+    const after = (await listCalls(userId, "missed")).find((c) => c.id === again.call.id);
+    expect(after?.unreadMissed).toBe(false);
 
     await updateCallSettings(userId, { callPrivacy: "nobody" });
     const blocked = await startIncomingDemo(userId, "voice");

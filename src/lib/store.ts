@@ -1289,6 +1289,7 @@ export type CallRecord = {
   declineWithMessage?: boolean;
   endReason?: "hangup" | "cancel" | "timeout" | "failed" | "busy" | "declined";
   hiddenAt?: number | null;
+  seenAt?: number | null;
   chatNotedAt?: number | null;
   /** Shared signaling room for a 1:1 pair. Never trust a client-supplied room id. */
   sessionId?: string;

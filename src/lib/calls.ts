@@ -60,6 +60,7 @@ export type PublicCall = {
   videoState: "camera-off" | "camera-on" | "connecting" | "connected" | "reconnecting" | "disconnected" | "failed";
   speakerMode: boolean;
   participantId: string;
+  unreadMissed: boolean;
 };
 
 function clearCallMedia(call: CallRecord) {
@@ -261,6 +262,7 @@ export function publicCall(call: CallRecord, now = Date.now(), extras?: { peerMi
     videoState: videoStateOf(call),
     speakerMode: call.speakerMode !== false,
     participantId: call.participantId ?? call.id,
+    unreadMissed: call.status === "missed" && !call.seenAt,
   };
 }
 
@@ -781,6 +783,37 @@ export async function deleteCallHistory(userId: string, ids: string[] | "all") {
       }
     }
     return { ok: true as const, cleared: n };
+  });
+}
+
+export async function readAllMissedCalls(userId: string) {
+  return mutateStore((data) => {
+    const now = Date.now();
+    let n = 0;
+    for (const c of data.calls ?? []) {
+      if (c.ownerUserId !== userId) continue;
+      if (c.hiddenAt) continue;
+      if (c.status !== "missed" || c.seenAt) continue;
+      c.seenAt = now;
+      n += 1;
+    }
+    return { ok: true as const, count: n };
+  });
+}
+
+export async function markCallsSeen(userId: string, ids: string[]) {
+  return mutateStore((data) => {
+    const now = Date.now();
+    let n = 0;
+    for (const c of data.calls ?? []) {
+      if (c.ownerUserId !== userId) continue;
+      if (!ids.includes(c.id)) continue;
+      if (!c.seenAt) {
+        c.seenAt = now;
+        n += 1;
+      }
+    }
+    return { ok: true as const, count: n };
   });
 }
 

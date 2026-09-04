@@ -429,7 +429,6 @@ export function Messenger({
   const [waitingCall, setWaitingCall] = useState<LiveCall | null>(null);
   const [callMin, setCallMin] = useState(false);
   const [callHistory, setCallHistory] = useState<HistoryCall[]>([]);
-  const [callFilter, setCallFilter] = useState("all");
   const [lowDataCalls, setLowDataCalls] = useState(false);
   const [hideCallLock, setHideCallLock] = useState(false);
   const [callPrivacy, setCallPrivacy] = useState<"everyone" | "contacts" | "friends" | "nobody" | "selected">("everyone");
@@ -892,13 +891,13 @@ export function Messenger({
 
   useEffect(() => {
     if (tab !== "calls") return;
-    void fetch(`/api/calls?filter=${encodeURIComponent(callFilter)}`, { cache: "no-store" })
+    void fetch("/api/calls", { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.calls) setCallHistory(data.calls as HistoryCall[]);
       })
       .catch(() => undefined);
-  }, [tab, callFilter]);
+  }, [tab]);
 
   async function onSend(e: React.FormEvent) {
     e.preventDefault();
@@ -1019,7 +1018,7 @@ export function Messenger({
   }
 
   async function refreshCalls() {
-    const res = await fetch(`/api/calls?filter=${encodeURIComponent(callFilter)}`, { cache: "no-store" });
+    const res = await fetch("/api/calls", { cache: "no-store" });
     if (!res.ok) return;
     const data = (await res.json()) as { calls: HistoryCall[] };
     setCallHistory(data.calls ?? []);
@@ -2148,9 +2147,13 @@ export function Messenger({
         {tab === "calls" && (
           <CallsTab
             calls={callHistory}
-            filter={callFilter}
-            onFilter={setCallFilter}
             onCall={(id, kind) => void startCall(id, kind)}
+            onOpenChat={(threadId) => {
+              setActiveId(threadId);
+              setTab("chats");
+              setMobileChat(true);
+            }}
+            onReload={() => void refreshCalls()}
           />
         )}
         {tab === "shop" && <BusinessDirectory embedded />}
