@@ -8,6 +8,8 @@ import { decryptBytes, decryptText, encryptBytes, encryptText, loadOrCreateThrea
 import { formatBytes, type MediaMeta } from "@/lib/media";
 import { ViewOnceShield } from "@/components/view-once-shield";
 import { ExpiryBadge } from "@/components/expiry-badge";
+import { PLAYBACK_SPEEDS } from "@/lib/nixo-features";
+import { useNixoPrefs } from "@/components/nixo-chrome";
 
 export type MediaMsg = {
   id: string;
@@ -88,6 +90,7 @@ export function MediaBubble({
   onOpen,
   chunkBase,
   senderLabel,
+  chatKind = "private",
 }: {
   msg: MediaMsg;
   threadId: string;
@@ -96,17 +99,23 @@ export function MediaBubble({
   onOpen?: (url: string, meta: MediaMeta, msg: MediaMsg) => void;
   chunkBase?: string;
   senderLabel?: string;
+  chatKind?: "private" | "group" | "channel";
 }) {
+  const nixoPrefs = useNixoPrefs();
   const [url, setUrl] = useState<string | null>(null);
   const [meta, setMeta] = useState<MediaMeta | null>(null);
   const [progress, setProgress] = useState(0);
   const [xfer, setXfer] = useState<"idle" | "downloading" | "downloaded" | "failed" | "cancelled">("idle");
   const [spent, setSpent] = useState(Boolean(msg.expired));
   const [forwardOpen, setForwardOpen] = useState(false);
+  const [hideAnon, setHideAnon] = useState(nixoPrefs.hideForwardOriginDefault);
   const [unlocked, setUnlocked] = useState(!msg.viewOnce);
   const [replayOff, setReplayOff] = useState(false);
   const [tick, setTick] = useState(0);
+  const [videoRate, setVideoRate] = useState(1);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const abortRef = useRef({ cancelled: false });
+  const savedRef = useRef(false);
   const locked = Boolean(msg.viewOnce) && !unlocked && !spent;
 
   useEffect(() => {
@@ -119,8 +128,10 @@ export function MediaBubble({
       .then((r) => r.json())
       .catch(() => ({}))
       .then((data: { prefs?: { dataSaver?: boolean; autoFiles?: "wifi" | "mobile" | "never" } }) => {
+        const preloadOff =
+          typeof document !== "undefined" && document.documentElement.classList.contains("nixo-no-preload");
         const auto = shouldAutoDownload(msg.kind, Boolean(data.prefs?.dataSaver), data.prefs?.autoFiles ?? "wifi");
-        if (!auto && tick === 0) {
+        if ((!auto || preloadOff) && tick === 0) {
           setXfer("idle");
           skip = true;
           return;
@@ -145,6 +156,20 @@ export function MediaBubble({
         setUrl(revoke);
         setProgress(100);
         setXfer("downloaded");
+        if (!msg.viewOnce && !savedRef.current) {
+          const want =
+            (chatKind === "private" && ((msg.kind === "photo" && nixoPrefs.autoSavePrivatePhotos) || (msg.kind === "video" && nixoPrefs.autoSavePrivateVideos))) ||
+            (chatKind === "group" && ((msg.kind === "photo" && nixoPrefs.autoSaveGroupPhotos) || (msg.kind === "video" && nixoPrefs.autoSaveGroupVideos))) ||
+            (chatKind === "channel" && ((msg.kind === "photo" && nixoPrefs.autoSaveChannelPhotos) || (msg.kind === "video" && nixoPrefs.autoSaveChannelVideos)));
+          if (want && revoke) {
+            savedRef.current = true;
+            const a = document.createElement("a");
+            a.href = revoke;
+            a.download = loaded.meta.name || `nixo-${msg.kind}`;
+            a.rel = "noopener";
+            a.click();
+          }
+        }
       })
       .catch((err: unknown) => {
         if (String(err).includes("cancel")) {
@@ -219,6 +244,7 @@ export function MediaBubble({
         byteLength: bytes.length,
         mimeClass: msg.kind === "photo" ? "image" : msg.kind === "video" ? "video" : "file",
         forwarded: true,
+        hideForwardOrigin: hideAnon,
       }),
     });
     if (!res.ok) toast.error("هدایت انجام نشد.");
@@ -299,12 +325,17 @@ export function MediaBubble({
       )}
       {msg.kind === "video" && url && (
         <video
+          ref={videoRef}
           src={url}
           controls={!restricted && !replayOff}
-          disablePictureInPicture
-          controlsList="nodownload noplaybackrate noremoteplayback"
+          disablePictureInPicture={restricted}
+          playsInline
+          autoPlay={!restricted && nixoPrefs.powerAutoplayVideo && typeof document !== "undefined" && document.documentElement.classList.contains("nixo-allow-video-autoplay")}
           className="max-h-56 w-full rounded-xl"
-          muted={meta?.mute}
+          muted={meta?.mute ?? (!restricted && nixoPrefs.powerAutoplayVideo)}
+          onLoadedMetadata={() => {
+            if (videoRef.current) videoRef.current.playbackRate = videoRate;
+          }}
           onPlay={() => {
             if (restricted || msg.expireFrom === "view") void markViewed("play");
           }}
@@ -317,6 +348,23 @@ export function MediaBubble({
           }}
           style={{ transform: meta?.rotation ? `rotate(${meta.rotation}deg)` : undefined }}
         />
+      )}
+      {msg.kind === "video" && url && (
+        <div className="flex flex-wrap gap-1 px-1">
+          {PLAYBACK_SPEEDS.map((s) => (
+            <button
+              key={s}
+              type="button"
+              className={`rounded-full px-2 py-0.5 text-[10px] ${videoRate === s ? "bg-amber-300 text-[#102824]" : "bg-white/10"}`}
+              onClick={() => {
+                setVideoRate(s);
+                if (videoRef.current) videoRef.current.playbackRate = s;
+              }}
+            >
+              {s}x
+            </button>
+          ))}
+        </div>
       )}
       {msg.kind === "file" && (
         <div className="px-2 py-1 text-xs">
@@ -399,6 +447,10 @@ export function MediaBubble({
       </div>
       {forwardOpen && (
         <div className="max-h-28 space-y-1 overflow-auto rounded bg-black/20 p-2">
+          <label className="flex items-center gap-2 text-[11px]">
+            <input type="checkbox" checked={hideAnon} onChange={(e) => setHideAnon(e.target.checked)} />
+            بدون نام فرستنده
+          </label>
           {threads.filter((t) => t.id !== threadId).map((t) => (
             <button key={t.id} type="button" className="block w-full text-right text-xs" onClick={() => void forwardTo(t.id)}>
               {t.peerName}

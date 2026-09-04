@@ -1,5 +1,6 @@
 export { NIXO_LOCALES, type NixoLocale } from "@/lib/i18n/languages";
 import type { NixoLocale } from "@/lib/i18n/languages";
+import { defaultNixoFeaturePrefs, type NixoFeaturePrefs } from "@/lib/nixo-features";
 
 export const TIMEZONES = [
   "system",
@@ -58,7 +59,7 @@ export type UserPrefs = {
   appLockBiometric: boolean;
   autoLockSec: AutoLockSec;
   consents: UserConsents;
-};
+} & NixoFeaturePrefs;
 
 export function defaultUserPrefs(): UserPrefs {
   return {
@@ -94,10 +95,12 @@ export function defaultUserPrefs(): UserPrefs {
       location: false,
       marketing: false,
     },
+    ...defaultNixoFeaturePrefs(),
   };
 }
 
 export const SETTINGS_CATALOG = [
+  { href: "/app/settings/nixo", title: "قابلیت‌های نیکسو", en: "NIXO Features", hint: "شیشه، ترجمه، ذخیره انرژی، هدایت، زمان‌بندی" },
   { href: "/app/settings/account", title: "حساب", en: "Account", hint: "شماره، ایمیل، حذف، پشتیبان، Export" },
   { href: "/app/settings/profile", title: "پروفایل", en: "Profile", hint: "نام، نام کاربری، عکس، بیو" },
   { href: "/app/settings/privacy", title: "حریم خصوصی", en: "Privacy", hint: "Last Seen، عکس، کشف، مسدود" },

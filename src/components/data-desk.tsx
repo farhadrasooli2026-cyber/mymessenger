@@ -68,7 +68,12 @@ export function DataDesk() {
         {mine ? (
           <section className="rounded-2xl bg-white/5 p-4 text-sm">
             <h2 className="font-medium">دادهٔ همین حساب</h2>
-            <p className="mt-1 text-[11px] opacity-60">پیام {mine.messages} · گفتگو {mine.threads} · مخاطب {mine.contacts} · اعلان {mine.notifications} · گالری {mine.gallery} · دستگاه {mine.devices}</p>
+            <p className="mt-2 opacity-80">
+              پیام {mine.messages} · گفتگو {mine.threads} · گالری {mine.gallery} · مخاطب {mine.contacts} · اعلان {mine.notifications} · دستگاه {mine.devices}
+            </p>
+            <Link href="/app/settings/nixo" className="mt-2 block text-amber-200">
+              قابلیت‌های نیکسو (ذخیره انرژی، گالری، شیشه)
+            </Link>
           </section>
         ) : (
           <p className="text-sm">بارگذاری…</p>

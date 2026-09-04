@@ -64,12 +64,14 @@ import { ChannelCreate } from "@/components/channel-create";
 import { ChannelPane } from "@/components/channel-pane";
 import { AiComposerTools } from "@/components/ai-composer-tools";
 import { translateText } from "@/lib/ai-engine";
+import { shouldShowTranslateButton } from "@/lib/nixo-iso639";
 import { StoryComposer } from "@/components/story-composer";
 import { StoryViewer, type StoryItem } from "@/components/story-viewer";
 import { SearchPanel } from "@/components/search-panel";
 import { ChatSearch } from "@/components/chat-search";
 import { SavedPane } from "@/components/saved-pane";
 import { ContactsDesk } from "@/components/contacts-desk";
+import { NixoChrome, useNixoPrefs } from "@/components/nixo-chrome";
 import type { SearchHit } from "@/lib/search-types";
 import { useI18n } from "@/components/i18n-provider";
 
@@ -121,6 +123,9 @@ type Message = {
   viewOnce?: boolean;
   expired?: boolean;
   forwarded?: boolean;
+  hideForwardOrigin?: boolean;
+  silent?: boolean;
+  scheduledAt?: number | null;
   disappearAfterMs?: number | null;
   expireFrom?: "send" | "view" | null;
   expiresAt?: number | null;
@@ -157,6 +162,9 @@ type WireMsg = {
   viewOnce?: boolean;
   expired?: boolean;
   forwarded?: boolean;
+  hideForwardOrigin?: boolean;
+  silent?: boolean;
+  scheduledAt?: number | null;
   disappearAfterMs?: number | null;
   expireFrom?: "send" | "view" | null;
   expiresAt?: number | null;
@@ -188,6 +196,9 @@ async function mapRemote(threadId: string, raws: WireMsg[]): Promise<Message[]> 
     state: raw.state,
     editedAt: raw.editedAt ?? null,
     clientNonce: raw.clientNonce ?? null,
+    hideForwardOrigin: raw.hideForwardOrigin,
+    silent: raw.silent,
+    scheduledAt: raw.scheduledAt ?? null,
   });
   for (const raw of raws) {
     if (raw.kind === "system") {
@@ -436,6 +447,14 @@ export function Messenger({
   const [searchSeed, setSearchSeed] = useState("");
   const [chatSearchOpen, setChatSearchOpen] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);
+  const [silentSend, setSilentSend] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState("");
+  const [translated, setTranslated] = useState<Record<string, string>>({});
+  const nixoPrefs = useNixoPrefs();
+
+  useEffect(() => {
+    setSilentSend(nixoPrefs.silentDefault);
+  }, [nixoPrefs.silentDefault]);
   const [highlightMsgId, setHighlightMsgId] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -786,7 +805,11 @@ export function Messenger({
   }, [a11yPrefs.keyboardShortcuts]);
 
   useEffect(() => {
-    if (!activeId) return;
+    setSilentSend(nixoPrefs.silentDefault);
+  }, [nixoPrefs.silentDefault]);
+
+  useEffect(() => {
+    if (!activeId || nixoPrefs.ghostMode) return;
     const typing = draft.trim().length > 0;
     const t = window.setTimeout(() => {
       void fetch("/api/privacy", {
@@ -796,7 +819,7 @@ export function Messenger({
       });
     }, 400);
     return () => window.clearTimeout(t);
-  }, [draft, activeId, voiceRec]);
+  }, [draft, activeId, voiceRec, nixoPrefs.ghostMode]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -891,6 +914,11 @@ export function Messenger({
       const body: Record<string, unknown> = { ...envelope, clientNonce };
       if (disappearAfterMs !== undefined) body.disappearAfterMs = disappearAfterMs;
       if (replyTo && !editingId) body.replyToId = replyTo.id;
+      if (silentSend) body.silent = true;
+      if (scheduleAt) {
+        const ts = new Date(scheduleAt).getTime();
+        if (Number.isFinite(ts) && ts > Date.now()) body.scheduledAt = ts;
+      }
       if (editingId) {
         const res = await fetch(`/api/chats/${activeId}/messages/${editingId}`, {
           method: "PATCH",
@@ -943,6 +971,7 @@ export function Messenger({
       setMessages([...local.map((m) => ({ ...m, local: true as const })), ...remote].sort((a, b) => a.createdAt - b.createdAt));
       setDraft("");
       setReplyTo(null);
+      setScheduleAt("");
       await loadThreads();
     } finally {
       setBusy(false);
@@ -1231,6 +1260,7 @@ export function Messenger({
 
   return (
     <VoiceQueueProvider>
+    <NixoChrome />
     <div
       className="flex min-h-dvh overflow-x-hidden text-[var(--nixo-text,#ecfdf5)]"
       style={{
@@ -1258,7 +1288,7 @@ export function Messenger({
       </nav>
       <aside
         className={cn(
-          "flex w-full max-w-full flex-col border-white/10 bg-[#0b2421] max-md:max-w-none md:w-[320px] lg:w-[360px] md:border-s",
+          "nixo-glass-panel flex w-full max-w-full flex-col border-white/10 bg-[#0b2421] max-md:max-w-none md:w-[320px] lg:w-[360px] md:border-s",
           mobileChat && "hidden md:flex",
         )}
         aria-label="فهرست گفتگو"
@@ -1656,7 +1686,13 @@ export function Messenger({
             <div className="relative flex-1 overflow-hidden">
               <div
                 className="pointer-events-none absolute inset-0"
-                style={backgroundPreview(active.background ?? appearance.chatBackground)}
+                style={{
+                  ...backgroundPreview(
+                    nixoPrefs.chatWallpaperPublic
+                      ? { kind: "public", path: nixoPrefs.chatWallpaperPublic }
+                      : (active.background ?? appearance.chatBackground),
+                  ),
+                }}
               />
               <ScrollArea className="h-full">
                 <div className="relative min-h-full space-y-2 px-3 py-3 sm:px-4" dir="ltr">
@@ -1728,7 +1764,7 @@ export function Messenger({
                               <p className="px-3 py-2 text-sm opacity-70">استیکر حذف شده</p>
                             ) : msg.stickerUrl ? (
                               // eslint-disable-next-line @next/next/no-img-element
-                              <img src={msg.stickerUrl} alt="sticker" className="h-24 w-24" />
+                              <img src={msg.stickerUrl} alt="sticker" data-sticker className="h-24 w-24" />
                             ) : (
                               <p className="px-3 py-2 text-sm">استیکر</p>
                             )}
@@ -1791,6 +1827,7 @@ export function Messenger({
                             }}
                             threadId={active.id}
                             threads={threads}
+                            chatKind="private"
                             onGone={async () => {
                               const res = await fetch(`/api/chats/${active.id}`, { cache: "no-store" });
                               if (!res.ok) return;
@@ -1820,7 +1857,27 @@ export function Messenger({
                             {msg.replyToId && (
                               <p className="mb-1 truncate text-[10px] opacity-60">پاسخ به پیام</p>
                             )}
+                            {msg.forwarded ? (
+                              <p className="mb-1 text-[10px] opacity-55">{msg.hideForwardOrigin ? "هدایت‌شده" : "هدایت‌شده از گفتگو"}</p>
+                            ) : null}
+                            {msg.scheduledAt && msg.scheduledAt > Date.now() ? (
+                              <p className="mb-1 text-[10px] text-amber-200/80">زمان‌بندی‌شده</p>
+                            ) : null}
+                            {msg.silent ? <p className="mb-1 text-[10px] opacity-50">بی‌صدا</p> : null}
                             <p dir="auto" className="i18n-text">{msg.expired ? "این پیام منقضی شد." : msg.text}</p>
+                            {msg.text && !msg.expired && shouldShowTranslateButton(msg.text, nixoPrefs.translateSkip) && (
+                              <button
+                                type="button"
+                                className="mt-1 text-[10px] text-amber-200/85"
+                                onClick={() => {
+                                  const target = nixoPrefs.translateTarget === "en" || nixoPrefs.translateTarget === "tr" ? nixoPrefs.translateTarget : "fa";
+                                  setTranslated((cur) => ({ ...cur, [msg.id]: translateText(msg.text, target).slice(0, 400) }));
+                                }}
+                              >
+                                ترجمه
+                              </button>
+                            )}
+                            {translated[msg.id] && <p className="mt-1 text-[12px] text-amber-100/90">{translated[msg.id]}</p>}
                             <time className="sr-only" dateTime={new Date(msg.createdAt).toISOString()}>
                               {new Date(msg.createdAt).toLocaleString("fa-IR")}
                             </time>
@@ -1847,14 +1904,38 @@ export function Messenger({
                           {msgMenuId === msg.id && (
                             <div className="mb-1 rounded-xl bg-black/40 p-1 text-[11px]">
                               <button type="button" className="block w-full px-2 py-1 text-start" onClick={() => { void saveToVault(msg, active); setMsgMenuId(null); }}>ذخیره</button>
-                              <button type="button" className="block w-full px-2 py-1 text-start" onClick={async () => {
-                                await fetch("/api/saved", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: msg.kind === "photo" || msg.kind === "video" || msg.kind === "voice" || msg.kind === "file" ? msg.kind : "message", body: msg.text, bookmark: true, tag: "Important", source: { type: "chat", id: active.id, name: active.peerName, messageId: msg.id } }) });
-                                toast.success("ذخیره شد.");
-                                setMsgMenuId(null);
-                              }}>نشانک</button>
-                              {msg.text && !msg.expired && (["fa", "en", "tr"] as const).map((lng) => (
-                                <button key={lng} type="button" className="block w-full px-2 py-1 text-start" onClick={() => { toast.message(translateText(msg.text, lng).slice(0, 280)); setMsgMenuId(null); }}>ترجمه {lng}</button>
-                              ))}
+                              {msg.text && !msg.expired && shouldShowTranslateButton(msg.text, nixoPrefs.translateSkip) && (
+                                <button
+                                  type="button"
+                                  className="block w-full px-2 py-1 text-start"
+                                  onClick={() => {
+                                    const target = nixoPrefs.translateTarget === "en" || nixoPrefs.translateTarget === "tr" ? nixoPrefs.translateTarget : "fa";
+                                    setTranslated((cur) => ({ ...cur, [msg.id]: translateText(msg.text, target).slice(0, 400) }));
+                                    setMsgMenuId(null);
+                                  }}
+                                >
+                                  ترجمه
+                                </button>
+                              )}
+                              {msg.text && !msg.expired && (
+                                <button
+                                  type="button"
+                                  className="block w-full px-2 py-1 text-start"
+                                  onClick={async () => {
+                                    const key = await loadOrCreateThreadKey(active.id);
+                                    const envelope = await encryptText(key, msg.text);
+                                    await fetch(`/api/chats/${active.id}`, {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ ...envelope, forwarded: true, hideForwardOrigin: nixoPrefs.hideForwardOriginDefault }),
+                                    });
+                                    toast.success(nixoPrefs.hideForwardOriginDefault ? "بدون نام هدایت شد." : "هدایت شد.");
+                                    setMsgMenuId(null);
+                                  }}
+                                >
+                                  هدایت
+                                </button>
+                              )}
                             </div>
                           )}
                           <ReactionBar
@@ -1941,7 +2022,7 @@ export function Messenger({
                 await loadThreads();
               }}
             >
-              <form onSubmit={onSend} className="flex flex-col gap-1">
+              <form onSubmit={onSend} className="nixo-glass-panel flex flex-col gap-1 rounded-t-xl px-1 py-1">
                 {replyTo && (
                   <div className="flex items-center justify-between rounded-lg bg-black/25 px-3 py-1 text-[11px] text-emerald-100/70" role="status">
                     <span className="truncate">پاسخ: {replyTo.text.slice(0, 80)}</span>
@@ -1956,6 +2037,21 @@ export function Messenger({
                     <button type="button" onClick={() => { setEditingId(null); setDraft(""); }}>لغو</button>
                   </div>
                 )}
+                <div className="flex flex-wrap items-center gap-2 px-1 text-[11px] text-emerald-100/70">
+                  <label className="flex items-center gap-1">
+                    <input type="checkbox" checked={silentSend} onChange={(e) => setSilentSend(e.target.checked)} />
+                    بی‌صدا
+                  </label>
+                  <label className="flex items-center gap-1">
+                    زمان‌بندی
+                    <input
+                      type="datetime-local"
+                      className="rounded bg-black/30 px-1 py-0.5 text-[10px]"
+                      value={scheduleAt}
+                      onChange={(e) => setScheduleAt(e.target.value)}
+                    />
+                  </label>
+                </div>
                 <div className="flex items-end gap-1">
                 <MediaDock
                   threadId={active.id}
@@ -2349,6 +2445,7 @@ export function Messenger({
                       <Link href="/app/storage" className="block px-4 py-3.5 hover:bg-white/5">مدیریت حافظه</Link>
                       <Link href="/app/settings/media" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">رسانه و دانلود</Link>
                       <Link href="/app/settings/files" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">فایل‌ها</Link>
+                      <Link href="/app/settings/nixo" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">ذخیره انرژی و گالری</Link>
                       <Link href="/app/gallery" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">گالری</Link>
                     </div>
                     <div className="rounded-2xl bg-white/5 p-4 text-xs leading-6">
@@ -2388,7 +2485,8 @@ export function Messenger({
                 )}
                 {mePanel === "features" && (
                   <div className="mx-4 overflow-hidden rounded-2xl bg-white/5 text-sm">
-                    <Link href="/app/wallet" className="block px-4 py-3.5 hover:bg-white/5">کیف پول نیکسو</Link>
+                    <Link href="/app/settings/nixo" className="block px-4 py-3.5 hover:bg-white/5">قابلیت‌های اختصاصی نیکسو</Link>
+                    <Link href="/app/wallet" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">کیف پول نیکسو</Link>
                     <Link href="/app/ai" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">NIXO AI</Link>
                     <Link href="/app/stickers" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">استیکر و ایموجی</Link>
                     <Link href="/app/business" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">کسب‌وکار</Link>

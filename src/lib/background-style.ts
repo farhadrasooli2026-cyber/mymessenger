@@ -8,6 +8,13 @@ export function backgroundCss(spec: BackgroundSpec): CSSProperties {
   if (spec.kind === "gradient") {
     return { backgroundImage: `linear-gradient(${spec.direction}, ${spec.from}, ${spec.to})` };
   }
+  if (spec.kind === "public") {
+    return {
+      backgroundImage: `url(${spec.path})`,
+      backgroundSize: "cover",
+      backgroundPosition: "center",
+    };
+  }
   if (spec.kind === "catalog") {
     return {
       backgroundImage: `url(/api/media/bg-catalog/${spec.catalogId})`,

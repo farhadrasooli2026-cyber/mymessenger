@@ -20,10 +20,11 @@ import { mutateStore, readStoreSnapshot, finalizeDueAccounts, type StoreData } f
 import { DELETION_PHRASE, DEACTIVATION_PHRASE } from "@/lib/account-types";
 import { trackBi } from "@/lib/bi";
 import { NIXO_LOCALES, TIMEZONES, defaultUserPrefs, type UserPrefs } from "@/lib/prefs-types";
+import { mergeNixoPrefs } from "@/lib/nixo-features";
 
 export const ACCOUNT_POLICY = {
   persistence:
-    "حساب نیکسو به‌خاطر غیرفعال بودن حذف نمی‌شود. فقط درخواست خود کاربر، نقض شرایط استفاده، یا الزام قانونی آن را می‌بندد.",
+    "حساب نیکسو به‌خاطر غیرفعال بودن حذف نمی‌شود مگر اینکه خود کاربر پاک‌سازی در صورت دوری را روشن کرده باشد. آن گزینه فقط روی همان حساب اعمال می‌شود.",
   graceDays: Math.round(config.deletionGraceMs / 86_400_000),
 };
 
@@ -332,6 +333,39 @@ export async function updateAccountPrefs(userId: string, patch: Record<string, u
     }
     if (patch.languageScope === "account" || patch.languageScope === "device") {
       user.prefs.languageScope = patch.languageScope;
+    }
+    const nixoPatch: Record<string, unknown> = {};
+    const keys = [
+      "ghostMode",
+      "silentDefault",
+      "hideForwardOriginDefault",
+      "translateSkip",
+      "translateTarget",
+      "glassEnabled",
+      "glassOpacity",
+      "glassBlur",
+      "chatWallpaperPublic",
+      "powerSaveEnabled",
+      "powerSaveBatteryPct",
+      "powerAutoplayVideo",
+      "powerAutoplayGif",
+      "powerStickerAnim",
+      "powerUiAnim",
+      "powerPreload",
+      "autoSavePrivatePhotos",
+      "autoSavePrivateVideos",
+      "autoSaveGroupPhotos",
+      "autoSaveGroupVideos",
+      "autoSaveChannelPhotos",
+      "autoSaveChannelVideos",
+      "inactivityDeleteEnabled",
+      "inactivityDeleteMonths",
+    ] as const;
+    for (const k of keys) {
+      if (k in patch) nixoPatch[k] = patch[k];
+    }
+    if (Object.keys(nixoPatch).length) {
+      user.prefs = { ...user.prefs, ...mergeNixoPrefs({ ...user.prefs, ...nixoPatch }) };
     }
     return { ok: true as const, prefs: user.prefs };
   });

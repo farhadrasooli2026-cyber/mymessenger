@@ -428,6 +428,15 @@ export function PrivacyDashboard() {
         </section>
 
         <section className="rounded-2xl bg-white/5 p-4 text-sm">
+          <h2 className="font-medium">پاک‌سازی در صورت دوری</h2>
+          <p className="text-[11px] leading-6 opacity-70">
+            اختیاری و فقط برای همین حساب. تا وقتی فعال باشی اجرا نمی‌شود.
+          </p>
+          <Link href="/app/settings/nixo" className="mt-2 inline-block text-xs text-amber-200">
+            تنظیم If Away For
+          </Link>
+        </section>
+        <section className="rounded-2xl bg-white/5 p-4 text-sm">
           <h2 className="font-medium">Connected Apps</h2>
           <p className="text-[11px] leading-5 opacity-70">
             مسیر: Settings → Privacy & Security → Connected Apps. مجوز Mini App از آنجا لغو می‌شود و توکن باطل می‌گردد.

@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { NIXO_LOCALES, TIMEZONES, type UserPrefs } from "@/lib/prefs-types";
 import { LANGUAGE_CATALOG } from "@/lib/i18n/languages";
+import { searchIso6391 } from "@/lib/nixo-iso639";
 import { COUNTRIES } from "@/lib/i18n/countries";
 import { useI18n } from "@/components/i18n-provider";
 
@@ -68,6 +70,10 @@ export function LanguageSettings() {
             {t("lang.back")}
           </Link>
         </header>
+        <section className="space-y-3 rounded-2xl bg-white/5 p-4 text-sm">
+          <p className="text-[11px] opacity-70">جستجوی زبان ترجمه (ISO 639-1)</p>
+          <IsoLangSearch />
+        </section>
         <section className="space-y-3 rounded-2xl bg-white/5 p-4 text-sm">
           <p className="text-[11px] opacity-70">{t("lang.hint")}</p>
           <label className="block">
@@ -180,6 +186,26 @@ export function LanguageSettings() {
           </Button>
         </section>
       </div>
+    </div>
+  );
+}
+
+function IsoLangSearch() {
+  const [q, setQ] = useState("");
+  const rows = useMemo(() => searchIso6391(q).slice(0, 24), [q]);
+  return (
+    <div className="space-y-2">
+      <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="fa, English, فارسی…" className="h-9 bg-black/20" />
+      <ul className="max-h-36 overflow-auto text-xs">
+        {rows.map((l) => (
+          <li key={l.code} className="flex justify-between py-0.5">
+            <span>{l.native}</span>
+            <span className="opacity-50" dir="ltr">
+              {l.code} · {l.name}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

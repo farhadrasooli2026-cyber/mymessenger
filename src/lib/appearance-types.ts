@@ -12,6 +12,7 @@ export type GradientDir =
 export type BackgroundSpec =
   | { kind: "default" }
   | { kind: "catalog"; catalogId: string }
+  | { kind: "public"; path: string }
   | { kind: "upload"; assetId?: string }
   | { kind: "solid"; color: string }
   | { kind: "gradient"; from: string; to: string; direction: GradientDir };

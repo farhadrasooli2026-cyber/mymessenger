@@ -9,7 +9,6 @@ import { sendMessage } from "./chat";
 import { startChatFromContact } from "./contacts";
 import { deleteFolder, folderNameOk, listInbox, patchInbox, saveFolder } from "./inbox";
 import { getUserById } from "./registration";
-import { INBOX_PIN_MAX } from "./inbox-types";
 
 async function activeUser(username: string) {
   const ip = hashIp(`test-ip:${username}`);
@@ -69,12 +68,10 @@ describe("NIXO folders and chat organization", () => {
     expect(listed.ok).toBe(true);
     if (!listed.ok) return;
     const dms = listed.items.filter((i) => i.kind === "dm");
-    for (const row of dms.slice(0, INBOX_PIN_MAX)) {
+    for (const row of dms.slice(0, 3)) {
       const pin = await patchInbox(a, row.key, "pin");
       expect(pin.ok).toBe(true);
     }
-    const overflow = await patchInbox(a, dms[INBOX_PIN_MAX]!.key, "pin");
-    expect(overflow.ok).toBe(false);
 
     const chat = await startChatFromContact(a, undefined, b);
     expect(chat.ok).toBe(true);

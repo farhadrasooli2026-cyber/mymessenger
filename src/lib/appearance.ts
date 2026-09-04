@@ -9,6 +9,7 @@ import { mutateStore, readStoreSnapshot } from "@/lib/store";
 const backgroundSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("default") }),
   z.object({ kind: z.literal("catalog"), catalogId: z.string().min(4) }),
+  z.object({ kind: z.literal("public"), path: z.string().startsWith("/wallpapers/") }),
   z.object({ kind: z.literal("upload"), assetId: z.string().optional(), dataUrl: z.string().max(1_400_000).optional() }),
   z.object({ kind: z.literal("solid"), color: z.string().regex(/^#[0-9a-fA-F]{6}$/) }),
   z.object({

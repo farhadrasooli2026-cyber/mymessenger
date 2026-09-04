@@ -31,6 +31,9 @@ export type CipherPayload = {
   /** undefined = inherit chat timer; 0 = this message has no timer */
   disappearAfterMs?: number | null;
   forwarded?: boolean;
+  silent?: boolean;
+  hideForwardOrigin?: boolean;
+  scheduledAt?: number | null;
   blobId?: string;
   chunkCount?: number;
   byteLength?: number;
@@ -119,6 +122,12 @@ export function parseCipherPayload(body: unknown): CipherPayload | null {
     viewOnce: viewOnceOk ? Boolean(rec.viewOnce) : false,
     disappearAfterMs,
     forwarded: Boolean(rec.forwarded),
+    silent: Boolean(rec.silent),
+    hideForwardOrigin: Boolean(rec.hideForwardOrigin),
+    scheduledAt:
+      typeof rec.scheduledAt === "number" && rec.scheduledAt > Date.now() && rec.scheduledAt < Date.now() + 30 * 24 * 60 * 60_000
+        ? Math.floor(rec.scheduledAt)
+        : null,
     blobId,
     chunkCount,
     byteLength,
@@ -168,6 +177,9 @@ export function publicMessage(message: ChatMessage, userId: string, now = Date.n
     deletedEverywhere: Boolean(live.deletedEverywhere),
     expired,
     forwarded: Boolean(live.forwarded),
+    silent: Boolean(live.silent),
+    hideForwardOrigin: Boolean(live.hideForwardOrigin),
+    scheduledAt: live.scheduledAt ?? null,
     blobId: expired ? null : (live.blobId ?? null),
     chunkCount: expired ? null : (live.chunkCount ?? null),
     byteLength: live.byteLength ?? null,
@@ -367,6 +379,8 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
       return { ok: false as const, error: "View Once فقط برای صوت، عکس و ویدیو است.", status: 400 };
     }
     const now = Date.now();
+    const scheduledAt = payload.scheduledAt && payload.scheduledAt > now ? payload.scheduledAt : null;
+    const silent = Boolean(payload.silent);
     if (payload.clientNonce) {
       const existing = data.messages.find(
         (m) => m.ownerUserId === userId && m.threadId === threadId && m.clientNonce === payload.clientNonce && !m.deletedEverywhere,
@@ -482,6 +496,10 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
       hiddenFor: [],
       deletedEverywhere: false,
       forwarded: Boolean(payload.forwarded),
+      silent,
+      hideForwardOrigin: Boolean(payload.hideForwardOrigin),
+      scheduledAt,
+      scheduledReleased: !scheduledAt,
       blobId: payload.blobId,
       chunkCount: payload.chunkCount,
       byteLength: payload.byteLength,
@@ -502,7 +520,7 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
     data.inboxMetas ??= [];
     const myMeta = data.inboxMetas.find((m) => m.ownerUserId === userId && m.id === `dm:${threadId}`);
     if (myMeta?.archivedAt && meUser?.archiveUnarchiveOnNew !== false) myMeta.archivedAt = null;
-    if (peer) {
+    if (peer && !scheduledAt) {
       const peerThread = ensurePeerThread(data, userId, peer, now);
       let peerReply: string | undefined;
       if (replyToId) {
@@ -530,6 +548,7 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
       if (meta?.archivedAt && peer.archiveUnarchiveOnNew !== false) meta.archivedAt = null;
       const sender = data.users.find((u) => u.id === userId);
       const label = sender?.displayName || sender?.username || "مخاطب";
+      if (!silent) {
       emitNotification(data, {
         userId: peer.id,
         category: "messages",
@@ -548,6 +567,7 @@ export async function sendMessage(userId: string, threadId: string, payload: Cip
         muteId: peerThread.id,
         target: { type: "chat", id: peerThread.id },
       });
+      }
     }
     return {
       ok: true as const,
@@ -662,7 +682,7 @@ export async function markThreadRead(userId: string, threadId: string, upTo?: nu
     if (!thread) return { ok: false as const, error: "گفتگو یافت نشد.", status: 404 };
     const cap = typeof upTo === "number" && Number.isFinite(upTo) && upTo > 0 ? Math.min(Math.floor(upTo), now) : now;
     const reader = data.users.find((u) => u.id === userId);
-    const shareReceipts = reader?.readReceipts !== false;
+    const shareReceipts = reader?.readReceipts !== false && !reader?.prefs?.ghostMode;
     const live: ChatLiveHit[] = [{ userId, threadId, type: "read" }];
     const touched: ChatMessage[] = [];
     for (const m of data.messages) {

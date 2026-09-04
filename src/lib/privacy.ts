@@ -348,7 +348,7 @@ export async function setPresence(
     if (patch.typing === false) {
       me.typingUntil = 0;
       me.typingThreadId = "";
-    } else if (patch.typing && me.showTyping) {
+    } else if (patch.typing && me.showTyping && !me.prefs?.ghostMode) {
       me.typingUntil = now + 8_000;
       me.typingThreadId = String(patch.typingThreadId ?? "");
       const thread = data.threads.find((t) => t.id === me.typingThreadId && t.ownerUserId === userId);

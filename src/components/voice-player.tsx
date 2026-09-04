@@ -36,7 +36,9 @@ export type VoiceMsg = {
   viewedAt?: number | null;
 };
 
-const SPEEDS = [0.5, 1, 1.5, 2] as const;
+import { PLAYBACK_SPEEDS } from "@/lib/nixo-features";
+
+const SPEEDS = PLAYBACK_SPEEDS;
 
 function Waveform({
   peaks,

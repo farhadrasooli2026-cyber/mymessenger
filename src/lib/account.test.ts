@@ -52,6 +52,23 @@ describe("NIXO account persistence", () => {
     expect(snap.users.find((u) => u.id === id)?.accountStatus ?? "active").toBe("active");
   });
 
+  it("optionally purges only the opted-in account after long inactivity", async () => {
+    const gone = await activeUser("away_self");
+    const stay = await activeUser("away_other");
+    await updateAccountPrefs(gone, { inactivityDeleteEnabled: true, inactivityDeleteMonths: 6 });
+    await mutateStore((data) => {
+      const u = data.users.find((x) => x.id === gone);
+      const o = data.users.find((x) => x.id === stay);
+      const past = Date.now() - 200 * 86_400_000;
+      if (u) u.lastSeenAt = past;
+      if (o) o.lastSeenAt = past;
+    });
+    await mutateStore(() => undefined);
+    const snap = await readStoreSnapshot();
+    expect(snap.users.some((u) => u.id === gone)).toBe(false);
+    expect(snap.users.some((u) => u.id === stay)).toBe(true);
+  });
+
   it("schedules pending deletion only after OTP and phrase, and allows cancel", async () => {
     const id = await activeUser("persist_del");
     const otp = await startDeletionChallenge(id, "10.0.0.9");

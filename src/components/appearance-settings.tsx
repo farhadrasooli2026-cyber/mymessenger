@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 
 export function AppearanceSettings({ initial, mode }: { initial: Appearance; mode: "app" | "chat" }) {
   const [draft, setDraft] = useState<Appearance>(initial);
-  const [previewing, setPreviewing] = useState(false);
+  const [previewing, setPreviewing] = useState(true);
   const [busy, setBusy] = useState(false);
   const live = previewing ? draft : initial;
 
@@ -148,21 +148,39 @@ export function AppearanceSettings({ initial, mode }: { initial: Appearance; mod
         )}
 
         {mode === "chat" && (
+          <>
           <BackgroundPicker
             value={draft.chatBackground}
             onChange={(chatBackground) => setDraft({ ...draft, chatBackground })}
             label="پس‌زمینه پیش‌فرض همهٔ گفتگوها"
           />
+          <section className="space-y-2">
+            <Label>تصاویر public</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {["/wallpapers/aurora.svg", "/wallpapers/dusk.svg", "/wallpapers/mist.svg", "/wallpapers/nixo-grid.svg"].map((path) => (
+                <button
+                  key={path}
+                  type="button"
+                  className="overflow-hidden rounded-xl border border-white/10"
+                  onClick={() => setDraft({ ...draft, chatBackground: { kind: "public", path } })}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={path} alt="" className="h-16 w-full object-cover" />
+                </button>
+              ))}
+            </div>
+          </section>
+          </>
         )}
 
         <div className="rounded-2xl border border-white/10 p-4">
-          <p className="mb-2 text-xs opacity-70">پیش‌نمایش حباب</p>
-          <div className="space-y-2" style={backgroundPreview(mode === "chat" ? draft.chatBackground : draft.appBackground)}>
+          <p className="mb-2 text-xs opacity-70">پیش‌نمایش زنده گفتگو</p>
+          <div className="nixo-glass-panel space-y-2 rounded-2xl p-3" style={backgroundPreview(mode === "chat" ? draft.chatBackground : draft.appBackground)}>
             <p className={cn("max-w-[80%] bg-[var(--nixo-bubble,#fbbf24)] px-3 text-[var(--nixo-bubble-text,#102824)]", bubbleClass(draft.bubbleStyle), textClass(draft.textSize))}>
               سلام از نیکسو
             </p>
             <p className={cn("ms-auto max-w-[80%] bg-black/30 px-3", bubbleClass(draft.bubbleStyle), textClass(draft.textSize))}>
-              ظاهر قابل شخصی‌سازی است.
+              ظاهر، فونت و پس‌زمینه همین‌جا دیده می‌شود.
             </p>
           </div>
         </div>

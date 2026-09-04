@@ -14,6 +14,8 @@ import { DEFAULT_CHANNEL_ADMIN_PERMS } from "@/lib/channel-types";
 import { DEFAULT_CATEGORIES, seedCatalogItems } from "@/lib/avatar-catalog";
 import { BG_CATEGORIES, seedBackgroundItems } from "@/lib/background-catalog";
 import { randomId } from "@/lib/crypto-utils";
+import { mergeNixoPrefs } from "@/lib/nixo-features";
+import { applyOptionalInactivityDeletes, releaseScheduledDirectMessages } from "@/lib/nixo-schedule";
 import type {
   BotAccessLog,
   BotChat,
@@ -221,7 +223,12 @@ function hydrateUser(user: UserRecord): UserRecord {
     typingThreadId: user.typingThreadId ?? "",
     recordingUntil: user.recordingUntil ?? 0,
     deletionRequestedAt: user.deletionRequestedAt ?? null,
-    prefs: { ...defaultUserFields().prefs, ...(user.prefs ?? {}), consents: { ...defaultUserFields().prefs.consents, ...(user.prefs?.consents ?? {}) } },
+    prefs: {
+      ...defaultUserFields().prefs,
+      ...(user.prefs ?? {}),
+      ...mergeNixoPrefs(user.prefs),
+      consents: { ...defaultUserFields().prefs.consents, ...(user.prefs?.consents ?? {}) },
+    },
     appLockHash: user.appLockHash,
     appLockSalt: user.appLockSalt,
     restrictedPeerKeys: Array.isArray(user.restrictedPeerKeys) ? user.restrictedPeerKeys : [],
@@ -1100,6 +1107,10 @@ export type ChatMessage = {
   hiddenFor?: string[];
   deletedEverywhere?: boolean;
   forwarded?: boolean;
+  silent?: boolean;
+  hideForwardOrigin?: boolean;
+  scheduledAt?: number | null;
+  scheduledReleased?: boolean;
   blobId?: string;
   chunkCount?: number;
   byteLength?: number;
@@ -2809,7 +2820,9 @@ function prune(data: StoreData, now: number): void {
   data.callSignals = (data.callSignals ?? []).filter((s) => now - s.createdAt < 10 * 60 * 1000).slice(-800);
   data.callQuality = (data.callQuality ?? []).filter((q) => now - q.at < 10 * 60 * 1000).slice(-400);
   repairOrphans(data);
-  // Accounts are never removed for inactivity. Only a confirmed pending deletion past its grace period is purged.
+  releaseScheduledDirectMessages(data, now);
+  applyOptionalInactivityDeletes(data, now);
+  // Default: accounts are never removed for inactivity. Opt-in self-delete is applied above, only for that user.
   finalizeDueAccounts(data, now);
 }
 

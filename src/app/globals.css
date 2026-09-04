@@ -219,3 +219,31 @@ html.a11y-large-targets textarea {
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+
+html {
+  --nixo-glass-alpha: 0.72;
+  --nixo-glass-blur: 16px;
+}
+
+html.nixo-glass .nixo-glass-panel {
+  background: color-mix(in oklab, var(--nixo-secondary, #0b2421) calc(var(--nixo-glass-alpha) * 100%), transparent);
+  backdrop-filter: blur(var(--nixo-glass-blur));
+  -webkit-backdrop-filter: blur(var(--nixo-glass-blur));
+  border: 1px solid color-mix(in oklab, white 12%, transparent);
+}
+
+html.nixo-no-ui-anim *,
+html.nixo-power-save * {
+  animation: none !important;
+  transition: none !important;
+}
+
+html.nixo-no-sticker-anim img[data-sticker],
+html.nixo-power-save img[data-sticker] {
+  animation: none !important;
+}
+
+html.nixo-no-gif-autoplay img[src$=".gif"],
+html.nixo-power-save img[src$=".gif"] {
+  content-visibility: auto;
+}
