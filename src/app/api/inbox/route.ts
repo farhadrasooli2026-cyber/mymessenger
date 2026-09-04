@@ -1,6 +1,6 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
-import { bulkInbox, deleteFolder, listInbox, patchInbox, reorderFolders, saveFolder, setOrgPrefs } from "@/lib/inbox";
+import { bulkInbox, deleteFolder, listInbox, patchInbox, readAllInbox, reorderFolders, saveFolder, setOrgPrefs } from "@/lib/inbox";
 
 export async function GET(request: Request) {
   const user = await requireActiveUser();
@@ -37,6 +37,9 @@ export async function POST(request: Request) {
     const result = await reorderFolders(user.id, ids);
     if (!result.ok) return jsonError(result.error, result.status);
     return json(result);
+  }
+  if (action === "read-all") {
+    return json(await readAllInbox(user.id));
   }
   if (action === "bulk") {
     const keys = Array.isArray(body.keys) ? body.keys.map(String) : [];

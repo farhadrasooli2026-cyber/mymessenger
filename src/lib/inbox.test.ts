@@ -7,7 +7,7 @@ import { ackHumanChallenge, issueHumanChallenge, startRegistration, verifyOtp } 
 import { mutateStore, readStoreSnapshot, resetStoreForTests } from "./store";
 import { sendMessage } from "./chat";
 import { startChatFromContact } from "./contacts";
-import { deleteFolder, folderNameOk, listInbox, patchInbox, saveFolder } from "./inbox";
+import { deleteFolder, folderNameOk, listInbox, patchInbox, readAllInbox, saveFolder } from "./inbox";
 import { getUserById } from "./registration";
 
 async function activeUser(username: string) {
@@ -155,5 +155,20 @@ describe("NIXO folders and chat organization", () => {
     const stale = await saveFolder(a, { id: created.folder.id, name: "سوم", updatedAt: created.folder.updatedAt - 1 });
     expect(stale.ok).toBe(false);
     if (!stale.ok) expect(stale.status).toBe(409);
+  });
+
+  it("marks every chat of that account as read", async () => {
+    const a = await activeUser("org_readall");
+    await listInbox(a);
+    const listed = await listInbox(a);
+    if (!listed.ok) return;
+    const key = listed.items[0]!.key;
+    await patchInbox(a, key, "unread");
+    const before = await listInbox(a);
+    expect(before.ok && before.items.some((i) => i.unreadCount > 0 || i.markedUnread)).toBe(true);
+    const done = await readAllInbox(a);
+    expect(done.ok && done.count).toBeGreaterThan(0);
+    const after = await listInbox(a);
+    expect(after.ok && after.items.every((i) => i.unreadCount === 0 && !i.markedUnread)).toBe(true);
   });
 });

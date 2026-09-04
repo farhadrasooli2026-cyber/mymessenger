@@ -114,6 +114,7 @@ export type InboxItem = {
   color: string;
   lastAt: number;
   lastPreview: string;
+  lastKind?: string;
   unreadCount: number;
   mentionCount: number;
   replyFlag: boolean;
@@ -219,7 +220,26 @@ function collectItems(data: StoreData, userId: string, now: number, showPreview:
       title: t.peerTitle,
       color: t.color,
       lastAt: last?.createdAt ?? t.updatedAt,
-      lastPreview: showPreview ? (draftOf(meta) ? "Draft" : last?.kind === "text" && last.enc === "e2ee-v1" ? "پیام رمزنگاری‌شده" : last?.kind ?? "گفتگوی خصوصی") : "پیام جدید",
+      lastKind: last?.systemEvent?.type === "missed_call" ? (last.systemEvent.callKind === "video" ? "video-call" : "call") : last?.kind ?? "text",
+      lastPreview: showPreview
+        ? draftOf(meta)
+          ? "Draft"
+          : last?.kind === "voice"
+            ? "پیام صوتی"
+            : last?.kind === "video"
+              ? "ویدیو"
+              : last?.kind === "photo"
+                ? "عکس"
+                : last?.kind === "file"
+                  ? "فایل"
+                  : last?.systemEvent?.type === "missed_call"
+                    ? last.systemEvent.callKind === "video"
+                      ? "تماس تصویری"
+                      : "تماس صوتی"
+                    : last?.kind === "text" && last.enc === "e2ee-v1"
+                      ? "پیام رمزنگاری‌شده"
+                      : last?.kind ?? "گفتگوی خصوصی"
+        : "پیام جدید",
       unreadCount: meta.markedUnread ? Math.max(1, unread) : unread,
       mentionCount: 0,
       replyFlag: false,
@@ -241,6 +261,7 @@ function collectItems(data: StoreData, userId: string, now: number, showPreview:
     const meta = getMeta(data, userId, "group", g.id, now);
     if (meta.hidden) continue;
     const gmsgs = (data.groupMessages ?? []).filter((m) => m.groupId === g.id && !m.deleted);
+    const lastG = gmsgs.sort((a, b) => a.createdAt - b.createdAt).at(-1);
     const mentionCount = gmsgs.filter((m) => m.createdAt > meta.lastReadAt && (m.mentions?.includes(userId) || (me?.username && (m.bodyFa ?? "").includes(`@${me.username}`)))).length;
     const replyFlag = gmsgs.some(
       (m) => m.createdAt > meta.lastReadAt && m.replyToId && gmsgs.some((orig) => orig.id === m.replyToId && orig.senderKey === userId),
@@ -252,8 +273,9 @@ function collectItems(data: StoreData, userId: string, now: number, showPreview:
       name: g.name,
       title: "گروه",
       color: g.color,
-      lastAt: g.updatedAt,
-      lastPreview: showPreview ? `${g.members.filter((m) => !m.leftAt).length} عضو` : "گروه",
+      lastAt: lastG?.createdAt ?? g.updatedAt,
+      lastKind: lastG?.kind ?? "text",
+      lastPreview: showPreview ? (lastG?.bodyFa || lastG?.kind || `${g.members.filter((m) => !m.leftAt).length} عضو`) : "گروه",
       unreadCount: g.updatedAt > meta.lastReadAt || meta.markedUnread ? (meta.markedUnread ? 1 : g.updatedAt > meta.lastReadAt ? 1 : 0) : 0,
       mentionCount,
       replyFlag,
@@ -614,11 +636,26 @@ export async function patchInbox(
 export async function bulkInbox(userId: string, keys: string[], action: string, extra: Record<string, unknown> = {}) {
   if (action === "delete" && !extra.confirm) return { ok: false as const, error: "حذف گروهی نیاز به تأیید دارد.", status: 400 };
   let n = 0;
-  for (const key of keys.slice(0, 40)) {
+  for (const key of keys.slice(0, 200)) {
     const r = await patchInbox(userId, key, action, extra);
     if (r.ok) n += 1;
   }
   return { ok: true as const, count: n };
+}
+
+export async function readAllInbox(userId: string) {
+  return mutateStore((data) => {
+    const now = Date.now();
+    let n = 0;
+    for (const meta of data.inboxMetas ?? []) {
+      if (meta.ownerUserId !== userId || meta.hidden) continue;
+      meta.lastReadAt = now;
+      meta.markedUnread = false;
+      meta.updatedAt = now;
+      n += 1;
+    }
+    return { ok: true as const, count: n };
+  });
 }
 
 export function touchIncoming(data: StoreData, ownerUserId: string, kind: InboxKind, targetId: string, now: number) {

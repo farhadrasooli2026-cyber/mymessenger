@@ -12,9 +12,8 @@ import { matchShortcut, typingTarget } from "@/lib/a11y/shortcuts";
 import { A11Y_SHORTCUTS } from "@/lib/a11y/shortcuts";
 import { messageAccessibleName, statusLabel } from "@/lib/a11y/message";
 import { nixoSpaces } from "@/lib/brand";
-import { NotifyBell } from "@/components/notify-bell";
-import { MUTE_CHAT_PRESETS } from "@/lib/notify-types";
 import { InboxList, type InboxItem } from "@/components/inbox-list";
+import { MUTE_CHAT_PRESETS } from "@/lib/notify-types";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -436,6 +435,9 @@ export function Messenger({
   const [, setGroups] = useState<{ id: string; name: string; color: string; memberCount: number; updatedAt: number }[]>([]);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [createGroup, setCreateGroup] = useState(false);
+  const [newChatOpen, setNewChatOpen] = useState(false);
+  const [newChatQuery, setNewChatQuery] = useState("");
+  const [newChatHits, setNewChatHits] = useState<{ id: string; displayName: string; username: string | null }[]>([]);
   const [discoverGroups, setDiscoverGroups] = useState(false);
   const [, setCommunities] = useState<{ id: string; name: string; color: string; memberCount: number }[]>([]);
   const [activeCommunityId, setActiveCommunityId] = useState<string | null>(null);
@@ -1293,94 +1295,21 @@ export function Messenger({
         )}
         aria-label="فهرست گفتگو"
       >
-        <div className="flex items-center justify-between px-3 py-3">
-          <div className="flex items-center gap-2">
-            <NixoMark size={34} />
-            <div>
-              <p className="text-sm font-semibold tracking-[0.22em]">NIXO</p>
-              <p className="text-[11px] text-emerald-100/60">نیکسو</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <NotifyBell
-              onOpen={(href, target) => {
-                if (target?.type === "chat") {
-                  setActiveId(target.id);
-                  setActiveGroupId(null);
-                  setActiveCommunityId(null);
-                  setActiveChannelId(null);
-                  setMobileChat(true);
-                  setTab("chats");
-                  return;
-                }
-                if (target?.type === "group") {
-                  setActiveId(null);
-                  setActiveGroupId(target.id);
-                  setActiveCommunityId(null);
-                  setActiveChannelId(null);
-                  setMobileChat(true);
-                  setTab("chats");
-                  return;
-                }
-                if (target?.type === "channel") {
-                  setActiveId(null);
-                  setActiveGroupId(null);
-                  setActiveChannelId(target.id);
-                  setMobileChat(true);
-                  setTab("chats");
-                  return;
-                }
-                if (target?.type === "call") {
-                  setTab("calls");
-                  return;
-                }
-                if (target?.type === "story") {
-                  router.push("/app/stories");
-                  return;
-                }
-                if (target?.type === "security") {
-                  router.push("/app/settings/security");
-                  return;
-                }
-                router.push(href);
-              }}
-            />
-            <button
-            type="button"
-            onClick={openStory}
-            className={cn(
-              "grid size-11 place-items-center rounded-full border-2",
-              story?.viewed ? "border-white/20" : "border-amber-300",
-            )}
-            aria-label="استوری نیکسو"
-          >
-            <Sparkles className="size-4 text-amber-200" />
-          </button>
-          </div>
-        </div>
-
-        <div className="hidden" aria-hidden="true" />
-
-        <div className="space-y-2 px-3 pb-2 pt-1">
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t("messenger.search_placeholder")}
-            dir="auto"
-            className="h-10 rounded-xl border-white/10 bg-black/25 text-start text-sm"
-            aria-label="جستجو در فهرست گفتگو"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                setSearchSeed(query);
-                setSearchOpen(true);
-              }
-            }}
-          />
-        </div>
-
-        <ScrollArea className="flex-1">
-          <InboxList accountId={userId} query={query} activeKey={inboxActiveKey} onOpen={openInboxItem} />
-        </ScrollArea>
+        <InboxList
+          accountId={userId}
+          query={query}
+          onQueryChange={setQuery}
+          activeKey={inboxActiveKey}
+          onOpen={openInboxItem}
+          onOpenAi={() => router.push("/app/ai")}
+          onCamera={() => void openStory()}
+          onNewChat={() => setNewChatOpen(true)}
+          onNewGroup={() => setCreateGroup(true)}
+          onSearchSubmit={() => {
+            setSearchSeed(query);
+            setSearchOpen(true);
+          }}
+        />
       </aside>
 
       <section
@@ -2831,6 +2760,66 @@ export function Messenger({
             void startCall(threadId, kind);
           }}
         />
+      )}
+      {newChatOpen && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 p-4 md:items-center" role="dialog" aria-label="گفتگوی جدید">
+          <div className="w-full max-w-md rounded-2xl bg-[#122e2a] p-4 text-emerald-50 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-medium">گفتگوی جدید</h2>
+              <button type="button" className="text-sm text-amber-200" onClick={() => setNewChatOpen(false)}>
+                بستن
+              </button>
+            </div>
+            <Input
+              value={newChatQuery}
+              onChange={(e) => {
+                const v = e.target.value;
+                setNewChatQuery(v);
+                if (v.trim().length < 2) {
+                  setNewChatHits([]);
+                  return;
+                }
+                void fetch(`/api/users/search?q=${encodeURIComponent(v.trim())}`, { cache: "no-store" })
+                  .then((r) => r.json())
+                  .then((d) => setNewChatHits(d.users ?? []))
+                  .catch(() => setNewChatHits([]));
+              }}
+              placeholder="نام کاربری را جستجو کنید"
+              className="h-10 bg-black/30"
+            />
+            <ul className="mt-3 max-h-64 space-y-1 overflow-auto text-sm">
+              {newChatHits.map((u) => (
+                <li key={u.id}>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 hover:bg-white/10"
+                    onClick={() => {
+                      void fetch("/api/contacts", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "open-chat", userId: u.id }),
+                      })
+                        .then((r) => r.json())
+                        .then(async (d) => {
+                          if (d.thread?.id) {
+                            setNewChatOpen(false);
+                            setNewChatQuery("");
+                            await loadThreads();
+                            setActiveId(d.thread.id);
+                            setMobileChat(true);
+                            setTab("chats");
+                          } else toast.message(d.error ?? "گفتگو باز نشد.");
+                        });
+                    }}
+                  >
+                    <span>{u.displayName}</span>
+                    <span className="text-[11px] text-emerald-100/50">{u.username ? `@${u.username}` : ""}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
       )}
       {createGroup && (
         <GroupCreate
