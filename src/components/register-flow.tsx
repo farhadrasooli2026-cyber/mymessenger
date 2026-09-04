@@ -118,11 +118,17 @@ export function RegisterFlow() {
         try {
           session = (await sessionRes.json()) as SessionPayload & { hasPasskeys?: boolean; demoInbox?: boolean };
         } catch {
-          if (!cancelled) setError("ارتباط با سرور برقرار نشد. صفحه را تازه کنید.");
+          if (!cancelled) {
+            setError("ارتباط با سرور برقرار نشد. صفحه را تازه کنید.");
+            setBoot(false);
+          }
           return;
         }
         if (!sessionRes.ok) {
-          if (!cancelled) setError("ارتباط با سرور برقرار نشد. صفحه را تازه کنید.");
+          if (!cancelled) {
+            setError("ارتباط با سرور برقرار نشد. صفحه را تازه کنید.");
+            setBoot(false);
+          }
           return;
         }
         if (cancelled) return;
