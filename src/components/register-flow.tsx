@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Label } from "@/components/ui/label";
-import { NixoHeroLogo } from "@/components/nixo-mark";
+import { NixoHeroLogo, NixoSplash } from "@/components/nixo-mark";
 import { CountryCodeSelect } from "@/components/country-code-select";
 import { normalizeEmail, normalizePhoneWithCountry, toEnglishDigits } from "@/lib/identifiers";
 import { cn } from "@/lib/utils";
@@ -537,9 +537,7 @@ export function RegisterFlow() {
   );
 
   if (boot) {
-    return shell(
-      <div className="py-16 text-center text-sm text-slate-300">در حال آماده‌سازی نشست امن...</div>,
-    );
+    return shell(<NixoSplash />);
   }
 
   return shell(

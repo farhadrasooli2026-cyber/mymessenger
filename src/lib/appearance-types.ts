@@ -34,6 +34,8 @@ export type Appearance = {
   bubbleStyle: BubbleStyle;
   appBackground: BackgroundSpec;
   chatBackground: BackgroundSpec;
+  chatBgOpacity: number;
+  chatBgBlur: number;
   syncAppearance: boolean;
 };
 
@@ -55,6 +57,8 @@ export function defaultAppearance(): Appearance {
     bubbleStyle: "rounded",
     appBackground: { kind: "default" },
     chatBackground: { kind: "default" },
+    chatBgOpacity: 100,
+    chatBgBlur: 0,
     syncAppearance: true,
   };
 }
@@ -67,6 +71,22 @@ export const SOLID_PRESETS = [
   { id: "purple", color: "#6d28d9", fa: "بنفش" },
   { id: "green", color: "#047857", fa: "سبز" },
 ] as const;
+
+export function mergeAppearance(raw: Partial<Appearance> | undefined | null): Appearance {
+  const d = defaultAppearance();
+  if (!raw) return d;
+  const opacity = typeof raw.chatBgOpacity === "number" && Number.isFinite(raw.chatBgOpacity) ? Math.max(20, Math.min(100, Math.round(raw.chatBgOpacity))) : d.chatBgOpacity;
+  const blur = typeof raw.chatBgBlur === "number" && Number.isFinite(raw.chatBgBlur) ? Math.max(0, Math.min(32, Math.round(raw.chatBgBlur))) : d.chatBgBlur;
+  return {
+    ...d,
+    ...raw,
+    appBackground: raw.appBackground ?? d.appBackground,
+    chatBackground: raw.chatBackground ?? d.chatBackground,
+    chatBgOpacity: opacity,
+    chatBgBlur: blur,
+    customTheme: raw.customTheme === undefined ? d.customTheme : raw.customTheme,
+  };
+}
 
 export const GRADIENT_DIRS: { id: GradientDir; fa: string }[] = [
   { id: "to bottom", fa: "بالا به پایین" },

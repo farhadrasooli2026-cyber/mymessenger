@@ -2,6 +2,7 @@ import Link from "next/link";
 import { brand, nixoSpaces } from "@/lib/brand";
 import { LoginScene } from "@/components/login-scene";
 import { NixoWordmark } from "@/components/nixo-mark";
+import { NIXO_LOGO } from "@/lib/public-assets";
 
 export default function AboutPage() {
   return (
@@ -21,6 +22,8 @@ export default function AboutPage() {
             {brand.tagline}
           </p>
           <h1 className="text-3xl font-semibold leading-snug text-white sm:text-4xl">درباره نیکسو</h1>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={NIXO_LOGO} alt="NIXO" className="h-20 w-20 object-contain" />
           <p className="text-sm leading-8 text-slate-200 sm:text-base">
             NIXO یک پیام‌رسان مدرن، سریع، خصوصی و قابل‌توسعه است — نه کپی واتساپ یا تلگرام. حرف X یعنی Connection، Exchange،
             Cross-border و Next: دو انسان که به هم می‌رسند.

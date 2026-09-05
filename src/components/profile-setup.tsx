@@ -93,7 +93,9 @@ export function ProfileSetup() {
             ? { kind: "upload" as const, dataUrl: photo.dataUrl }
             : photo.kind === "catalog"
               ? { kind: "catalog" as const, catalogId: photo.catalogId }
-              : { kind: "default" as const },
+              : photo.kind === "public"
+                ? { kind: "public" as const, path: photo.path }
+                : { kind: "default" as const },
         privacyPhoto,
         privacyBio,
         photoAllowIds: photoAllow.map((p) => p.id),

@@ -5,11 +5,12 @@ import { defaultUserPrefs } from "@/lib/prefs-types";
 export type Visibility3 = "everyone" | "contacts" | "nobody";
 export type Visibility = "everyone" | "contacts" | "friends" | "nobody" | "selected";
 
-export type PhotoKind = "default" | "upload" | "catalog";
+export type PhotoKind = "default" | "upload" | "catalog" | "public";
 
 export type UserPhoto = {
   kind: PhotoKind;
   catalogId?: string;
+  path?: string;
 };
 
 export type UsernameChange = {

@@ -6,7 +6,8 @@ import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { defaultNixoFeaturePrefs, INACTIVITY_MONTHS, mergeNixoPrefs, PUBLIC_WALLPAPERS, type NixoFeaturePrefs } from "@/lib/nixo-features";
+import { PUBLIC_CHAT_BACKGROUNDS } from "@/lib/public-assets";
+import { defaultNixoFeaturePrefs, INACTIVITY_MONTHS, mergeNixoPrefs, type NixoFeaturePrefs } from "@/lib/nixo-features";
 import { searchIso6391 } from "@/lib/nixo-iso639";
 
 export function NixoFeaturesDesk() {
@@ -80,7 +81,7 @@ export function NixoFeaturesDesk() {
             <button type="button" className={`rounded-xl border p-2 text-xs ${!prefs.chatWallpaperPublic ? "border-amber-300" : "border-white/10"}`} onClick={() => void save({ chatWallpaperPublic: "" })}>
               بدون تصویر public
             </button>
-            {PUBLIC_WALLPAPERS.map((w) => (
+            {PUBLIC_CHAT_BACKGROUNDS.map((w) => (
               <button
                 key={w.id}
                 type="button"

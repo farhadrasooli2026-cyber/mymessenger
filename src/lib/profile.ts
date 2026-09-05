@@ -3,6 +3,8 @@ import { z } from "zod";
 import { config } from "@/lib/config";
 import { randomId } from "@/lib/crypto-utils";
 import { DEFAULT_AVATAR_SVG, svgDataUri } from "@/lib/default-avatar";
+import { mergeAppearance } from "@/lib/appearance-types";
+import { isPublicAvatarPath, publicAvatarFor } from "@/lib/public-assets";
 import { deleteUserPhoto, decodeDataUrl, saveUserPhoto, validateAvatarBuffer } from "@/lib/photo-files";
 import { seedInbox } from "@/lib/chat";
 import { bumpDiscoveryCaches, mutateStore, readStoreSnapshot } from "@/lib/store";
@@ -33,8 +35,9 @@ export const profileInputSchema = z.object({
   bio: z.string().trim().max(140).optional().default(""),
   photo: z
     .object({
-      kind: z.enum(["default", "upload", "catalog"]),
+      kind: z.enum(["default", "upload", "catalog", "public"]),
       catalogId: z.string().optional(),
+      path: z.string().optional(),
       dataUrl: z.string().max(1_400_000).optional(),
     })
     .optional(),
@@ -90,7 +93,7 @@ export function publicProfile(user: UserRecord, viewerId?: string | null) {
     bioAllowIds: own ? user.bioAllowIds : undefined,
     verifiedAt: user.verifiedAt ?? null,
     activatedAt: user.activatedAt ?? null,
-    appearance: own ? (user.appearance ?? undefined) : undefined,
+    appearance: own ? mergeAppearance(user.appearance) : undefined,
     cryptoPublicKey: own ? (user.cryptoPublicKey ?? null) : undefined,
     blockedPeerKeys: own ? user.blockedPeerKeys : undefined,
     callPrivacy: own ? (user.callPrivacy ?? "everyone") : undefined,
@@ -120,7 +123,11 @@ function photoUrlFor(user: UserRecord): string {
   if (user.photo.kind === "upload") {
     return `/api/media/photo/${user.id}`;
   }
-  return svgDataUri(DEFAULT_AVATAR_SVG);
+  const publicPath = user.photo.path;
+  if (user.photo.kind === "public" && isPublicAvatarPath(publicPath)) {
+    return publicPath;
+  }
+  return publicAvatarFor(user.id || user.username || user.displayName || "nixo");
 }
 
 function photoThumbUrlFor(user: UserRecord): string {
@@ -130,7 +137,11 @@ function photoThumbUrlFor(user: UserRecord): string {
   if (user.photo.kind === "upload") {
     return `/api/media/photo/${user.id}?thumb=1`;
   }
-  return svgDataUri(DEFAULT_AVATAR_SVG);
+  const publicThumb = user.photo.path;
+  if (user.photo.kind === "public" && isPublicAvatarPath(publicThumb)) {
+    return publicThumb;
+  }
+  return publicAvatarFor(user.id || user.username || user.displayName || "nixo");
 }
 
 const PROFILE_FORBIDDEN = ["porn", "nazi", "terror", "http://", "https://"];
@@ -290,6 +301,9 @@ export async function updateProfile(userId: string, input: Partial<ProfileInput>
         const item = data.catalogItems.find((i) => i.id === input.photo?.catalogId);
         if (!item) return { ok: false as const, status: 400, error: "عکس آماده یافت نشد." };
         user.photo = { kind: "catalog", catalogId: item.id };
+      } else if (input.photo.kind === "public") {
+        if (!isPublicAvatarPath(input.photo.path)) return { ok: false as const, status: 400, error: "آواتار public یافت نشد." };
+        user.photo = { kind: "public", path: input.photo.path };
       } else if (input.photo.kind === "upload") {
         user.photo = { kind: "upload" };
       } else {
@@ -317,6 +331,8 @@ function applyProfile(user: UserRecord, input: ProfileInput, username: string, n
   user.bioAllowIds = input.bioAllowIds ?? [];
   if (input.photo?.kind === "catalog" && input.photo.catalogId) {
     user.photo = { kind: "catalog", catalogId: input.photo.catalogId };
+  } else if (input.photo?.kind === "public" && isPublicAvatarPath(input.photo.path)) {
+    user.photo = { kind: "public", path: input.photo.path };
   } else if (input.photo?.kind === "upload") {
     user.photo = { kind: "upload" };
   } else if (input.photo?.kind === "default") {

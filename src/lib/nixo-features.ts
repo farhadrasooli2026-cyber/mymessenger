@@ -1,9 +1,6 @@
-export const PUBLIC_WALLPAPERS = [
-  { id: "aurora", path: "/wallpapers/aurora.svg", fa: "شفق" },
-  { id: "dusk", path: "/wallpapers/dusk.svg", fa: "غروب" },
-  { id: "mist", path: "/wallpapers/mist.svg", fa: "مه" },
-  { id: "nixo-grid", path: "/wallpapers/nixo-grid.svg", fa: "شبکه نیکسو" },
-] as const;
+import { PUBLIC_CHAT_BACKGROUNDS as PUBLIC_WALLPAPERS, isPublicBackgroundPath } from "@/lib/public-assets";
+
+export { PUBLIC_WALLPAPERS };
 
 export const INACTIVITY_MONTHS = [6, 12, 18, 24] as const;
 export type InactivityMonths = (typeof INACTIVITY_MONTHS)[number];
@@ -81,7 +78,7 @@ export function mergeNixoPrefs(raw: Partial<NixoFeaturePrefs> | undefined): Nixo
   const months = INACTIVITY_MONTHS.includes(raw.inactivityDeleteMonths as InactivityMonths)
     ? (raw.inactivityDeleteMonths as InactivityMonths)
     : d.inactivityDeleteMonths;
-  const wall = typeof raw.chatWallpaperPublic === "string" && PUBLIC_WALLPAPERS.some((w) => w.path === raw.chatWallpaperPublic)
+  const wall = typeof raw.chatWallpaperPublic === "string" && isPublicBackgroundPath(raw.chatWallpaperPublic)
     ? raw.chatWallpaperPublic
     : raw.chatWallpaperPublic === ""
       ? ""

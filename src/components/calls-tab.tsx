@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { publicAvatarFor } from "@/lib/public-assets";
 import { formatCallClock, formatRecentCallWhen } from "@/lib/call-copy";
 import type { LiveCall } from "@/components/call-stage";
 
@@ -259,8 +260,9 @@ export function CallsTab({
                   {picked.includes(c.id) ? "✓" : ""}
                 </button>
               )}
-              <span className="relative grid size-12 shrink-0 place-items-center rounded-full text-base font-semibold text-[#071614]" style={{ background: c.peerColor }}>
-                {c.peerName.slice(0, 1)}
+              <span className="relative size-12 shrink-0 overflow-hidden rounded-full">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={publicAvatarFor(c.peerKey || c.peerName, c.group ? "group" : "user")} alt="" className="size-12 object-cover" />
                 {c.unreadMissed ? <span className="absolute end-0 top-0 size-2.5 rounded-full bg-emerald-400" /> : null}
               </span>
               <button

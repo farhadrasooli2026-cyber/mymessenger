@@ -1,49 +1,19 @@
 "use client";
 
-"use client";
-
-import { useId } from "react";
+import { NIXO_LOGO } from "@/lib/public-assets";
 import { cn } from "@/lib/utils";
 
 export function NixoMark({ className, size = 40 }: { className?: string; size?: number }) {
-  const gid = useId().replace(/:/g, "");
   return (
-    <svg
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={NIXO_LOGO}
+      alt=""
       width={size}
       height={size}
-      viewBox="0 0 80 80"
-      className={cn("shrink-0", className)}
-      aria-hidden="true"
-    >
-      <defs>
-        <linearGradient id={`${gid}-stroke`} x1="8" y1="8" x2="72" y2="72" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#22d3ee" />
-          <stop offset="55%" stopColor="#38bdf8" />
-          <stop offset="100%" stopColor="#3b82f6" />
-        </linearGradient>
-        <filter id={`${gid}-glow`} x="-20%" y="-20%" width="140%" height="140%">
-          <feGaussianBlur stdDeviation="1.4" result="b" />
-          <feMerge>
-            <feMergeNode in="b" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-      </defs>
-      <path
-        d="M20 14h28c8.8 0 16 7.2 16 16v16c0 8.8-7.2 16-16 16H36.5L22 74V62H20C11.2 62 4 54.8 4 46V30c0-8.8 7.2-16 16-16z"
-        fill="rgba(6,12,24,0.55)"
-        stroke={`url(#${gid}-stroke)`}
-        strokeWidth="2.4"
-        filter={`url(#${gid}-glow)`}
-      />
-      <path
-        d="M27 27 L51 51 M51 27 L27 51"
-        stroke={`url(#${gid}-stroke)`}
-        strokeWidth="5"
-        strokeLinecap="round"
-        filter={`url(#${gid}-glow)`}
-      />
-    </svg>
+      className={cn("shrink-0 object-contain", className)}
+      style={{ width: size, height: size }}
+    />
   );
 }
 
@@ -69,6 +39,18 @@ export function NixoHeroLogo({ size = 92 }: { size?: number }) {
         NIXO
       </p>
       <p className="mt-1 text-[11px] font-medium tracking-[0.48em] text-cyan-300/90">MESSENGER</p>
+    </div>
+  );
+}
+
+export function NixoSplash({ label = "در حال آماده‌سازی نشست امن..." }: { label?: string }) {
+  return (
+    <div className="flex flex-col items-center py-16 text-center">
+      <NixoMark size={96} className="drop-shadow-[0_0_24px_rgba(56,189,248,0.45)]" />
+      <p className="mt-4 bg-gradient-to-l from-cyan-300 to-blue-400 bg-clip-text text-xl font-semibold tracking-[0.4em] text-transparent">
+        NIXO
+      </p>
+      <p className="mt-2 text-sm text-slate-300">{label}</p>
     </div>
   );
 }

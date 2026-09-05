@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { formatRecentCallWhen } from "@/lib/call-copy";
+import { publicAvatarFor } from "@/lib/public-assets";
 import { AdPrefsDesk } from "@/components/ad-prefs-desk";
 import type { StoryItem } from "@/components/story-viewer";
 
@@ -469,7 +470,10 @@ function StatusCard({ ring, label, onOpen }: { ring: UpdatesStoryRing; label: st
             unseen ? "ring-[#25d366]" : "ring-white/30",
           )}
         >
-          <span className="grid size-8 place-items-center text-[11px] font-semibold">{ring.name.slice(0, 1)}</span>
+          <span className="grid size-8 place-items-center overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={publicAvatarFor(ring.ownerId || ring.name)} alt="" className="size-8 object-cover" />
+          </span>
         </span>
       </div>
       <p className="mt-1.5 truncate text-[12px]">{label}</p>

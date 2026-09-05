@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MUTE_CHAT_PRESETS } from "@/lib/notify-types";
 import { FOLDER_ICONS, INBOX_KINDS } from "@/lib/inbox-types";
+import { publicAvatarFor } from "@/lib/public-assets";
 import { cn } from "@/lib/utils";
 
 export type InboxItem = {
@@ -573,8 +574,13 @@ export function InboxList({
                   {picked.includes(item.key) ? "✓" : ""}
                 </span>
               )}
-              <span className="grid size-12 shrink-0 place-items-center rounded-full text-base font-semibold text-[#071614]" style={{ background: item.color }}>
-                {item.name.slice(0, 1)}
+              <span className="relative size-12 shrink-0 overflow-hidden rounded-full bg-[#16332f]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={publicAvatarFor(item.targetId || item.name, item.kind === "group" || item.kind === "community" ? "group" : "user")}
+                  alt=""
+                  className="size-12 object-cover"
+                />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2">

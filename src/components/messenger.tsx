@@ -1624,6 +1624,8 @@ export function Messenger({
                     nixoPrefs.chatWallpaperPublic
                       ? { kind: "public", path: nixoPrefs.chatWallpaperPublic }
                       : (active.background ?? appearance.chatBackground),
+                    undefined,
+                    { opacity: appearance.chatBgOpacity, blur: appearance.chatBgBlur },
                   ),
                 }}
               />
@@ -2517,6 +2519,8 @@ export function Messenger({
                     <Link href="/app/settings/business" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">حساب Business</Link>
                     <Link href="/app/settings/shop" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">فروشگاه و پرداخت</Link>
                     <Link href="/app/settings/appearance" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">ظاهر برنامه</Link>
+                    <Link href="/app/settings/chat-appearance" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">پس‌زمینه گفتگو</Link>
+                    <Link href="/about" className="block border-t border-white/5 px-4 py-3.5 hover:bg-white/5">About Nixo</Link>
                   </div>
                 )}
               </div>

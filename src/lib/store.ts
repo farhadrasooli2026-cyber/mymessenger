@@ -4,6 +4,7 @@ import path from "node:path";
 import type { Channel } from "@/lib/identifiers";
 import type { CatalogCategory, CatalogItem, UserPhoto, UsernameChange, Visibility } from "@/lib/profile-types";
 import { defaultUserFields } from "@/lib/profile-types";
+import { mergeAppearance } from "@/lib/appearance-types";
 import type { CustomGroupRole, GroupAdminPerms, GroupHistoryMode, GroupPerms, GroupRole } from "@/lib/group-types";
 import type { LivePrefs, LiveRecordingMeta, LiveStream } from "@/lib/live-types";
 import { DEFAULT_GROUP_ADMIN_PERMS, DEFAULT_GROUP_PERMS } from "@/lib/group-types";
@@ -141,7 +142,7 @@ function hydrateUser(user: UserRecord): UserRecord {
     photoAllowIds: user.photoAllowIds ?? [],
     bioAllowIds: user.bioAllowIds ?? [],
     contactIds: user.contactIds ?? [],
-    appearance: user.appearance ?? defaultUserFields().appearance,
+    appearance: mergeAppearance(user.appearance),
     blockedPeerKeys: Array.isArray(user.blockedPeerKeys) ? user.blockedPeerKeys : [],
     cryptoPublicKey: user.cryptoPublicKey ?? null,
     callPrivacy: user.callPrivacy ?? "everyone",

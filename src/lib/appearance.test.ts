@@ -7,6 +7,8 @@ describe("appearance defaults", () => {
     expect(a.theme).toBe("dark");
     expect(a.appBackground.kind).toBe("default");
     expect(a.chatBackground.kind).toBe("default");
+    expect(a.chatBgOpacity).toBe(100);
+    expect(a.chatBgBlur).toBe(0);
     expect(a.syncAppearance).toBe(true);
     expect(a.bubbleStyle).toBe("rounded");
   });

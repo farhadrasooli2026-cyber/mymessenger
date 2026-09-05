@@ -8,12 +8,13 @@ import { NixoMark } from "@/components/nixo-mark";
 import { ThemeApplicator } from "@/components/theme-applicator";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { defaultAppearance, DEFAULT_CUSTOM_THEME, type Appearance, type BubbleStyle, type TextSize, type ThemeMode } from "@/lib/appearance-types";
+import { defaultAppearance, mergeAppearance, DEFAULT_CUSTOM_THEME, type Appearance, type BubbleStyle, type TextSize, type ThemeMode } from "@/lib/appearance-types";
 import { backgroundPreview } from "@/lib/background-style";
+import { PUBLIC_CHAT_BACKGROUNDS } from "@/lib/public-assets";
 import { cn } from "@/lib/utils";
 
 export function AppearanceSettings({ initial, mode }: { initial: Appearance; mode: "app" | "chat" }) {
-  const [draft, setDraft] = useState<Appearance>(initial);
+  const [draft, setDraft] = useState<Appearance>(() => mergeAppearance(initial));
   const [previewing, setPreviewing] = useState(true);
   const [busy, setBusy] = useState(false);
   const live = previewing ? draft : initial;
@@ -155,27 +156,53 @@ export function AppearanceSettings({ initial, mode }: { initial: Appearance; mod
             label="پس‌زمینه پیش‌فرض همهٔ گفتگوها"
           />
           <section className="space-y-2">
-            <Label>تصاویر public</Label>
-            <div className="grid grid-cols-2 gap-2">
-              {["/wallpapers/aurora.svg", "/wallpapers/dusk.svg", "/wallpapers/mist.svg", "/wallpapers/nixo-grid.svg"].map((path) => (
-                <button
-                  key={path}
-                  type="button"
-                  className="overflow-hidden rounded-xl border border-white/10"
-                  onClick={() => setDraft({ ...draft, chatBackground: { kind: "public", path } })}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={path} alt="" className="h-16 w-full object-cover" />
-                </button>
-              ))}
+            <Label>گالری پس‌زمینه (public/backgrounds و wallpapers)</Label>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {PUBLIC_CHAT_BACKGROUNDS.map((bg) => {
+                const active = draft.chatBackground.kind === "public" && draft.chatBackground.path === bg.path;
+                return (
+                  <button
+                    key={bg.path}
+                    type="button"
+                    className={cn("overflow-hidden rounded-xl border", active ? "border-amber-300" : "border-white/10")}
+                    onClick={() => setDraft({ ...draft, chatBackground: { kind: "public", path: bg.path } })}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={bg.path} alt={bg.fa} className="h-24 w-full object-cover" />
+                    <span className="block bg-black/30 py-1 text-[11px]">{bg.fa}</span>
+                  </button>
+                );
+              })}
             </div>
+            <label className="mt-2 block text-xs">
+              شفافیت {draft.chatBgOpacity}%
+              <input
+                type="range"
+                min={20}
+                max={100}
+                value={draft.chatBgOpacity}
+                className="mt-1 w-full"
+                onChange={(e) => setDraft({ ...draft, chatBgOpacity: Number(e.target.value) })}
+              />
+            </label>
+            <label className="block text-xs">
+              تاری {draft.chatBgBlur}px
+              <input
+                type="range"
+                min={0}
+                max={32}
+                value={draft.chatBgBlur}
+                className="mt-1 w-full"
+                onChange={(e) => setDraft({ ...draft, chatBgBlur: Number(e.target.value) })}
+              />
+            </label>
           </section>
           </>
         )}
 
         <div className="rounded-2xl border border-white/10 p-4">
           <p className="mb-2 text-xs opacity-70">پیش‌نمایش زنده گفتگو</p>
-          <div className="nixo-glass-panel space-y-2 rounded-2xl p-3" style={backgroundPreview(mode === "chat" ? draft.chatBackground : draft.appBackground)}>
+          <div className="nixo-glass-panel space-y-2 rounded-2xl p-3" style={backgroundPreview(mode === "chat" ? draft.chatBackground : draft.appBackground, undefined, mode === "chat" ? { opacity: draft.chatBgOpacity, blur: draft.chatBgBlur } : undefined)}>
             <p className={cn("max-w-[80%] bg-[var(--nixo-bubble,#fbbf24)] px-3 text-[var(--nixo-bubble-text,#102824)]", bubbleClass(draft.bubbleStyle), textClass(draft.textSize))}>
               سلام از نیکسو
             </p>

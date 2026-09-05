@@ -1,7 +1,8 @@
 import "server-only";
 import { z } from "zod";
-import { defaultAppearance } from "@/lib/appearance-types";
+import { defaultAppearance, mergeAppearance } from "@/lib/appearance-types";
 import type { Appearance, BackgroundSpec } from "@/lib/appearance-types";
+import { isPublicBackgroundPath } from "@/lib/public-assets";
 import { randomId } from "@/lib/crypto-utils";
 import { decodeDataUrl, saveBackground } from "@/lib/photo-files";
 import { mutateStore, readStoreSnapshot } from "@/lib/store";
@@ -9,7 +10,7 @@ import { mutateStore, readStoreSnapshot } from "@/lib/store";
 const backgroundSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("default") }),
   z.object({ kind: z.literal("catalog"), catalogId: z.string().min(4) }),
-  z.object({ kind: z.literal("public"), path: z.string().startsWith("/wallpapers/") }),
+  z.object({ kind: z.literal("public"), path: z.string().min(8).max(80) }),
   z.object({ kind: z.literal("upload"), assetId: z.string().optional(), dataUrl: z.string().max(1_400_000).optional() }),
   z.object({ kind: z.literal("solid"), color: z.string().regex(/^#[0-9a-fA-F]{6}$/) }),
   z.object({
@@ -38,10 +39,16 @@ export const appearanceSchema = z.object({
   bubbleStyle: z.enum(["classic", "rounded", "minimal", "compact"]).optional(),
   appBackground: backgroundSchema.optional(),
   chatBackground: backgroundSchema.optional(),
+  chatBgOpacity: z.number().min(20).max(100).optional(),
+  chatBgBlur: z.number().min(0).max(32).optional(),
   syncAppearance: z.boolean().optional(),
 });
 
 async function persistBg(userId: string, spec: BackgroundSpec & { dataUrl?: string }): Promise<BackgroundSpec> {
+  if (spec.kind === "public") {
+    if (!isPublicBackgroundPath(spec.path)) throw new Error("invalid");
+    return { kind: "public", path: spec.path };
+  }
   if (spec.kind === "upload" && spec.dataUrl) {
     const buf = decodeDataUrl(spec.dataUrl);
     if (!buf) throw new Error("invalid");
@@ -58,7 +65,7 @@ async function persistBg(userId: string, spec: BackgroundSpec & { dataUrl?: stri
 export async function getAppearance(userId: string): Promise<Appearance> {
   const data = await readStoreSnapshot();
   const user = data.users.find((u) => u.id === userId);
-  return user?.appearance ?? defaultAppearance();
+  return user ? mergeAppearance(user.appearance) : defaultAppearance();
 }
 
 export async function updateAppearance(userId: string, patch: z.infer<typeof appearanceSchema>) {
@@ -81,13 +88,13 @@ export async function updateAppearance(userId: string, patch: z.infer<typeof app
     if (chatBackground?.kind === "catalog" && !data.bgItems.some((i) => i.id === chatBackground.catalogId)) {
       return { ok: false as const, status: 400, error: "پس‌زمینه آماده یافت نشد." };
     }
-    user.appearance = {
+    user.appearance = mergeAppearance({
       ...current,
       ...patch,
       appBackground: appBackground ?? current.appBackground,
       chatBackground: chatBackground ?? current.chatBackground,
       customTheme: patch.customTheme === undefined ? current.customTheme : patch.customTheme,
-    };
+    });
     return { ok: true as const, appearance: user.appearance };
   });
 }

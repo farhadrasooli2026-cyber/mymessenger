@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireVerifiedUser } from "@/lib/auth";
-import { defaultAppearance } from "@/lib/appearance-types";
+import { mergeAppearance } from "@/lib/appearance-types";
 import { Messenger } from "@/components/messenger";
 import { readSession } from "@/lib/session";
 import { loginBlocked } from "@/lib/account-gate";
@@ -20,7 +20,7 @@ export default async function AppPage() {
       username={user.username}
       photoUrl={user.photoUrl}
       bio={user.bio}
-      appearance={user.appearance ?? defaultAppearance()}
+      appearance={mergeAppearance(user.appearance)}
     />
   );
 }

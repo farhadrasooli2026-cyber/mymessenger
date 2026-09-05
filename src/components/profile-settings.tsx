@@ -18,7 +18,7 @@ type User = {
   username: string | null;
   bio: string;
   photoUrl: string;
-  photoKind: "default" | "upload" | "catalog";
+  photoKind: "default" | "upload" | "catalog" | "public";
 };
 
 export function ProfileSettings({ initial }: { initial: User }) {
@@ -31,7 +31,9 @@ export function ProfileSettings({ initial }: { initial: User }) {
       ? { kind: "upload", dataUrl: initial.photoUrl }
       : initial.photoKind === "catalog"
         ? { kind: "catalog", catalogId: "", previewUrl: initial.photoUrl }
-        : { kind: "default" },
+        : initial.photoKind === "public"
+          ? { kind: "public", path: initial.photoUrl }
+          : { kind: "default" },
   );
   const [remoteUser, setRemoteUser] = useState<"free" | "taken" | "invalid" | null>(null);
   const [busy, setBusy] = useState(false);
@@ -67,9 +69,11 @@ export function ProfileSettings({ initial }: { initial: User }) {
             ? { kind: "upload", dataUrl: photo.dataUrl }
             : photo.kind === "catalog" && photo.catalogId
               ? { kind: "catalog", catalogId: photo.catalogId }
-              : photo.kind === "default"
-                ? { kind: "default" }
-                : undefined,
+              : photo.kind === "public"
+                ? { kind: "public", path: photo.path }
+                : photo.kind === "default"
+                  ? { kind: "default" }
+                  : undefined,
       };
       const res = await fetch("/api/profile", {
         method: "PATCH",
