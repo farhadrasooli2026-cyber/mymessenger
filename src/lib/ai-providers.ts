@@ -20,8 +20,8 @@ function runMock(input: AiEngineInput, policy: AiPolicy): AiEngineOutput {
   return runAiEngine(input);
 }
 
-function allowVitestLocal() {
-  return Boolean(process.env.VITEST) && !hasLiveAiKeys();
+function allowOfflineLocal() {
+  return !hasLiveAiKeys();
 }
 
 export async function completeWithFallback(policy: AiPolicy, input: AiEngineInput, system?: string): Promise<ProviderResult> {
@@ -58,7 +58,7 @@ export async function completeWithFallback(policy: AiPolicy, input: AiEngineInpu
     }
   }
 
-  if (!allowVitestLocal()) {
+  if (!allowOfflineLocal()) {
     throw new NixoAiUnavailableError();
   }
 
