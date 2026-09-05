@@ -253,6 +253,7 @@ type AiSendPrepared =
 export async function sendAiMessage(
   userId: string,
   input: z.infer<typeof aiSendSchema> & { regenerateOf?: string },
+  options?: { system?: string },
 ): Promise<AiSendOk | AiSendErr> {
   const prepared = await mutateStore((data): AiSendPrepared => {
     ensureAi(data);
@@ -479,7 +480,7 @@ export async function sendAiMessage(
     } else {
       const snap = await readStoreSnapshot();
       ensureAi(snap);
-      out = await completeWithFallback(snap.aiSys.policy, prepared.engineIn);
+      out = await completeWithFallback(snap.aiSys.policy, prepared.engineIn, options?.system);
     }
   } catch {
     return persistFailedAiTurn(userId, prepared, NIXO_AI_UNAVAILABLE);

@@ -2,76 +2,47 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { ArrowRight, Copy, RefreshCw, Send, Square, Volume2 } from "lucide-react";
 import { toast } from "sonner";
 import { NixoMark } from "@/components/nixo-mark";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { AI_MODELS, AI_TOPICS, type AiTopic } from "@/lib/ai-types";
 import { NIXO_AI_UNAVAILABLE } from "@/lib/nixo-ai-copy";
+import { cn } from "@/lib/utils";
 
-type Chat = { id: string; title: string; topic: string; model: string; updatedAt: number };
 type Msg = {
   id: string;
   role: "user" | "assistant";
   text: string;
-  imageSvg?: string | null;
-  feedback?: string | null;
-  generatedByAi?: boolean;
-  confidence?: number;
-  overridden?: boolean;
 };
 
 export function AiDesk() {
-  const [chats, setChats] = useState<Chat[]>([]);
   const [chatId, setChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<"idle" | "thinking" | "generating">("idle");
-  const [model, setModel] = useState("balanced");
-  const [available, setAvailable] = useState(true);
-  const [offlineNote, setOfflineNote] = useState<string | null>(null);
   const abort = useRef(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  function boot() {
-    fetch("/api/ai", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.ok) {
-          setChats(d.chats ?? []);
-          if (d.prefs?.model) setModel(d.prefs.model);
-          setAvailable(d.available !== false);
-          setOfflineNote(d.offlineNote ?? null);
-        }
-      })
-      .catch(() => undefined);
-  }
+  const scroller = useRef<HTMLDivElement>(null);
+  const field = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    boot();
-  }, []);
+    const el = scroller.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages, status]);
 
-  function loadChat(id: string) {
-    fetch(`/api/ai?chatId=${encodeURIComponent(id)}`, { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.ok) {
-          setChatId(id);
-          setMessages(d.messages ?? []);
-          setModel(d.chat?.model ?? model);
-        }
-      })
-      .catch(() => undefined);
+  function resizeField() {
+    const el = field.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }
 
-  async function send(payload: Record<string, unknown>) {
+  async function send(payload: { text: string; regenerate?: boolean }) {
     abort.current = false;
-    const prompt = String(payload.text ?? "").trim();
-    const regenerate = payload.action === "regenerate";
+    const prompt = payload.text.trim();
     if (!prompt) return;
 
-    const optimistic: Msg | null = regenerate
+    const optimistic: Msg | null = payload.regenerate
       ? null
       : { id: `local-${Date.now()}`, role: "user", text: prompt };
     if (optimistic) setMessages((m) => [...m, optimistic]);
@@ -82,7 +53,6 @@ export function AiDesk() {
       if (!abort.current) setStatus("generating");
     }, 280);
     try {
-      if (abort.current) return;
       const history = messages
         .filter((m) => m.role === "user" || m.role === "assistant")
         .slice(-16)
@@ -93,44 +63,22 @@ export function AiDesk() {
         body: JSON.stringify({
           prompt,
           chatId: chatId || undefined,
-          intent: payload.intent,
-          fileText: payload.fileText,
-          imageHint: payload.imageHint,
-          lang: payload.lang,
-          tone: payload.tone,
-          regenerate,
+          regenerate: Boolean(payload.regenerate),
           messages: history,
         }),
       });
       const data = await res.json().catch(() => ({ error: NIXO_AI_UNAVAILABLE }));
-      if (abort.current) {
-        if (data.chatId) {
-          await fetch("/api/ai", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "stop", chatId: data.chatId }),
-          });
-        }
-        return;
-      }
+      if (abort.current) return;
       if (!res.ok) {
         const err = typeof data.error === "string" && data.error.trim() ? data.error : NIXO_AI_UNAVAILABLE;
         toast.error(err);
-        const assistant: Msg =
-          data.assistant ??
-          ({
-            id: `err-${Date.now()}`,
-            role: "assistant",
-            text: err,
-            generatedByAi: true,
-          } satisfies Msg);
+        const assistant: Msg = data.assistant ?? { id: `err-${Date.now()}`, role: "assistant", text: err };
         setChatId(data.chatId ?? chatId);
         setMessages((m) => {
           const withoutTemp = optimistic ? m.filter((x) => x.id !== optimistic.id) : m;
           const userMsg = data.userMessage ?? optimistic;
           return [...withoutTemp, userMsg, assistant].filter(Boolean) as Msg[];
         });
-        boot();
         return;
       }
       setChatId(data.chatId);
@@ -138,31 +86,13 @@ export function AiDesk() {
         const withoutTemp = optimistic ? m.filter((x) => x.id !== optimistic.id) : m;
         return [...withoutTemp, data.userMessage, data.assistant].filter(Boolean);
       });
-      boot();
     } catch {
       toast.error(NIXO_AI_UNAVAILABLE);
-      setMessages((m) => [
-        ...m,
-        { id: `err-${Date.now()}`, role: "assistant", text: NIXO_AI_UNAVAILABLE, generatedByAi: true },
-      ]);
+      setMessages((m) => [...m, { id: `err-${Date.now()}`, role: "assistant", text: NIXO_AI_UNAVAILABLE }]);
     } finally {
       window.clearTimeout(think);
       setBusy(false);
       setStatus("idle");
-    }
-  }
-
-  async function onNew(topic: AiTopic) {
-    const res = await fetch("/api/ai", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "new", topic }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      setChatId(data.chat.id);
-      setMessages([]);
-      boot();
     }
   }
 
@@ -179,184 +109,151 @@ export function AiDesk() {
     window.speechSynthesis.speak(u);
   }
 
-  function listen() {
-    const SR = (window as unknown as { webkitSpeechRecognition?: new () => { start: () => void; lang: string; onresult: (e: { results: { [k: number]: { [k: number]: { transcript: string } } } }) => void } }).webkitSpeechRecognition;
-    if (!SR) {
-      toast.message("Speech Recognition در این مرورگر پشتیبانی نمی‌شود.");
-      return;
-    }
-    const rec = new SR();
-    rec.lang = "fa-IR";
-    rec.onresult = (e) => {
-      const said = e.results[0]?.[0]?.transcript ?? "";
-      setText((t) => `${t} ${said}`.trim());
-    };
-    rec.start();
-  }
-
   return (
-    <main className="flex min-h-dvh flex-col bg-[#071614] text-emerald-50 md:flex-row">
-      <aside className="w-full border-b border-white/10 p-3 md:w-64 md:border-b-0 md:border-e">
-        <div className="flex items-center gap-2">
+    <main className="flex min-h-dvh flex-col bg-[#0b1211] text-emerald-50">
+      <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-white/8 bg-[#0b1211]/90 px-3 py-3 backdrop-blur-md">
+        <Link
+          href="/app"
+          className="inline-flex h-10 items-center gap-2 rounded-full px-3 text-sm text-emerald-50 hover:bg-white/10"
+          aria-label="بازگشت به گفتگوها"
+        >
+          <ArrowRight className="size-5" aria-hidden />
+          <span>بازگشت</span>
+        </Link>
+        <div className="mx-auto flex items-center gap-2 pe-16">
           <NixoMark size={28} />
-          <div>
-            <p className="text-xs text-amber-200">NIXO AI</p>
-            <p className="text-[11px] opacity-60">دستیار زنده Gemini / OpenAI · محتوای AI مشخص است</p>
-          </div>
+          <p className="text-sm font-semibold tracking-wide">NIXO AI</p>
         </div>
-        {!available && <p className="mt-2 text-xs text-amber-200">{offlineNote ?? "AI خاموش است. چت معمولی کار می‌کند."}</p>}
-        <Link href="/app/settings/ai" className="mt-2 block text-[11px] text-amber-200">Settings → AI → Data Controls</Link>
-        <Link href="/app" className="block text-[11px] text-amber-200">بازگشت به گفتگو</Link>
-        <p className="mt-3 text-[11px] font-medium">New AI Chat</p>
-        <div className="mt-1 flex flex-wrap gap-1">
-          {AI_TOPICS.map((t) => (
-            <Button key={t.id} type="button" size="xs" variant="secondary" onClick={() => void onNew(t.id)}>
-              {t.label}
-            </Button>
-          ))}
-        </div>
-        <ul className="mt-3 max-h-56 space-y-1 overflow-auto text-xs">
-          {chats.map((c) => (
-            <li key={c.id}>
-              <button type="button" className={`w-full rounded-lg px-2 py-1 text-right ${c.id === chatId ? "bg-white/15" : "hover:bg-white/5"}`} onClick={() => loadChat(c.id)}>
-                {c.title}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </aside>
-      <section className="flex min-h-0 flex-1 flex-col">
-        <header className="flex flex-wrap items-center gap-2 border-b border-white/10 p-2 text-[11px]">
-          <select
-            className="rounded bg-black/30 px-2 py-1"
-            value={model}
-            onChange={(e) => {
-              setModel(e.target.value);
-              if (chatId) {
-                void fetch("/api/ai", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ action: "model", chatId, model: e.target.value }),
-                });
-              }
-            }}
-          >
-            {AI_MODELS.map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
-          </select>
-          <Button type="button" size="xs" variant="secondary" onClick={listen}>Voice → Text</Button>
-        </header>
-        <div className="flex-1 space-y-3 overflow-auto p-4">
-          {messages.length === 0 && status === "idle" && (
-            <p className="text-sm leading-7 text-emerald-100/70">
-              سؤال بپرس، ترجمه کن، خلاصه بگیر، متن بنویس یا ایده بخواه. پاسخ از مدل زنده می‌آید. داده فقط همان است که این‌جا می‌فرستی.
+      </header>
+
+      <div ref={scroller} className="mx-auto flex w-full max-w-2xl flex-1 flex-col overflow-auto px-4 py-6">
+        {messages.length === 0 && status === "idle" && (
+          <div className="flex flex-1 flex-col items-center justify-center pb-16 text-center">
+            <NixoMark size={56} className="opacity-90" />
+            <h1 className="mt-5 text-2xl font-semibold tracking-tight">NIXO AI</h1>
+            <p className="mt-2 max-w-sm text-sm leading-7 text-emerald-100/55">
+              بپرس، ترجمه کن، کد بنویس یا خلاصه بخواه. نیت را خودش تشخیص می‌دهد.
             </p>
-          )}
+          </div>
+        )}
+        <div className="space-y-5">
           {messages.map((m) => (
-            <article key={m.id} className={`max-w-[92%] rounded-2xl px-3 py-2 text-sm ${m.role === "user" ? "ms-auto bg-amber-300/20" : "bg-white/10"}`}>
-              <p className="whitespace-pre-wrap leading-6" dir={/[آ-ی]/.test(m.text) ? "rtl" : "ltr"}>{m.text}</p>
+            <article key={m.id} className={cn("max-w-[92%]", m.role === "user" ? "ms-auto" : "me-auto")}>
+              <div
+                className={cn(
+                  "rounded-[1.4rem] px-4 py-3 text-[15px] leading-7",
+                  m.role === "user" ? "bg-emerald-500/20" : "bg-white/[0.06]",
+                )}
+                dir={/[آ-ی]/.test(m.text) ? "rtl" : "ltr"}
+              >
+                <p className="whitespace-pre-wrap">{m.text}</p>
+              </div>
               {m.role === "assistant" && (
-                <p className="mt-1 text-[10px] text-amber-200/80">
-                  تولیدشده توسط نیکسو AI
-                  {typeof m.confidence === "number" ? ` · اطمینان ${Math.round(m.confidence * 100)}٪` : ""}
-                  {m.overridden ? " · بازنویسی انسانی" : ""}
-                </p>
-              )}
-              {m.imageSvg && (
-                <div className="mt-2 overflow-hidden rounded-lg bg-black/30" dangerouslySetInnerHTML={{ __html: m.imageSvg }} />
-              )}
-              {m.role === "assistant" && (
-                <div className="mt-2 flex flex-wrap gap-1 text-[10px]">
-                  <Button type="button" size="xs" variant="ghost" onClick={() => void navigator.clipboard.writeText(m.text)}>Copy</Button>
-                  <Button
+                <div className="mt-1.5 flex gap-1 text-emerald-100/50">
+                  <button
                     type="button"
-                    size="xs"
-                    variant="ghost"
-                    onClick={() =>
-                      void fetch("/api/ai", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ action: "save", text: m.text }),
-                      }).then(() => toast.success("Save شد."))
-                    }
+                    className="grid size-8 place-items-center rounded-full hover:bg-white/10 hover:text-emerald-50"
+                    aria-label="Copy"
+                    onClick={() => void navigator.clipboard.writeText(m.text).then(() => toast.success("کپی شد."))}
                   >
-                    Save
-                  </Button>
-                  <Button type="button" size="xs" variant="ghost" onClick={() => speak(m.text)}>TTS</Button>
-                  <Button
+                    <Copy className="size-3.5" />
+                  </button>
+                  <button
                     type="button"
-                    size="xs"
-                    variant="ghost"
+                    className="grid size-8 place-items-center rounded-full hover:bg-white/10 hover:text-emerald-50"
+                    aria-label="TTS"
+                    onClick={() => speak(m.text)}
+                  >
+                    <Volume2 className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    className="grid size-8 place-items-center rounded-full hover:bg-white/10 hover:text-emerald-50"
+                    aria-label="Regenerate"
                     disabled={busy || !lastUser}
-                    onClick={() => void send({ action: "regenerate", chatId, text: lastUser })}
+                    onClick={() => void send({ text: lastUser, regenerate: true })}
                   >
-                    Regenerate
-                  </Button>
-                  <Button type="button" size="xs" variant="ghost" onClick={() => void fetch("/api/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "feedback", messageId: m.id, feedback: "up" }) })}>👍</Button>
-                  <Button type="button" size="xs" variant="ghost" onClick={() => void fetch("/api/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "feedback", messageId: m.id, feedback: "down" }) })}>👎</Button>
+                    <RefreshCw className="size-3.5" />
+                  </button>
                 </div>
               )}
             </article>
           ))}
           {status !== "idle" && (
-            <article className="max-w-[92%] rounded-2xl bg-white/10 px-3 py-3" aria-live="polite" aria-label="Nixo AI در حال نوشتن است">
-              <div className="flex items-center gap-2 text-xs text-amber-200">
+            <article className="me-auto max-w-[92%] rounded-[1.4rem] bg-white/[0.06] px-4 py-3" aria-live="polite">
+              <div className="flex items-center gap-2 text-xs text-emerald-100/70">
                 <span className="flex gap-1">
-                  <span className="size-1.5 animate-bounce rounded-full bg-amber-200 [animation-delay:-0.2s]" />
-                  <span className="size-1.5 animate-bounce rounded-full bg-amber-200 [animation-delay:-0.1s]" />
-                  <span className="size-1.5 animate-bounce rounded-full bg-amber-200" />
+                  <span className="size-1.5 animate-bounce rounded-full bg-emerald-200 [animation-delay:-0.2s]" />
+                  <span className="size-1.5 animate-bounce rounded-full bg-emerald-200 [animation-delay:-0.1s]" />
+                  <span className="size-1.5 animate-bounce rounded-full bg-emerald-200" />
                 </span>
                 {status === "thinking" ? "در حال فکر کردن…" : "در حال نوشتن…"}
               </div>
             </article>
           )}
         </div>
-        <form
-          className="space-y-2 border-t border-white/10 p-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const t = text.trim();
-            if (!t || busy) return;
-            setText("");
-            void send({ action: "send", chatId: chatId || undefined, text: t });
-          }}
-        >
-          <div className="flex flex-wrap gap-1">
-            {["translate", "summarize", "write", "rewrite", "grammar", "reply", "image", "ocr", "file", "search"].map((intent) => (
-              <Button key={intent} type="button" size="xs" variant="secondary" disabled={busy} onClick={() => {
-                if (!text.trim() && intent !== "image") return;
-                void send({ action: "send", chatId: chatId || undefined, text: text || "Create a futuristic NIXO wallpaper.", intent });
-                setText("");
-              }}>
-                {intent}
-              </Button>
-            ))}
-            <Button type="button" size="xs" variant="secondary" onClick={() => fileRef.current?.click()}>فایل متنی</Button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".txt,.md,.csv,.json,text/plain"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (!f) return;
-                f.text().then((fileText) => {
-                  void send({ action: "send", chatId: chatId || undefined, text: `درباره این فایل بگو: ${f.name}`, intent: "file", fileText: fileText.slice(0, 18000) });
-                });
+      </div>
+
+      <form
+        className="mx-auto w-full max-w-2xl px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const t = text.trim();
+          if (!t || busy) return;
+          setText("");
+          requestAnimationFrame(() => {
+            if (field.current) {
+              field.current.style.height = "auto";
+            }
+          });
+          void send({ text: t });
+        }}
+      >
+        <div className="flex items-end gap-2 rounded-[1.75rem] border border-white/10 bg-white/[0.06] px-3 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.28)] focus-within:border-emerald-400/40">
+          <textarea
+            ref={field}
+            value={text}
+            rows={1}
+            disabled={busy}
+            placeholder="از NIXO AI بپرس…"
+            aria-label="پیام Nixo AI"
+            className="max-h-40 min-h-11 flex-1 resize-none bg-transparent py-2.5 text-[15px] leading-6 outline-none placeholder:text-emerald-100/35"
+            onChange={(e) => {
+              setText(e.target.value);
+              resizeField();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                e.currentTarget.form?.requestSubmit();
+              }
+            }}
+          />
+          {busy ? (
+            <button
+              type="button"
+              className="mb-0.5 grid size-10 shrink-0 place-items-center rounded-full bg-white/10 text-emerald-50"
+              aria-label="توقف"
+              onClick={() => {
+                abort.current = true;
+                setBusy(false);
+                setStatus("idle");
               }}
-            />
-          </div>
-          <div className="flex gap-2">
-            <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="از نیکسو AI بپرس…" className="flex-1" aria-label="متن درخواست هوش مصنوعی" disabled={busy} />
-            {busy ? (
-              <Button type="button" variant="secondary" onClick={() => { abort.current = true; setBusy(false); setStatus("idle"); toast.message("Stop"); }}>Stop</Button>
-            ) : (
-              <Button type="submit" className="bg-amber-300 text-[#102824]">ارسال</Button>
-            )}
-          </div>
-        </form>
-      </section>
+            >
+              <Square className="size-3.5 fill-current" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!text.trim()}
+              className="mb-0.5 grid size-10 shrink-0 place-items-center rounded-full bg-emerald-400 text-[#071614] disabled:opacity-35"
+              aria-label="ارسال"
+            >
+              <Send className="size-4" />
+            </button>
+          )}
+        </div>
+      </form>
     </main>
   );
 }

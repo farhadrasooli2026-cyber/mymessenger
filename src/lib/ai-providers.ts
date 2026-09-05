@@ -24,7 +24,7 @@ function allowVitestLocal() {
   return Boolean(process.env.VITEST) && !hasLiveAiKeys();
 }
 
-export async function completeWithFallback(policy: AiPolicy, input: AiEngineInput): Promise<ProviderResult> {
+export async function completeWithFallback(policy: AiPolicy, input: AiEngineInput, system?: string): Promise<ProviderResult> {
   if (hasLiveAiKeys()) {
     const liveId = preferredLiveProvider() ?? "gemini";
     const gate = `ai-${liveId}`;
@@ -40,7 +40,7 @@ export async function completeWithFallback(policy: AiPolicy, input: AiEngineInpu
       const live = await completeLive({
         prompt: packed.prompt,
         messages: history,
-        system: packed.system,
+        system: system?.trim() || packed.system,
         timeoutMs: policy.timeoutMs,
       });
       circuitSuccess(gate);

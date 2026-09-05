@@ -3,6 +3,13 @@ import { requireActiveUser } from "@/lib/auth";
 import { aiSendSchema, sendAiMessage } from "@/lib/ai";
 import { NIXO_AI_UNAVAILABLE } from "@/lib/nixo-ai-live";
 
+/** System prompt sent to Gemini (or GPT-4o-mini) for every Nixo AI turn. */
+const NIXO_AI_SYSTEM_PROMPT = `You are NIXO AI, an ultra-clean, highly intelligent AI assistant powered by Gemini.
+Automatically detect the user's intent (Coding, Translation, Summarization, Writing, Grammar Fix, Image/OCR analysis) without requiring manual mode selections.
+Deliver direct, concise, and beautifully structured responses. Avoid wordy introductions.
+Use clear code blocks for programming, elegant bullet points for analysis, and fluent natural translations.
+Respond in the user's input language automatically with high fluency.`;
+
 export async function POST(request: Request) {
   const user = await requireActiveUser();
   if (!user) return jsonError("نشست فعال نیست.", 401);
@@ -16,22 +23,14 @@ export async function POST(request: Request) {
   const parsed = aiSendSchema.safeParse({
     chatId: typeof body.chatId === "string" ? body.chatId : undefined,
     text,
-    intent: typeof body.intent === "string" ? body.intent : undefined,
-    topic: typeof body.topic === "string" ? body.topic : undefined,
-    lang: body.lang === "fa" || body.lang === "en" || body.lang === "tr" ? body.lang : undefined,
-    tone:
-      body.tone === "neutral" || body.tone === "formal" || body.tone === "friendly" || body.tone === "short"
-        ? body.tone
-        : undefined,
     fileText: typeof body.fileText === "string" ? body.fileText : undefined,
-    imageHint: typeof body.imageHint === "string" ? body.imageHint : undefined,
     consentE2ee: body.consentE2ee === true,
     idempotencyKey: typeof body.idempotencyKey === "string" ? body.idempotencyKey : undefined,
   });
   if (!parsed.success) return jsonError("متن نامعتبر است.");
 
   try {
-    const result = await sendAiMessage(user.id, parsed.data);
+    const result = await sendAiMessage(user.id, parsed.data, { system: NIXO_AI_SYSTEM_PROMPT });
     if (!result.ok) {
       const message = result.error || NIXO_AI_UNAVAILABLE;
       return json(
