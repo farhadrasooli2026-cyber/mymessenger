@@ -137,19 +137,29 @@ async function postJson(
   }
 }
 
+function pushGeminiTurn(contents: { role: "user" | "model"; parts: { text: string }[] }[], role: "user" | "model", text: string) {
+  const last = contents[contents.length - 1];
+  if (last?.role === role) {
+    last.parts[0] = { text: `${last.parts[0]?.text ?? ""}\n${text}`.trim() };
+    return;
+  }
+  contents.push({ role, parts: [{ text }] });
+}
+
 export function turnsToGemini(messages: LiveChatTurn[], prompt: string) {
   const contents: { role: "user" | "model"; parts: { text: string }[] }[] = [];
   for (const m of messages) {
     if (m.role === "system") continue;
     const text = m.text.trim();
     if (!text) continue;
-    contents.push({ role: m.role === "assistant" ? "model" : "user", parts: [{ text }] });
+    pushGeminiTurn(contents, m.role === "assistant" ? "model" : "user", text);
   }
   const current = prompt.trim();
   const last = contents[contents.length - 1];
-  if (!(last?.role === "user" && last.parts[0]?.text === current) && current) {
-    contents.push({ role: "user", parts: [{ text: current }] });
+  if (current && !(last?.role === "user" && last.parts[0]?.text === current)) {
+    pushGeminiTurn(contents, "user", current);
   }
+  while (contents[0]?.role === "model") contents.shift();
   return contents;
 }
 
@@ -284,22 +294,20 @@ export async function completeLive(input: LiveCompleteInput): Promise<{ text: st
   if (!prompt) throw new NixoAiUnavailableError();
   const system = (input.system ?? DEFAULT_SYSTEM).trim() || DEFAULT_SYSTEM;
   const timeoutMs = liveTimeoutMs(input.timeoutMs);
-  const provider = preferredLiveProvider();
-  if (!provider) throw new NixoAiUnavailableError();
-  logNixoAi("complete-live", { provider, historyTurns: input.messages?.length ?? 0, promptChars: prompt.length });
-  if (provider === "gemini") {
+  const preferred = preferredLiveProvider();
+  if (!preferred) throw new NixoAiUnavailableError();
+  const order: ("gemini" | "openai")[] = preferred === "openai" ? ["openai", "gemini"] : ["gemini", "openai"];
+  const available = order.filter((id) => (id === "gemini" ? Boolean(process.env.GEMINI_API_KEY?.trim()) : Boolean(process.env.OPENAI_API_KEY?.trim())));
+  logNixoAi("complete-live", { preferred, historyTurns: input.messages?.length ?? 0, promptChars: prompt.length, chain: available });
+  let lastErr: unknown;
+  for (const id of available) {
     try {
-      const text = await completeGemini(input, system, timeoutMs);
-      return { text, provider: "gemini" };
+      const text = id === "gemini" ? await completeGemini(input, system, timeoutMs) : await completeOpenAi(input, system, timeoutMs);
+      return { text, provider: id };
     } catch (err) {
-      logNixoAi("error", { provider: "gemini", fallbackOpenAi: Boolean(process.env.OPENAI_API_KEY?.trim()) });
-      if (process.env.OPENAI_API_KEY?.trim()) {
-        const text = await completeOpenAi(input, system, timeoutMs);
-        return { text, provider: "openai" };
-      }
-      throw err instanceof NixoAiUnavailableError ? err : new NixoAiUnavailableError();
+      lastErr = err;
+      logNixoAi("error", { provider: id, reason: "try-next" });
     }
   }
-  const text = await completeOpenAi(input, system, timeoutMs);
-  return { text, provider: "openai" };
+  throw lastErr instanceof NixoAiUnavailableError ? lastErr : new NixoAiUnavailableError();
 }

@@ -494,31 +494,31 @@ export function StoryComposer({
               </div>
 
               {studio === "text" && (
-                <section className="space-y-3">
-                  <Input value={overlay} onChange={(e) => setOverlay(e.target.value)} placeholder="متن روی تصویر" className="h-11 rounded-2xl border-white/10 bg-white/6" />
-                  <div className="-mx-1 overflow-x-auto pb-1">
-                    <div className="flex min-w-max items-stretch gap-2 px-1">
-                      <label className="flex min-w-[9.5rem] flex-col justify-center gap-1 rounded-2xl bg-white/8 px-3 py-2">
-                        <span className="text-[10px] text-white/50">اندازه {textSize}</span>
-                        <input type="range" min={16} max={40} value={textSize} onChange={(e) => setTextSize(Number(e.target.value))} className="accent-amber-300" />
-                      </label>
-                      <button type="button" className="flex min-w-[5.5rem] flex-col items-center justify-center gap-1 rounded-2xl bg-white/8 px-3 py-2 text-[11px]" onClick={() => setFont(font === "vazir" ? "serif" : font === "serif" ? "mono" : "vazir")}>
-                        <Type className="size-4" />
-                        {font === "serif" ? "Serif" : font === "mono" ? "Mono" : "وزیر"}
-                      </button>
-                      <button type="button" className="flex min-w-[5.5rem] flex-col items-center justify-center gap-1 rounded-2xl bg-white/8 px-3 py-2 text-[11px]" onClick={() => setAlign(align === "right" ? "center" : align === "center" ? "left" : "right")}>
-                        <AlignIcon className="size-4" />
-                        چینش
-                      </button>
-                      <label className="flex min-w-[8.5rem] flex-col justify-center gap-1 rounded-2xl bg-white/8 px-3 py-2">
-                        <span className="text-[10px] text-white/50">جای افقی {textX}٪</span>
-                        <input type="range" min={8} max={92} value={textX} onChange={(e) => setTextX(Number(e.target.value))} className="accent-amber-300" />
-                      </label>
-                      <label className="flex min-w-[8.5rem] flex-col justify-center gap-1 rounded-2xl bg-white/8 px-3 py-2">
-                        <span className="text-[10px] text-white/50">جای عمودی {textY}٪</span>
-                        <input type="range" min={8} max={92} value={textY} onChange={(e) => setTextY(Number(e.target.value))} className="accent-amber-300" />
-                      </label>
-                    </div>
+                <section className="grid gap-3">
+                  {kind !== "text" && kind !== "sticker" && (
+                    <Input value={overlay} onChange={(e) => setOverlay(e.target.value)} placeholder="متن روی تصویر" className="h-11 rounded-2xl border-white/10 bg-white/6" />
+                  )}
+                  <label className="grid gap-1.5 rounded-2xl bg-white/8 px-3 py-3">
+                    <span className="text-[11px] text-white/55">اندازه متن · {textSize}</span>
+                    <input type="range" min={16} max={40} value={textSize} onChange={(e) => setTextSize(Number(e.target.value))} className="w-full accent-amber-300" />
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-white/8 text-sm" onClick={() => setFont(font === "vazir" ? "serif" : font === "serif" ? "mono" : "vazir")}>
+                      <Type className="size-4" />
+                      {font === "serif" ? "Serif" : font === "mono" ? "Mono" : "وزیر"}
+                    </button>
+                    <button type="button" className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-white/8 text-sm" onClick={() => setAlign(align === "right" ? "center" : align === "center" ? "left" : "right")}>
+                      <AlignIcon className="size-4" />
+                      چینش
+                    </button>
+                    <label className="grid gap-1.5 rounded-2xl bg-white/8 px-3 py-2">
+                      <span className="text-[11px] text-white/55">افقی · {textX}٪</span>
+                      <input type="range" min={8} max={92} value={textX} onChange={(e) => setTextX(Number(e.target.value))} className="w-full accent-amber-300" />
+                    </label>
+                    <label className="grid gap-1.5 rounded-2xl bg-white/8 px-3 py-2">
+                      <span className="text-[11px] text-white/55">عمودی · {textY}٪</span>
+                      <input type="range" min={8} max={92} value={textY} onChange={(e) => setTextY(Number(e.target.value))} className="w-full accent-amber-300" />
+                    </label>
                   </div>
                 </section>
               )}
@@ -626,15 +626,6 @@ export function StoryComposer({
                   <a href="/app/music" className="block pt-1 text-xs text-amber-200">
                     کتابخانه موسیقی نیکسو
                   </a>
-                  <Input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="لینک (https://)" dir="ltr" className="h-11 rounded-2xl border-white/10 bg-white/6 text-left text-xs" />
-                  <p className="text-[11px] text-white/50">موضوع</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(Object.keys(STORY_PURPOSE_FA) as StoryPurpose[]).map((p) => (
-                      <button key={p} type="button" className={cn("min-h-11 rounded-2xl px-2 text-xs", purpose === p ? "bg-amber-300 text-[#102824]" : "bg-white/8")} onClick={() => setPurpose(p)}>
-                        {STORY_PURPOSE_FA[p]}
-                      </button>
-                    ))}
-                  </div>
                 </section>
               )}
 
@@ -685,6 +676,15 @@ export function StoryComposer({
                     <input type="checkbox" checked={hideFromIds.includes(p.id)} onChange={() => setHideFromIds((ids) => (ids.includes(p.id) ? ids.filter((x) => x !== p.id) : [...ids, p.id]))} />
                     {p.name}
                   </label>
+                ))}
+              </div>
+              <Input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="لینک (https://)" dir="ltr" className="h-11 rounded-2xl border-white/10 bg-white/6 text-left text-xs" />
+              <p className="text-[11px] text-white/50">موضوع</p>
+              <div className="grid grid-cols-3 gap-2">
+                {(Object.keys(STORY_PURPOSE_FA) as StoryPurpose[]).map((p) => (
+                  <button key={p} type="button" className={cn("min-h-11 rounded-2xl px-2 text-xs", purpose === p ? "bg-amber-300 text-[#102824]" : "bg-white/8")} onClick={() => setPurpose(p)}>
+                    {STORY_PURPOSE_FA[p]}
+                  </button>
                 ))}
               </div>
               <div className="space-y-3 rounded-2xl bg-white/6 p-3 text-sm">

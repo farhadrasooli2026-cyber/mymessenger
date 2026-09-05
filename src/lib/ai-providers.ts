@@ -1,5 +1,6 @@
 import { circuitAllow, circuitFailure, circuitSuccess } from "@/lib/circuit";
-import { runAiEngine, type AiEngineInput, type AiEngineOutput } from "@/lib/ai-engine";
+import { runLocal, runMock } from "@/lib/ai-runtime";
+import type { AiEngineInput, AiEngineOutput } from "@/lib/ai-engine";
 import type { AiPolicy, AiProviderId } from "@/lib/ai-types";
 import {
   completeLive,
@@ -11,15 +12,6 @@ import {
 } from "@/lib/nixo-ai-live";
 
 export type ProviderResult = AiEngineOutput & { provider: AiProviderId; fallback: boolean };
-
-function runLocal(input: AiEngineInput): AiEngineOutput {
-  return runAiEngine(input);
-}
-
-function runMock(input: AiEngineInput, policy: AiPolicy): AiEngineOutput {
-  if (policy.mockFail) throw new Error("mock-provider-down");
-  return runAiEngine(input);
-}
 
 function allowOfflineLocal() {
   return !hasLiveAiKeys();
@@ -41,14 +33,14 @@ export async function completeWithFallback(policy: AiPolicy, input: AiEngineInpu
         timeoutMs: policy.timeoutMs,
       });
       circuitSuccess(gate);
-      logNixoAi("provider-ok", { provider: live.provider, fallback: false, turns: packed.messages.length });
+      logNixoAi("provider-ok", { provider: live.provider, fallback: live.provider !== liveId, turns: packed.messages.length });
       return {
         text: live.text,
         refused: false,
         uncertain: true,
         intent: input.intent ?? "chat",
         provider: live.provider,
-        fallback: false,
+        fallback: live.provider !== liveId,
       };
     } catch (err) {
       circuitFailure(gate);

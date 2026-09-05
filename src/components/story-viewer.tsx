@@ -343,12 +343,12 @@ export function StoryViewer({
           onClick={(e) => e.stopPropagation()}
         >
           {story.allowReactions !== false && (
-            <div className="flex justify-between gap-1">
+            <div className="flex items-center justify-center gap-1">
               {REACTS.map((e) => (
                 <button
                   key={e}
                   type="button"
-                  className="grid size-11 flex-1 place-items-center rounded-full bg-white/8 text-lg"
+                  className="grid size-10 place-items-center rounded-full text-base"
                   onClick={() =>
                     void fetch(`/api/stories/${story.id}`, {
                       method: "POST",
@@ -383,13 +383,13 @@ export function StoryViewer({
                   });
                 }}
               >
-                <Input value={reply} onChange={(e) => setReply(e.target.value)} placeholder="پاسخ خصوصی…" className="h-11 rounded-full border-white/10 bg-white/8" />
-                <Button type="submit" size="sm" className="h-11 rounded-full bg-amber-300 px-4 text-[#102824]">
+                <Input value={reply} onChange={(e) => setReply(e.target.value)} placeholder="پاسخ…" className="h-10 rounded-full border-white/10 bg-white/8" />
+                <Button type="submit" size="sm" className="h-10 rounded-full bg-amber-300 px-4 text-[#102824]">
                   ارسال
                 </Button>
               </form>
             ) : (
-              <div className="min-w-0 flex-1 text-[11px] text-white/40">{isOwner ? "بازدیدکنندگان در منوی بیشتر" : " "}</div>
+              <div className="min-w-0 flex-1" />
             )}
             {story.allowShare && (
               <IconBtn label="اشتراک" onClick={() => void copyShare()}>

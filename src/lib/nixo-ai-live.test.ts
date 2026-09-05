@@ -68,6 +68,19 @@ describe("live Nixo AI parsers", () => {
     expect(packed.messages.map((m) => m.text)).toEqual(["سلام", "سلام! چطور کمک کنم؟"]);
   });
 
+  it("merges consecutive user turns so Gemini contents stay valid", () => {
+    const contents = turnsToGemini(
+      [
+        { role: "user", text: "اول" },
+        { role: "user", text: "دوم" },
+      ],
+      "سوم",
+    );
+    expect(contents.map((c) => c.role)).toEqual(["user"]);
+    expect(contents[0]?.parts[0]?.text).toContain("اول");
+    expect(contents[0]?.parts[0]?.text).toContain("سوم");
+  });
+
   it("builds Gemini contents and OpenAI messages from packed turns", () => {
     const packed = engineInputToLivePrompt({
       text: "step 2",
