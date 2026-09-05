@@ -2,7 +2,8 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# Include TypeScript / Next build tooling even if NODE_ENV=production is inherited.
+RUN npm ci --include=dev
 
 FROM node:20-alpine AS build
 WORKDIR /app

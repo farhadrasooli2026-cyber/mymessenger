@@ -3,7 +3,7 @@ services:
   - type: web
     name: nixo
     runtime: node
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: node scripts/start.mjs
     healthCheckPath: /api/health
     envVars:

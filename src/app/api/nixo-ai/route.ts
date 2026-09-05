@@ -1,14 +1,7 @@
 import { json, jsonError } from "@/lib/http";
 import { requireActiveUser } from "@/lib/auth";
 import { aiSendSchema, sendAiMessage } from "@/lib/ai";
-import { NIXO_AI_UNAVAILABLE } from "@/lib/nixo-ai-live";
-
-/** System prompt sent to Gemini (or GPT-4o-mini) for every Nixo AI turn. */
-const NIXO_AI_SYSTEM_PROMPT = `You are NIXO AI, an ultra-clean, highly intelligent AI assistant powered by Gemini.
-Automatically detect the user's intent (Coding, Translation, Summarization, Writing, Grammar Fix, Image/OCR analysis) without requiring manual mode selections.
-Deliver direct, concise, and beautifully structured responses. Avoid wordy introductions.
-Use clear code blocks for programming, elegant bullet points for analysis, and fluent natural translations.
-Respond in the user's input language automatically with high fluency.`;
+import { DEFAULT_SYSTEM, NIXO_AI_UNAVAILABLE } from "@/lib/nixo-ai-live";
 
 export async function POST(request: Request) {
   const user = await requireActiveUser();
@@ -30,7 +23,7 @@ export async function POST(request: Request) {
   if (!parsed.success) return jsonError("متن نامعتبر است.");
 
   try {
-    const result = await sendAiMessage(user.id, parsed.data, { system: NIXO_AI_SYSTEM_PROMPT });
+    const result = await sendAiMessage(user.id, parsed.data, { system: DEFAULT_SYSTEM });
     if (!result.ok) {
       const message = result.error || NIXO_AI_UNAVAILABLE;
       return json(

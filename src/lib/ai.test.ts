@@ -132,6 +132,26 @@ describe("NIXO AI", () => {
     expect(ws.chats.length).toBeGreaterThan(0);
   });
 
+  it("sends packed chat history to Gemini on follow-up turns", async () => {
+    const id = await activeUser("ai_live_mem");
+    vi.stubEnv("GEMINI_API_KEY", "test-gemini-key");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: "ادامه با حافظه" }] } }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const first = await sendAiMessage(id, { text: "اسم من فرهاد است" });
+    expect(first.ok).toBe(true);
+    const second = await sendAiMessage(id, { text: "اسمم چیست؟", chatId: first.ok ? first.chatId : undefined });
+    expect(second.ok).toBe(true);
+    const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body ?? "{}")) as { contents?: { role: string; parts: { text: string }[] }[] });
+    const followUp = bodies.find((b) => (b.contents?.length ?? 0) >= 3);
+    expect(followUp?.contents?.some((c) => c.parts[0]?.text.includes("فرهاد"))).toBe(true);
+    expect(followUp?.contents?.some((c) => c.parts[0]?.text.includes("اسمم چیست"))).toBe(true);
+  });
+
   it("shows the configured error when the live API is down", async () => {
     const id = await activeUser("ai_live_fail");
     vi.stubEnv("GEMINI_API_KEY", "test-gemini-key");

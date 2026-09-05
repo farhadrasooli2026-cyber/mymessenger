@@ -11,7 +11,7 @@ export const AI_TOPICS = [
 export type AiTopic = (typeof AI_TOPICS)[number]["id"];
 
 export const AI_MODELS = [
-  { id: "fast", name: "NIXO Fast", detail: "پاسخ کوتاه از مدل زنده (Gemini 1.5 Flash یا GPT-4o-mini)" },
+  { id: "fast", name: "NIXO Fast", detail: "پاسخ کوتاه از مدل زنده (Gemini 2.5 Flash یا GPT-4o-mini)" },
   { id: "balanced", name: "NIXO Balanced", detail: "گفتگوی زنده با زمینهٔ تاریخچهٔ همین چت AI" },
   { id: "advanced", name: "NIXO Advanced", detail: "پاسخ بلندتر از همان مدل زنده؛ سهمیهٔ روزانه برقرار است" },
 ] as const;
