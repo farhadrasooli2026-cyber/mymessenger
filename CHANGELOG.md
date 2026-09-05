@@ -9,6 +9,8 @@
 - Build ID از git SHA تا کش Cloudflare/مرورگر فایل‌های استاتیک قدیمی را قاطی نکند
 - متا `nixo-build` و هدر `X-NIXO-Git-Sha` برای تشخیص نسخهٔ دیپلوی
 
+- `POST /api/nixo-ai` پاسخ زنده Gemini 1.5 Flash یا GPT-4o-mini با `GEMINI_API_KEY` / `OPENAI_API_KEY`
+
 ## 0.1.0
 
 - ثبت‌نام OTP، چت E2EE، گروه، کانال، استوری، تماس محلی، اعلان، جستجو، Vault
@@ -31,7 +33,7 @@
 
 ### API
 
-- `GET /api/health`, `/api/status`, `/api/version`, `/api/docs`, `/api/i18n`, `/api/bi`, `/api/billing`, `/api/prod`, `/api/ai`, `/api/ai/ops`, `/api/cloud`, `/api/edge`, `/api/graph`
+- `GET /api/health`, `/api/status`, `/api/version`, `/api/docs`, `/api/i18n`, `/api/bi`, `/api/billing`, `/api/prod`, `/api/ai`, `/api/nixo-ai`, `/api/ai/ops`, `/api/cloud`, `/api/edge`, `/api/graph`
 - SSE `/api/chats/:id/live`
 
 ### Breaking

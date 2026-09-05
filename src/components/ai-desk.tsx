@@ -7,6 +7,7 @@ import { NixoMark } from "@/components/nixo-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AI_MODELS, AI_TOPICS, type AiTopic } from "@/lib/ai-types";
+import { NIXO_AI_UNAVAILABLE } from "@/lib/nixo-ai-copy";
 
 type Chat = { id: string; title: string; topic: string; model: string; updatedAt: number };
 type Msg = {
@@ -66,6 +67,15 @@ export function AiDesk() {
 
   async function send(payload: Record<string, unknown>) {
     abort.current = false;
+    const prompt = String(payload.text ?? "").trim();
+    const regenerate = payload.action === "regenerate";
+    if (!prompt) return;
+
+    const optimistic: Msg | null = regenerate
+      ? null
+      : { id: `local-${Date.now()}`, role: "user", text: prompt };
+    if (optimistic) setMessages((m) => [...m, optimistic]);
+
     setBusy(true);
     setStatus("thinking");
     const think = window.setTimeout(() => {
@@ -73,27 +83,68 @@ export function AiDesk() {
     }, 280);
     try {
       if (abort.current) return;
-      const res = await fetch("/api/ai", {
+      const history = messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .slice(-16)
+        .map((m) => ({ role: m.role, text: m.text }));
+      const res = await fetch("/api/nixo-ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          prompt,
+          chatId: chatId || undefined,
+          intent: payload.intent,
+          fileText: payload.fileText,
+          imageHint: payload.imageHint,
+          lang: payload.lang,
+          tone: payload.tone,
+          regenerate,
+          messages: history,
+        }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error ?? "AI پاسخ نداد.");
+      const data = await res.json().catch(() => ({ error: NIXO_AI_UNAVAILABLE }));
+      if (abort.current) {
+        if (data.chatId) {
+          await fetch("/api/ai", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "stop", chatId: data.chatId }),
+          });
+        }
         return;
       }
-      if (abort.current) {
-        await fetch("/api/ai", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "stop", chatId: data.chatId }),
+      if (!res.ok) {
+        const err = typeof data.error === "string" && data.error.trim() ? data.error : NIXO_AI_UNAVAILABLE;
+        toast.error(err);
+        const assistant: Msg =
+          data.assistant ??
+          ({
+            id: `err-${Date.now()}`,
+            role: "assistant",
+            text: err,
+            generatedByAi: true,
+          } satisfies Msg);
+        setChatId(data.chatId ?? chatId);
+        setMessages((m) => {
+          const withoutTemp = optimistic ? m.filter((x) => x.id !== optimistic.id) : m;
+          const userMsg = data.userMessage ?? optimistic;
+          return [...withoutTemp, userMsg, assistant].filter(Boolean) as Msg[];
         });
+        boot();
         return;
       }
       setChatId(data.chatId);
-      setMessages((m) => [...m, data.userMessage, data.assistant].filter(Boolean));
+      setMessages((m) => {
+        const withoutTemp = optimistic ? m.filter((x) => x.id !== optimistic.id) : m;
+        return [...withoutTemp, data.userMessage, data.assistant].filter(Boolean);
+      });
       boot();
+    } catch {
+      toast.error(NIXO_AI_UNAVAILABLE);
+      setMessages((m) => [
+        ...m,
+        { id: `err-${Date.now()}`, role: "assistant", text: NIXO_AI_UNAVAILABLE, generatedByAi: true },
+      ]);
     } finally {
       window.clearTimeout(think);
       setBusy(false);
@@ -122,7 +173,7 @@ export function AiDesk() {
       toast.message("Text-to-Speech در این مرورگر نیست.");
       return;
     }
-    const u = new SpeechSynthesisUtterance(t.slice(0, 400));
+    const u = new SpeechSynthesisUtterance(t.slice(0, 4000));
     u.lang = /[آ-ی]/.test(t) ? "fa-IR" : "en-US";
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(u);
@@ -150,7 +201,7 @@ export function AiDesk() {
           <NixoMark size={28} />
           <div>
             <p className="text-xs text-amber-200">NIXO AI</p>
-            <p className="text-[11px] opacity-60">دستیار داخلی — نه حقیقت قطعی · محتوای AI مشخص است</p>
+            <p className="text-[11px] opacity-60">دستیار زنده Gemini / OpenAI · محتوای AI مشخص است</p>
           </div>
         </div>
         {!available && <p className="mt-2 text-xs text-amber-200">{offlineNote ?? "AI خاموش است. چت معمولی کار می‌کند."}</p>}
@@ -197,9 +248,9 @@ export function AiDesk() {
           <Button type="button" size="xs" variant="secondary" onClick={listen}>Voice → Text</Button>
         </header>
         <div className="flex-1 space-y-3 overflow-auto p-4">
-          {messages.length === 0 && (
+          {messages.length === 0 && status === "idle" && (
             <p className="text-sm leading-7 text-emerald-100/70">
-              سؤال بپرس، ترجمه کن، خلاصه بگیر، متن بنویس یا ایده بخواه. داده فقط همان است که این‌جا می‌فرستی. چت‌های E2EE بدون اجازه اینجا باز نمی‌شوند.
+              سؤال بپرس، ترجمه کن، خلاصه بگیر، متن بنویس یا ایده بخواه. پاسخ از مدل زنده می‌آید. داده فقط همان است که این‌جا می‌فرستی.
             </p>
           )}
           {messages.map((m) => (
@@ -237,6 +288,7 @@ export function AiDesk() {
                     type="button"
                     size="xs"
                     variant="ghost"
+                    disabled={busy || !lastUser}
                     onClick={() => void send({ action: "regenerate", chatId, text: lastUser })}
                   >
                     Regenerate
@@ -247,14 +299,25 @@ export function AiDesk() {
               )}
             </article>
           ))}
-          {status !== "idle" && <p className="text-xs text-amber-200">{status === "thinking" ? "Thinking..." : "Generating..."}</p>}
+          {status !== "idle" && (
+            <article className="max-w-[92%] rounded-2xl bg-white/10 px-3 py-3" aria-live="polite" aria-label="Nixo AI در حال نوشتن است">
+              <div className="flex items-center gap-2 text-xs text-amber-200">
+                <span className="flex gap-1">
+                  <span className="size-1.5 animate-bounce rounded-full bg-amber-200 [animation-delay:-0.2s]" />
+                  <span className="size-1.5 animate-bounce rounded-full bg-amber-200 [animation-delay:-0.1s]" />
+                  <span className="size-1.5 animate-bounce rounded-full bg-amber-200" />
+                </span>
+                {status === "thinking" ? "در حال فکر کردن…" : "در حال نوشتن…"}
+              </div>
+            </article>
+          )}
         </div>
         <form
           className="space-y-2 border-t border-white/10 p-3"
           onSubmit={(e) => {
             e.preventDefault();
             const t = text.trim();
-            if (!t) return;
+            if (!t || busy) return;
             setText("");
             void send({ action: "send", chatId: chatId || undefined, text: t });
           }}
@@ -285,7 +348,7 @@ export function AiDesk() {
             />
           </div>
           <div className="flex gap-2">
-            <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="از نیکسو AI بپرس…" className="flex-1" aria-label="متن درخواست هوش مصنوعی" />
+            <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="از نیکسو AI بپرس…" className="flex-1" aria-label="متن درخواست هوش مصنوعی" disabled={busy} />
             {busy ? (
               <Button type="button" variant="secondary" onClick={() => { abort.current = true; setBusy(false); setStatus("idle"); toast.message("Stop"); }}>Stop</Button>
             ) : (

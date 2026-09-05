@@ -159,6 +159,7 @@ export const SOFT_SHED_PREFIXES = [
   "/api/mini",
   "/api/catalog",
   "/api/ai",
+  "/api/nixo-ai",
   "/api/shop",
   "/api/stickers",
   "/api/username",

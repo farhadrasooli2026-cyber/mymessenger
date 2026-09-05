@@ -47,14 +47,39 @@ export async function POST(request: Request) {
     const parsed = aiSendSchema.safeParse(body);
     if (!parsed.success) return jsonError("متن نامعتبر است.");
     const result = await sendAiMessage(user.id, parsed.data);
-    if (!result.ok) return jsonError(result.error, result.status, { retryAfterSec: "retryAfterSec" in result ? result.retryAfterSec : undefined });
+    if (!result.ok) {
+      return json(
+        {
+          ok: false,
+          error: result.error,
+          text: result.assistant?.text ?? result.error,
+          chatId: result.chatId,
+          userMessage: result.userMessage ?? null,
+          assistant: result.assistant ?? null,
+          retryAfterSec: result.retryAfterSec,
+        },
+        result.status,
+      );
+    }
     return json(result);
   }
   if (body.action === "regenerate") {
     const parsed = aiSendSchema.safeParse({ ...body, text: String(body.text ?? "Regenerate") });
     if (!parsed.success) return jsonError("متن نامعتبر است.");
     const result = await sendAiMessage(user.id, { ...parsed.data, text: `Regenerate:\n${parsed.data.text}` });
-    if (!result.ok) return jsonError(result.error, result.status);
+    if (!result.ok) {
+      return json(
+        {
+          ok: false,
+          error: result.error,
+          text: result.assistant?.text ?? result.error,
+          chatId: result.chatId,
+          userMessage: result.userMessage ?? null,
+          assistant: result.assistant ?? null,
+        },
+        result.status,
+      );
+    }
     return json(result);
   }
   if (body.action === "stop") {

@@ -11,9 +11,9 @@ export const AI_TOPICS = [
 export type AiTopic = (typeof AI_TOPICS)[number]["id"];
 
 export const AI_MODELS = [
-  { id: "fast", name: "NIXO Fast", detail: "پاسخ کوتاه و سریع روی موتور داخلی نیکسو" },
-  { id: "balanced", name: "NIXO Balanced", detail: "ترجمه، نوشتن و خلاصه با زمینهٔ گفتگو" },
-  { id: "advanced", name: "NIXO Advanced", detail: "پاسخ بلندتر، فایل و تصویر SVG محلی (سهمیهٔ روزانه)" },
+  { id: "fast", name: "NIXO Fast", detail: "پاسخ کوتاه از مدل زنده (Gemini 1.5 Flash یا GPT-4o-mini)" },
+  { id: "balanced", name: "NIXO Balanced", detail: "گفتگوی زنده با زمینهٔ تاریخچهٔ همین چت AI" },
+  { id: "advanced", name: "NIXO Advanced", detail: "پاسخ بلندتر از همان مدل زنده؛ سهمیهٔ روزانه برقرار است" },
 ] as const;
 
 export type AiModelId = (typeof AI_MODELS)[number]["id"];
@@ -46,7 +46,7 @@ export type AiIntent =
   | "transcribe"
   | "recommend";
 
-export const AI_PROVIDERS = ["local", "mock"] as const;
+export const AI_PROVIDERS = ["local", "mock", "gemini", "openai"] as const;
 export type AiProviderId = (typeof AI_PROVIDERS)[number];
 
 export const AI_FEATURE_KEYS = [
@@ -237,7 +237,7 @@ export function defaultAiPolicy(): AiPolicy {
     tokenLimit: 3000,
     contextMessages: 16,
     responseChars: 8000,
-    timeoutMs: 12_000,
+    timeoutMs: 20_000,
     costCapUsd: 50,
     estimatedUsdSpent: 0,
     creditCost: 0,

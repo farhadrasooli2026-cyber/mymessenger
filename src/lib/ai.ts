@@ -8,6 +8,7 @@ import { collectSearchHits } from "@/lib/search";
 import { aiDailyCaps, creditBalance, ensureBilling, hasEntitlement } from "@/lib/billing-access";
 import { extractMemoryCandidate, type AiEngineInput } from "@/lib/ai-engine";
 import { completeWithFallback } from "@/lib/ai-providers";
+import { hasLiveAiKeys, NIXO_AI_UNAVAILABLE } from "@/lib/nixo-ai-live";
 import { hydrateAiPersist, pruneAiPersist } from "@/lib/ai-persist";
 import { flagAllows } from "@/lib/flags";
 import {
@@ -204,19 +205,67 @@ export async function listAiMessages(userId: string, chatId: string) {
   return { chat, messages };
 }
 
-export async function sendAiMessage(userId: string, input: z.infer<typeof aiSendSchema> & { regenerateOf?: string }) {
-  return mutateStore((data) => {
+type AiSendOk = {
+  ok: true;
+  chatId: string;
+  userMessage: AiMessageRecord | null;
+  assistant: AiMessageRecord;
+  suggestions?: string[];
+  refused: boolean;
+  uncertain: boolean;
+  replayed?: boolean;
+  provider?: AiProviderId;
+  fallback?: boolean;
+  streaming?: boolean;
+  generatedByAi?: boolean;
+  unavailable?: boolean;
+};
+
+type AiSendErr = {
+  ok: false;
+  status: number;
+  error: string;
+  retryAfterSec?: number;
+  chatId?: string;
+  userMessage?: AiMessageRecord | null;
+  assistant?: AiMessageRecord;
+};
+
+type AiSendPrepared =
+  | { kind: "done"; result: AiSendOk | AiSendErr }
+  | {
+      kind: "run";
+      chatId: string;
+      userMsg: AiMessageRecord;
+      engineIn: AiEngineInput;
+      cacheHit: { text: string; intent: AiIntent } | null;
+      searchNote: string;
+      timeoutMs: number;
+      jobId: string | null;
+      idem: string;
+      cacheKey: string;
+      saveHistory: boolean;
+      memoryEnabled: boolean;
+      cleanText: string;
+      fileHasText: boolean;
+    };
+
+export async function sendAiMessage(
+  userId: string,
+  input: z.infer<typeof aiSendSchema> & { regenerateOf?: string },
+): Promise<AiSendOk | AiSendErr> {
+  const prepared = await mutateStore((data): AiSendPrepared => {
     ensureAi(data);
     const policy = data.aiSys.policy;
     if (!aiCoreAllowed(data, userId)) {
-      return { ok: false as const, status: 503, error: "دستیار AI خاموش است. ورود، پیام، تماس و فایل همچنان کار می‌کنند." };
+      return { kind: "done", result: { ok: false as const, status: 503, error: "دستیار AI خاموش است. ورود، پیام، تماس و فایل همچنان کار می‌کنند." } };
     }
     if (policy.estimatedUsdSpent >= policy.costCapUsd) {
-      return { ok: false as const, status: 429, error: "سقف هزینهٔ مدل پر شد. ادمین می‌تواند Rollback یا سقف را عوض کند." };
+      return { kind: "done", result: { ok: false as const, status: 429, error: "سقف هزینهٔ مدل پر شد. ادمین می‌تواند Rollback یا سقف را عوض کند." } };
     }
     const prefs = prefsOf(data, userId);
     if (input.consentE2ee && !prefs.allowCloudE2ee) {
-      return { ok: false as const, status: 403, error: "ارسال متن چت E2EE به AI ابری در Data Controls خاموش است." };
+      return { kind: "done", result: { ok: false as const, status: 403, error: "ارسال متن چت E2EE به AI ابری در Data Controls خاموش است." } };
     }
     const raw = input.text;
     const clean = sanitizeForAi(raw);
@@ -224,35 +273,38 @@ export async function sendAiMessage(userId: string, input: z.infer<typeof aiSend
     if (injectionAttempt(raw)) {
       log(data, userId, "safety", "prompt-injection");
       return {
-        ok: true as const,
-        chatId: input.chatId ?? "",
-        refused: true,
-        uncertain: false,
-        suggestions: undefined,
-        userMessage: null,
-        assistant: {
-          id: randomId(),
+        kind: "done",
+        result: {
+          ok: true as const,
           chatId: input.chatId ?? "",
-          userId,
-          role: "assistant" as const,
-          text: "دستورهای داخل پیام، محدودیت ایمنی نیکسو را دور نمی‌زنند. بگو چه کار مجازی می‌خواهی.",
-          intent: "chat" as AiIntent,
-          createdAt: Date.now(),
-          generatedByAi: true,
+          refused: true,
+          uncertain: false,
+          suggestions: undefined,
+          userMessage: null,
+          assistant: {
+            id: randomId(),
+            chatId: input.chatId ?? "",
+            userId,
+            role: "assistant" as const,
+            text: "دستورهای داخل پیام، محدودیت ایمنی نیکسو را دور نمی‌زنند. بگو چه کار مجازی می‌خواهی.",
+            intent: "chat" as AiIntent,
+            createdAt: Date.now(),
+            generatedByAi: true,
+          },
         },
       };
     }
     if (looksLikeForeignPrivate(raw) || looksLikeForeignPrivate(fileClean.text)) {
       log(data, userId, "isolation", "foreign-private");
-      return { ok: false as const, status: 403, error: "AI به پیام، فایل یا ciphertext خصوصی دیگران دسترسی ندارد." };
+      return { kind: "done", result: { ok: false as const, status: 403, error: "AI به پیام، فایل یا ciphertext خصوصی دیگران دسترسی ندارد." } };
     }
     if (blocksCallAudio(raw) || (!policy.allowCallAudio && /ضبط تماس|call recording/i.test(raw))) {
       log(data, userId, "isolation", "call-audio");
-      return { ok: false as const, status: 403, error: "صوت تماس بدون مجوز و سیاست ضبط وارد AI نمی‌شود." };
+      return { kind: "done", result: { ok: false as const, status: 403, error: "صوت تماس بدون مجوز و سیاست ضبط وارد AI نمی‌شود." } };
     }
     if (estimateTokens(clean.text + fileClean.text) > policy.tokenLimit) {
       log(data, userId, "abuse", "token-limit");
-      return { ok: false as const, status: 413, error: "درخواست بیش از حد توکن است." };
+      return { kind: "done", result: { ok: false as const, status: 413, error: "درخواست بیش از حد توکن است." } };
     }
 
     const idem = input.idempotencyKey ?? "";
@@ -261,32 +313,44 @@ export async function sendAiMessage(userId: string, input: z.infer<typeof aiSend
       if (prev) {
         const assistant = data.aiMessages.find((m) => m.id === prev.assistantId && m.userId === userId);
         if (assistant) {
-          return { ok: true as const, chatId: prev.chatId, userMessage: null, assistant, suggestions: undefined, refused: false, uncertain: Boolean(assistant.confidence && assistant.confidence < 0.5), replayed: true };
+          return {
+            kind: "done",
+            result: {
+              ok: true as const,
+              chatId: prev.chatId,
+              userMessage: null,
+              assistant,
+              suggestions: undefined,
+              refused: false,
+              uncertain: Boolean(assistant.confidence && assistant.confidence < 0.5),
+              replayed: true,
+            },
+          };
         }
       }
     }
 
     const intent = (input.intent as AiIntent | undefined) ?? undefined;
     if (!featureOn(policy, intent ?? "chat")) {
-      return { ok: false as const, status: 403, error: "این قابلیت AI توسط ادمین خاموش است." };
+      return { kind: "done", result: { ok: false as const, status: 403, error: "این قابلیت AI توسط ادمین خاموش است." } };
     }
     if (policy.requireCredits && policy.creditCost > 0) {
       const pay = chargeCredits(data, userId, idem || `once:${randomId()}`, policy.creditCost);
-      if (!pay.ok) return { ok: false as const, status: 402, error: pay.error };
+      if (!pay.ok) return { kind: "done", result: { ok: false as const, status: 402, error: pay.error } };
     }
     const caps = aiDailyCaps(data, userId);
     const msgLimit = hitRateLimit(data, dayKey(userId, "msg"), 24 * 60 * 60_000, caps.messages);
     if (!msgLimit.allowed) {
       log(data, userId, "abuse", "سقف پیام روزانه AI");
-      return { ok: false as const, status: 429, error: "سقف روزانهٔ پیام AI تمام شد.", retryAfterSec: msgLimit.retryAfterSec };
+      return { kind: "done", result: { ok: false as const, status: 429, error: "سقف روزانهٔ پیام AI تمام شد.", retryAfterSec: msgLimit.retryAfterSec } };
     }
     if (fileClean.text) {
       const f = hitRateLimit(data, dayKey(userId, "file"), 24 * 60 * 60_000, caps.files);
-      if (!f.allowed) return { ok: false as const, status: 429, error: "سقف فایل روزانه." };
+      if (!f.allowed) return { kind: "done", result: { ok: false as const, status: 429, error: "سقف فایل روزانه." } };
     }
     if (intent === "image") {
       const im = hitRateLimit(data, dayKey(userId, "img"), 24 * 60 * 60_000, caps.images);
-      if (!im.allowed) return { ok: false as const, status: 429, error: "سقف تصویر روزانه." };
+      if (!im.allowed) return { kind: "done", result: { ok: false as const, status: 429, error: "سقف تصویر روزانه." } };
     }
 
     let chat = input.chatId ? data.aiChats.find((c) => c.id === input.chatId && c.userId === userId) : undefined;
@@ -332,12 +396,12 @@ export async function sendAiMessage(userId: string, input: z.infer<typeof aiSend
       }
     }
 
-    const recs =
-      intent === "recommend" && prefs.personalization ? aiSafeRecLines(data, userId) : "";
+    const recs = intent === "recommend" && prefs.personalization ? aiSafeRecLines(data, userId) : "";
 
     const cacheKey = simpleHash(`${userId}:${intent ?? ""}:${clean.text}:${chat.model}:${policy.promptVersion}`);
+    const live = hasLiveAiKeys();
     const cacheHit =
-      !fileClean.text && !searchNote && !memory.length
+      !live && !fileClean.text && !searchNote && !memory.length
         ? data.aiSys.cache.find((c) => c.key === cacheKey && c.userId === userId && Date.now() - c.at < 10 * 60_000)
         : undefined;
 
@@ -365,22 +429,70 @@ export async function sendAiMessage(userId: string, input: z.infer<typeof aiSend
       imageHint: input.imageHint,
     };
 
-    const started = Date.now();
-    const out = cacheHit
-      ? { text: cacheHit.text, refused: false, uncertain: true, intent: cacheHit.intent, provider: policy.primaryProvider as AiProviderId, fallback: false }
-      : completeWithFallback(policy, engineIn);
-
-    if (Date.now() - started > policy.timeoutMs) {
-      if (jobId) {
-        const job = data.aiSys.jobs.find((j) => j.id === jobId);
-        if (job) {
-          job.status = "failed";
-          job.doneAt = Date.now();
-        }
-      }
-      return { ok: false as const, status: 504, error: "زمان پاسخ AI تمام شد. هستهٔ پیام قطع نشد." };
+    const userMsg: AiMessageRecord = {
+      id: randomId(),
+      chatId: chat.id,
+      userId,
+      role: "user",
+      text: raw,
+      intent: intent ?? "chat",
+      createdAt: Date.now(),
+    };
+    if (prefs.saveHistory) {
+      data.aiMessages.push(userMsg);
+      chat.updatedAt = Date.now();
+      if (chat.title === "NIXO AI" || chat.title === chat.topic) chat.title = clean.text.slice(0, 36);
     }
 
+    return {
+      kind: "run",
+      chatId: chat.id,
+      userMsg,
+      engineIn,
+      cacheHit: cacheHit ? { text: cacheHit.text, intent: cacheHit.intent } : null,
+      searchNote,
+      timeoutMs: policy.timeoutMs,
+      jobId,
+      idem,
+      cacheKey,
+      saveHistory: prefs.saveHistory,
+      memoryEnabled: prefs.memoryEnabled,
+      cleanText: clean.text,
+      fileHasText: Boolean(fileClean.text),
+    };
+  });
+
+  if (prepared.kind === "done") return prepared.result;
+
+  const started = Date.now();
+  let out: Awaited<ReturnType<typeof completeWithFallback>>;
+  try {
+    if (prepared.cacheHit) {
+      out = {
+        text: prepared.cacheHit.text,
+        refused: false,
+        uncertain: true,
+        intent: prepared.cacheHit.intent,
+        provider: "local",
+        fallback: false,
+      };
+    } else {
+      const snap = await readStoreSnapshot();
+      ensureAi(snap);
+      out = await completeWithFallback(snap.aiSys.policy, prepared.engineIn);
+    }
+  } catch {
+    return persistFailedAiTurn(userId, prepared, NIXO_AI_UNAVAILABLE);
+  }
+
+  if (Date.now() - started > prepared.timeoutMs) {
+    return persistFailedAiTurn(userId, prepared, NIXO_AI_UNAVAILABLE, true);
+  }
+
+  return mutateStore((data) => {
+    ensureAi(data);
+    const policy = data.aiSys.policy;
+    const chat = data.aiChats.find((c) => c.id === prepared.chatId && c.userId === userId);
     const safety = applySafetyLayer(out.text, out.intent);
     if (safety.blocked) log(data, userId, "safety", "output-validation");
     let text = markGenerated(safety.text.slice(0, policy.responseChars), out.intent);
@@ -389,29 +501,16 @@ export async function sendAiMessage(userId: string, input: z.infer<typeof aiSend
     if (variant === "b") text += "\n\n[آزمایش کنترل‌شدهٔ B — همان ایمنی]";
 
     const conf = confidenceFrom(out.uncertain, out.refused);
-    if (out.uncertain) {
-      /* keep engine disclaimer */
+    if (!prepared.cacheHit && !out.refused && !prepared.fileHasText && !prepared.searchNote) {
+      data.aiSys.cache.push({ key: prepared.cacheKey, userId, text, intent: out.intent, at: Date.now() });
     }
 
-    if (!cacheHit && !out.refused && !fileClean.text && !searchNote) {
-      data.aiSys.cache.push({ key: cacheKey, userId, text, intent: out.intent, at: Date.now() });
-    }
-
-    const userMsg: AiMessageRecord = {
-      id: randomId(),
-      chatId: chat.id,
-      userId,
-      role: "user",
-      text: raw,
-      intent: out.intent,
-      createdAt: Date.now(),
-    };
     const asst: AiMessageRecord = {
       id: randomId(),
-      chatId: chat.id,
+      chatId: prepared.chatId,
       userId,
       role: "assistant",
-      text: searchNote ? `نتایج جستجوی مجاز نیکسو:\n${searchNote}\n\n${text}` : text,
+      text: prepared.searchNote ? `نتایج جستجوی مجاز نیکسو:\n${prepared.searchNote}\n\n${text}` : text,
       intent: out.intent,
       createdAt: Date.now() + 1,
       imageSvg: "imageSvg" in out ? out.imageSvg ?? null : null,
@@ -419,35 +518,37 @@ export async function sendAiMessage(userId: string, input: z.infer<typeof aiSend
       confidence: conf,
       provider: out.provider,
       promptVersion: policy.promptVersion,
-      modelVersion: MODEL_VERSIONS[chat.model],
+      modelVersion: chat ? MODEL_VERSIONS[chat.model] : MODEL_VERSIONS.balanced,
       variant,
     };
-    if (prefs.saveHistory) {
-      data.aiMessages.push(userMsg, asst);
-      chat.updatedAt = Date.now();
-      if (chat.title === "NIXO AI" || chat.title === chat.topic) chat.title = clean.text.slice(0, 36);
+    prepared.userMsg.intent = out.intent;
+    if (prepared.saveHistory) {
+      const existing = data.aiMessages.find((m) => m.id === prepared.userMsg.id);
+      if (existing) existing.intent = out.intent;
+      data.aiMessages.push(asst);
+      if (chat) chat.updatedAt = Date.now();
     }
-    if (prefs.memoryEnabled && policy.features.memory) {
-      const fact = extractMemoryCandidate(clean.text);
+    if (prepared.memoryEnabled && policy.features.memory) {
+      const fact = extractMemoryCandidate(prepared.cleanText);
       if (fact && !data.aiMemory.some((m) => m.userId === userId && m.fact === fact)) {
         const row: AiMemoryItem = { id: randomId(), userId, fact, createdAt: Date.now() };
         data.aiMemory.push(row);
       }
     }
-    if (jobId) {
-      const job = data.aiSys.jobs.find((j) => j.id === jobId);
+    if (prepared.jobId) {
+      const job = data.aiSys.jobs.find((j) => j.id === prepared.jobId);
       if (job) {
         job.status = "done";
         job.doneAt = Date.now();
       }
     }
-    if (idem) {
+    if (prepared.idem) {
       data.aiSys.idempotency.push({
-        key: idem,
+        key: prepared.idem,
         userId,
         at: Date.now(),
-        creditRef: `ai:${idem}`,
-        chatId: chat.id,
+        creditRef: `ai:${prepared.idem}`,
+        chatId: prepared.chatId,
         assistantId: asst.id,
       });
     }
@@ -456,8 +557,8 @@ export async function sendAiMessage(userId: string, input: z.infer<typeof aiSend
     log(data, userId, "chat", `intent ${out.intent} ${out.provider}`);
     return {
       ok: true as const,
-      chatId: chat.id,
-      userMessage: userMsg,
+      chatId: prepared.chatId,
+      userMessage: prepared.userMsg,
       assistant: asst,
       suggestions: "suggestions" in out ? out.suggestions : undefined,
       refused: out.refused,
@@ -468,6 +569,49 @@ export async function sendAiMessage(userId: string, input: z.infer<typeof aiSend
       generatedByAi: true,
     };
   });
+}
+
+async function persistFailedAiTurn(
+  userId: string,
+  prepared: Extract<AiSendPrepared, { kind: "run" }>,
+  error: string,
+  timedOut = false,
+): Promise<AiSendErr> {
+  const asst: AiMessageRecord = {
+    id: randomId(),
+    chatId: prepared.chatId,
+    userId,
+    role: "assistant",
+    text: error,
+    intent: prepared.engineIn.intent ?? "chat",
+    createdAt: Date.now() + 1,
+    generatedByAi: true,
+    confidence: 0,
+  };
+  await mutateStore((data) => {
+    ensureAi(data);
+    if (prepared.saveHistory) {
+      data.aiMessages.push(asst);
+      const chat = data.aiChats.find((c) => c.id === prepared.chatId && c.userId === userId);
+      if (chat) chat.updatedAt = Date.now();
+    }
+    if (prepared.jobId) {
+      const job = data.aiSys.jobs.find((j) => j.id === prepared.jobId);
+      if (job) {
+        job.status = "failed";
+        job.doneAt = Date.now();
+      }
+    }
+    log(data, userId, "provider", timedOut ? "live-timeout" : "live-unavailable");
+  });
+  return {
+    ok: false,
+    status: 503,
+    error,
+    chatId: prepared.chatId,
+    userMessage: prepared.userMsg,
+    assistant: asst,
+  };
 }
 
 export async function setAiFeedback(userId: string, messageId: string, feedback: "up" | "down" | null) {
@@ -557,7 +701,7 @@ export async function setChatModel(userId: string, chatId: string, model: AiMode
 }
 
 export async function adminAssist(userId: string, kind: "announce" | "spam" | "summary", text: string) {
-  return mutateStore((data) => {
+  const prepared = await mutateStore((data) => {
     ensureAi(data);
     if (!aiCoreAllowed(data, userId)) {
       return { ok: false as const, status: 503, error: "AI خاموش است." };
@@ -566,13 +710,24 @@ export async function adminAssist(userId: string, kind: "announce" | "spam" | "s
     if (!prefs.groupAssist && !prefs.channelAssist) {
       return { ok: false as const, status: 403, error: "AI گروه/کانال در Data Controls خاموش است. پیام‌های خصوصی گروه پیش‌فرض خوانده نمی‌شوند." };
     }
-    const out = completeWithFallback(data.aiSys.policy, {
+    return {
+      ok: true as const,
+      policy: data.aiSys.policy,
+      model: prefs.model,
+    };
+  });
+  if (!prepared.ok) return prepared;
+  try {
+    const out = await completeWithFallback(prepared.policy, {
       text,
       intent: kind === "spam" ? "spam" : kind === "summary" ? "summarize" : "write",
       topic: "business",
-      model: prefs.model,
+      model: prepared.model,
     });
-    log(data, userId, "tool", `admin ${kind} human-review-required`);
+    await mutateStore((data) => {
+      ensureAi(data);
+      log(data, userId, "tool", `admin ${kind} human-review-required`);
+    });
     return {
       ok: true as const,
       text: out.text,
@@ -580,7 +735,9 @@ export async function adminAssist(userId: string, kind: "announce" | "spam" | "s
       cannotBan: true,
       needsHuman: kind === "spam",
     };
-  });
+  } catch {
+    return { ok: false as const, status: 503, error: NIXO_AI_UNAVAILABLE };
+  }
 }
 
 export async function aiOpsDashboard() {

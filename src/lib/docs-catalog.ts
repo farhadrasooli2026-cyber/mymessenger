@@ -100,6 +100,7 @@ export const DOC_API_PATHS = [
   "/api/billing",
   "/api/prod",
   "/api/ai",
+  "/api/nixo-ai",
   "/api/ai/ops",
   "/api/cloud",
   "/api/edge",
@@ -291,7 +292,7 @@ POST /api/chats/:id  body: { ciphertext, nonce, enc, clientNonce }
 \`GET/POST /api/prod\` با \`prod.view\` / \`prod.manage\`. امتیاز، Smoke داخلی، یخ‌زدگی انتشار، تأیید Release. Secret در پاسخ نیست.
 
 ## هوش مصنوعی
-\`GET/POST /api/ai\` نشست کاربر. \`GET/POST /api/ai/ops\` با \`ai.view\` / \`ai.manage\`. کلید Provider در پاسخ نیست. شکست AI روی \`503\` است و هستهٔ پیام را قطع نمی‌کند.
+\`GET/POST /api/ai\` نشست کاربر. \`POST /api/nixo-ai\` پرامپت را به Gemini 1.5 Flash یا GPT-4o-mini می‌فرستد. \`GET/POST /api/ai/ops\` با \`ai.view\` / \`ai.manage\`. کلید Provider در پاسخ نیست. شکست مدل زنده روی \`503\` است و هستهٔ پیام را قطع نمی‌کند.
 
 ## ابر
 \`GET/POST /api/cloud\` با \`cloud.view\` / \`cloud.manage\`. Auto Scaling با min/max و cooldown. Secret و connection string در پاسخ نیست.
@@ -308,7 +309,7 @@ POST /api/chats/:id  body: { ciphertext, nonce, enc, clientNonce }
 ## Changelog API (0.1.0)
 - افزودن \`/api/version\`، \`/api/deploy\`، \`/api/docs\`، \`/api/i18n\`
 - \`X-NIXO-App-Version\`
-- \`/api/ai\` و \`/api/ai/ops\`
+- \`/api/ai\` و \`/api/ai/ops\` و \`/api/nixo-ai\`
 - \`/api/cloud\`
 - \`/api/edge\``,
   }),
@@ -737,10 +738,10 @@ DAU/WAU/MAU، Retention، Cohort، Churn، قیف ثبت‌نام، پیام (ف
     owner: DOCS_OWNERS.safety,
     summary: "لایهٔ AI مستقل با Provider Abstraction، حریم، رضایت، سقف مصرف و Kill بدون قطع پیام‌رسانی.",
     tags: ["ai", "privacy", "provider", "consent", "moderation", "credits"],
-    body: `مرکز کاربر: \`/app/ai\` و Settings → هوش مصنوعی. ادمین: زبانهٔ هوش مصنوعی. فایل: \`docs/AI.md\`. API \`/api/ai\` و \`/api/ai/ops\`.
+    body: `مرکز کاربر: \`/app/ai\` و Settings → هوش مصنوعی. ادمین: زبانهٔ هوش مصنوعی. فایل: \`docs/AI.md\`. API \`/api/ai\`، \`/api/nixo-ai\` و \`/api/ai/ops\`.
 
 ## جداسازی
-موتور داخلی پیش‌فرض است. کلید Provider به کلاینت نمی‌رود. شکست Provider هسته را Down نمی‌کند.
+پاسخ چت از Gemini 1.5 Flash یا GPT-4o-mini است. کلید Provider به کلاینت نمی‌رود. شکست مدل هستهٔ پیام را Down نمی‌کند.
 
 ## حریم
 Secret و کارت از Prompt حذف می‌شوند. جستجو فقط نتایج مجاز. تماس و ضبط بدون Policy وارد مدل نمی‌شود. Embedding و Cache با userId جدا می‌مانند.

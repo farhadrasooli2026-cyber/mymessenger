@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hashIp } from "./crypto-utils";
 import { completeProfile } from "./profile";
 import { getOutbox } from "./outbox";
@@ -7,6 +7,7 @@ import { mutateStore, resetStoreForTests } from "./store";
 import { resetCircuitsForTests } from "./circuit";
 import { runAiEngine, spamSignal, summarizeText, translateText } from "./ai-engine";
 import { deleteAiHistory, ensureAi, getAiWorkspace, sendAiMessage, updateAiPrefs } from "./ai";
+import { NIXO_AI_UNAVAILABLE } from "./nixo-ai-copy";
 import { creditBalance, ensureBilling } from "./billing-access";
 import { sanitizeForAi, vectorAllowed } from "./ai-privacy";
 
@@ -37,7 +38,14 @@ async function activeUser(username: string) {
 }
 
 describe("NIXO AI", () => {
+  beforeEach(() => {
+    vi.stubEnv("GEMINI_API_KEY", "");
+    vi.stubEnv("OPENAI_API_KEY", "");
+  });
+
   afterEach(async () => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     resetCircuitsForTests();
     await resetStoreForTests();
   });
@@ -103,19 +111,37 @@ describe("NIXO AI", () => {
     expect(call.ok).toBe(false);
   });
 
-  it("falls back to local when mock provider fails", async () => {
-    const id = await activeUser("ai_fb");
-    await mutateStore((data) => {
-      ensureAi(data);
-      data.aiSys.policy.primaryProvider = "mock";
-      data.aiSys.policy.fallbackProvider = "local";
-      data.aiSys.policy.mockFail = true;
-    });
-    const sent = await sendAiMessage(id, { text: "سلام یک پیام کوتاه" });
+  it("stores a live Gemini reply when the API returns text", async () => {
+    const id = await activeUser("ai_live");
+    vi.stubEnv("GEMINI_API_KEY", "test-gemini-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: "پاسخ زندهٔ نیکسو از جمینی" }] } }],
+        }),
+      }),
+    );
+    const sent = await sendAiMessage(id, { text: "یک جمله درباره نیکسو بگو" });
     expect(sent.ok).toBe(true);
     if (!sent.ok) return;
-    expect(sent.fallback).toBe(true);
-    expect(sent.provider).toBe("local");
+    expect(sent.assistant.text).toContain("پاسخ زندهٔ نیکسو از جمینی");
+    expect(sent.provider).toBe("gemini");
+    const ws = await getAiWorkspace(id);
+    expect(ws.chats.length).toBeGreaterThan(0);
+  });
+
+  it("shows the configured error when the live API is down", async () => {
+    const id = await activeUser("ai_live_fail");
+    vi.stubEnv("GEMINI_API_KEY", "test-gemini-key");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network")));
+    const sent = await sendAiMessage(id, { text: "سلام یک پیام کوتاه" });
+    expect(sent.ok).toBe(false);
+    if (sent.ok) return;
+    expect(sent.status).toBe(503);
+    expect(sent.error).toBe(NIXO_AI_UNAVAILABLE);
+    expect(sent.assistant?.text).toBe(NIXO_AI_UNAVAILABLE);
   });
 
   it("kills AI without removing users from the store", async () => {

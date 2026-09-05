@@ -42,7 +42,7 @@ export function classifyPath(pathname: string): PathClass {
   if (p.startsWith("/api/media/catalog") || p.startsWith("/api/media/bg-catalog") || p === "/api/status" || p === "/api/health") return "public-short";
   if (p.startsWith("/api/register") || p.startsWith("/api/security") || p.includes("/login")) return "auth";
   if (p.startsWith("/api/search")) return "search";
-  if (p.startsWith("/api/ai")) return "ai";
+  if (p.startsWith("/api/ai") || p.startsWith("/api/nixo-ai")) return "ai";
   if (p.startsWith("/api/billing") || p.startsWith("/api/shop")) return "pay";
   if (p.includes("/media") || p.startsWith("/api/storage") || p.startsWith("/api/gallery") || p.startsWith("/api/stories")) return "media-private";
   if (p.startsWith("/api/")) return "api-private";
