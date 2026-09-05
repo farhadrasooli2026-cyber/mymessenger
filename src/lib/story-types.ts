@@ -27,6 +27,13 @@ export const STORY_FILTERS = [
 
 export const STORY_STICKERS = ["🔥", "✨", "💚", "🎉", "📍", "🌙", "⭐", "🎵"] as const;
 
+export const STORY_STICKER_GROUPS: { id: string; label: string; items: string[] }[] = [
+  { id: "mood", label: "حال", items: ["🔥", "✨", "💚", "🎉", "😂", "😍", "😎"] },
+  { id: "sky", label: "شب و روز", items: ["🌙", "⭐", "☀️", "🌈"] },
+  { id: "sound", label: "صدا", items: ["🎵", "🎶", "📣"] },
+  { id: "place", label: "مکان", items: ["📍", "✈️", "🏙️", "🏠"] },
+];
+
 export const STATUS_PRESETS = [
   { id: "available", label: "در دسترس" },
   { id: "busy", label: "مشغول" },

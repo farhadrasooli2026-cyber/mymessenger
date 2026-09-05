@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { MoreHorizontal, Pause, Play, Share2, Trash2, Volume2, VolumeX, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { STORY_FILTERS, STORY_MUSIC } from "@/lib/story-types";
+import { cn } from "@/lib/utils";
 
 export type StoryItem = {
   id: string;
@@ -87,16 +89,37 @@ function StoryProgress({
     return () => window.clearInterval(t);
   }, [paused, kind, hold, onAdvance]);
   return (
-    <div className="flex gap-1 px-3 pt-3">
+    <div className="flex gap-1">
       {ids.map((id, i) => (
-        <div key={id} className="h-1 flex-1 overflow-hidden rounded bg-white/20">
+        <div key={id} className="h-0.5 flex-1 overflow-hidden rounded-full bg-white/25">
           <div
-            className="h-full bg-amber-300"
+            className="h-full bg-white"
             style={{ width: i < index ? "100%" : i === index ? `${progress * 100}%` : "0%" }}
           />
         </div>
       ))}
     </div>
+  );
+}
+
+function IconBtn({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      className="grid size-10 place-items-center rounded-full bg-black/35 text-white backdrop-blur-sm"
+    >
+      {children}
+    </button>
   );
 }
 
@@ -126,6 +149,7 @@ export function StoryViewer({
   const [mediaMuted, setMediaMuted] = useState(false);
   const [reply, setReply] = useState("");
   const [reportCat, setReportCat] = useState<(typeof REPORTS)[number]["id"]>("spam");
+  const [moreOpen, setMoreOpen] = useState(false);
   const [viewers, setViewers] = useState<{ viewerName: string; viewedAt: number }[]>([]);
   const [analytics, setAnalytics] = useState<{
     views: number;
@@ -178,293 +202,307 @@ export function StoryViewer({
   if (!story) return null;
   const filterCss = STORY_FILTERS.find((f) => f.id === story.filter)?.css ?? "none";
   const music = STORY_MUSIC.find((m) => m.id === story.musicId);
+  const overlaySize = Math.min(36, Math.max(16, story.textSize ?? 22));
+
+  async function copyShare() {
+    const link = story.shareUrl ? `${window.location.origin}${story.shareUrl}` : `${window.location.origin}/app?story=${story.id}`;
+    void navigator.clipboard.writeText(link);
+    toast.message("لینک با توکن امن کپی شد. باز کردن لینک حریم استوری را دور نمی‌زند.");
+  }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black select-none">
+    <div className="fixed inset-0 z-50 bg-black">
       {items[index + 1]?.mediaUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={items[index + 1]!.mediaUrl} alt="" className="hidden" />
       ) : null}
-      <StoryProgress
-        key={story.id}
-        kind={story.kind}
-        paused={paused}
-        hold={hold}
-        index={index}
-        ids={items.map((it) => it.id)}
-        onAdvance={advance}
-      />
-        <div className="flex items-center justify-between gap-2 px-4 py-2 text-sm text-white">
-        <span>
-          {ownerName}
-          {story.viewed ? " · دیده شده" : " · ندیده"}
-        </span>
-        <div className="flex gap-3">
-          {(story.kind === "video" || story.kind === "audio") && (
-            <button type="button" onClick={() => setMediaMuted((m) => !m)}>
-              {mediaMuted ? "صدا روشن" : "بی‌صدا"}
-            </button>
-          )}
-          <button type="button" onClick={() => setPaused((p) => !p)}>
-            {paused ? "ادامه" : "توقف"}
-          </button>
-          <button type="button" onClick={onClose}>
-            خروج
-          </button>
-        </div>
-      </div>
-      <div
-        className="relative min-h-0 flex-1"
-        onPointerDown={(e) => {
-          hold.current = true;
-          setPaused(true);
-          swipe.current = e.clientX;
-        }}
-        onPointerUp={(e) => {
-          hold.current = false;
-          setPaused(false);
-          if (swipe.current != null) {
-            const dx = e.clientX - swipe.current;
-            if (dx > 60) setIndex((i) => Math.max(0, i - 1));
-            else if (dx < -60) {
+
+      <div className="mx-auto flex h-[100dvh] w-full max-w-[430px] flex-col">
+        <div
+          className="relative min-h-0 flex-1"
+          onPointerDown={(e) => {
+            hold.current = true;
+            setPaused(true);
+            swipe.current = e.clientX;
+          }}
+          onPointerUp={(e) => {
+            hold.current = false;
+            setPaused(false);
+            if (swipe.current != null) {
+              const dx = e.clientX - swipe.current;
+              if (dx > 60) setIndex((i) => Math.max(0, i - 1));
+              else if (dx < -60) {
+                if (index + 1 >= items.length) onClose();
+                else setIndex((i) => i + 1);
+              }
+            }
+            swipe.current = null;
+          }}
+          onClick={(e) => {
+            const x = e.clientX / window.innerWidth;
+            if (x < 0.3) setIndex((i) => Math.max(0, i - 1));
+            else if (x > 0.7) {
               if (index + 1 >= items.length) onClose();
               else setIndex((i) => i + 1);
             }
-          }
-          swipe.current = null;
-        }}
-        onClick={(e) => {
-          const x = e.clientX / window.innerWidth;
-          if (x < 0.3) setIndex((i) => Math.max(0, i - 1));
-          else if (x > 0.7) {
-            if (index + 1 >= items.length) onClose();
-            else setIndex((i) => i + 1);
-          }
-        }}
-      >
-        <div className="absolute inset-0" style={{ background: story.bg }}>
-          {(story.kind === "photo" || story.kind === "gif") && src && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={src}
-              alt=""
-              className="h-full w-full object-cover"
-              style={{
-                filter: `${filterCss} blur(${story.blur ?? 0}px)`,
-                transform: `rotate(${story.rotate}deg) scale(${story.zoom})`,
-                objectPosition: `${story.cropX ?? 50}% ${story.cropY ?? 50}%`,
-              }}
-            />
-          )}
-          {story.kind === "video" && src && (
-            <video
-              src={src}
-              className="h-full w-full object-cover"
-              autoPlay={!paused}
-              muted={mediaMuted}
-              playsInline
-              style={{ filter: filterCss }}
-            />
-          )}
-          {story.kind === "audio" && src && (
-            <div className="grid h-full place-items-center px-8">
-              <audio src={src} autoPlay={!paused} muted={mediaMuted} controls className="w-full" />
+          }}
+        >
+          <div className="absolute inset-0 mx-auto aspect-[9/16] max-h-full w-full overflow-hidden bg-zinc-950 sm:rounded-none">
+            <div className="absolute inset-0" style={{ background: story.bg }}>
+              {(story.kind === "photo" || story.kind === "gif") && src && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={src}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  style={{
+                    filter: `${filterCss} blur(${story.blur ?? 0}px)`,
+                    transform: `rotate(${story.rotate}deg) scale(${story.zoom})`,
+                    objectPosition: `${story.cropX ?? 50}% ${story.cropY ?? 50}%`,
+                  }}
+                />
+              )}
+              {story.kind === "video" && src && (
+                <video src={src} className="h-full w-full object-cover" autoPlay={!paused} muted={mediaMuted} playsInline style={{ filter: filterCss }} />
+              )}
+              {story.kind === "audio" && src && (
+                <div className="grid h-full place-items-center px-8">
+                  <audio src={src} autoPlay={!paused} muted={mediaMuted} controls className="w-full" />
+                </div>
+              )}
+              {(story.kind === "text" || story.kind === "sticker" || story.kind === "location") && (
+                <p
+                  className="grid h-full place-items-center px-8 leading-relaxed text-white"
+                  style={{ textAlign: story.align, fontSize: overlaySize }}
+                >
+                  {story.kind === "location" ? `📍 ${story.location || story.body}` : story.body}
+                </p>
+              )}
+              {story.overlay && (
+                <p
+                  className="pointer-events-none absolute max-w-[80%] text-center leading-snug text-white drop-shadow"
+                  style={{
+                    left: `${story.textX ?? 50}%`,
+                    top: `${story.textY ?? 33}%`,
+                    transform: "translate(-50%, -50%)",
+                    fontSize: overlaySize,
+                  }}
+                >
+                  {story.overlay}
+                </p>
+              )}
+              {(story.stickers ?? []).map((s, i) => (
+                <span key={i} className="pointer-events-none absolute text-4xl" style={{ left: `${s.x}%`, top: `${s.y}%` }}>
+                  {s.emoji}
+                </span>
+              ))}
+            </div>
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/70 to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-36 bg-gradient-to-t from-black/75 to-transparent" />
+          </div>
+
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 px-3 pt-[max(0.6rem,env(safe-area-inset-top))]">
+            <div className="pointer-events-auto">
+              <StoryProgress key={story.id} kind={story.kind} paused={paused} hold={hold} index={index} ids={items.map((it) => it.id)} onAdvance={advance} />
+              <div className="mt-3 flex items-center gap-2 text-white">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{ownerName}</p>
+                  <p className="text-[11px] text-white/60">{story.viewed ? "دیده شده" : "جدید"}</p>
+                </div>
+                {(story.kind === "video" || story.kind === "audio") && (
+                  <IconBtn label={mediaMuted ? "صدا روشن" : "بی‌صدا"} onClick={() => setMediaMuted((m) => !m)}>
+                    {mediaMuted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
+                  </IconBtn>
+                )}
+                <IconBtn label={paused ? "ادامه" : "توقف"} onClick={() => setPaused((p) => !p)}>
+                  {paused ? <Play className="size-4" /> : <Pause className="size-4" />}
+                </IconBtn>
+                <IconBtn label="خروج" onClick={onClose}>
+                  <X className="size-4" />
+                </IconBtn>
+              </div>
+            </div>
+          </div>
+
+          {(story.caption || music) && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-[7.5rem] z-10 px-4">
+              {story.caption && <p className="text-[15px] leading-6 text-white drop-shadow">{story.caption}</p>}
+              {music && <p className="mt-1 text-[11px] text-amber-200/90">♪ {music.label}</p>}
+              {story.linkUrl && (
+                <a href={story.linkUrl} className="pointer-events-auto mt-1 block truncate text-xs text-sky-200 underline" target="_blank" rel="noreferrer">
+                  {story.linkUrl}
+                </a>
+              )}
             </div>
           )}
-          {(story.kind === "text" || story.kind === "sticker" || story.kind === "location") && (
-            <p
-              className="grid h-full place-items-center px-8 leading-10 text-white"
-              style={{ textAlign: story.align, fontSize: story.textSize ?? 24 }}
-            >
-              {story.kind === "location" ? `📍 ${story.location || story.body}` : story.body}
-            </p>
-          )}
-          {story.overlay && (
-            <p className="pointer-events-none absolute text-center text-5xl" style={{ left: `${story.textX ?? 50}%`, top: `${story.textY ?? 33}%`, transform: "translate(-50%, -50%)" }}>
-              {story.overlay}
-            </p>
-          )}
-          {(story.stickers ?? []).map((s, i) => (
-            <span key={i} className="pointer-events-none absolute text-4xl" style={{ left: `${s.x}%`, top: `${s.y}%` }}>
-              {s.emoji}
-            </span>
-          ))}
         </div>
-      </div>
-      <div
-        className="space-y-2 bg-black/70 p-3 pb-[calc(1rem+env(safe-area-inset-bottom))] text-white"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {story.caption && <p className="text-sm">{story.caption}</p>}
-        {music && <p className="text-[11px] text-amber-200">♪ {music.label} · منبع مجاز نیکسو</p>}
-        {story.linkUrl && (
-          <a href={story.linkUrl} className="block text-xs text-sky-200 underline" target="_blank" rel="noreferrer">
-            {story.linkUrl}
-          </a>
-        )}
-        {story.allowReactions !== false && (
-        <div className="flex gap-2 text-lg">
-          {REACTS.map((e) => (
-            <button
-              key={e}
-              type="button"
-              onClick={() =>
-                void fetch(`/api/stories/${story.id}`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ action: "react", emoji: e }),
-                }).then((r) => {
-                  if (r.ok) toast.success("واکنش برای صاحب استوری ارسال شد.");
-                })
-              }
-            >
-              {e}
-            </button>
-          ))}
-        </div>
-        )}
-        {!isOwner && story.allowReplies !== false && (
-          <form
-            className="flex gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void fetch(`/api/stories/${story.id}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ action: "reply", body: reply }),
-              }).then((r) => {
-                if (r.ok) {
-                  toast.success("پاسخ در صندوق استوری صاحب ثبت شد و اعلان گفتگو می‌آید. متن داخل پاکت E2EE چت تزریق نمی‌شود.");
-                  setReply("");
-                }
-              });
-            }}
-          >
-            <Input value={reply} onChange={(e) => setReply(e.target.value)} placeholder="پاسخ خصوصی به استوری" className="h-9 bg-white/10" />
-            <Button type="submit" size="sm" className="bg-amber-300 text-[#102824]">
-              ارسال
-            </Button>
-          </form>
-        )}
-        {story.allowShare && (
-          <button
-            type="button"
-            className="text-[11px] text-emerald-100/70"
-            onClick={() => {
-              const link = story.shareUrl
-                ? `${window.location.origin}${story.shareUrl}`
-                : `${window.location.origin}/app?story=${story.id}`;
-              void navigator.clipboard.writeText(link);
-              toast.message("لینک با توکن امن کپی شد. باز کردن لینک حریم استوری را دور نمی‌زند.");
-            }}
-          >
-            اشتراک لینک
-          </button>
-        )}
-        {!isOwner && authorId && onMute && !authorId.startsWith("channel:") && (
-          <button type="button" className="block text-[11px] text-emerald-100/70" onClick={() => onMute(!muted)}>
-            {muted ? "Unmute استوری" : "Mute استوری این کاربر"}
-          </button>
-        )}
-        {!isOwner && authorId && !authorId.startsWith("channel:") && (
-          <button
-            type="button"
-            className="block text-[11px] text-rose-200"
-            onClick={async () => {
-              await fetch("/api/privacy", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ action: "block", peerKey: authorId, blocked: true }),
-              });
-              toast.message("حساب مسدود شد. استوری‌های بعدی دیده نمی‌شوند.");
-              onClose();
-            }}
-          >
-            Block
-          </button>
-        )}
-        {!isOwner && (
-          <div className="flex items-center gap-2">
-            <select
-              className="rounded bg-white/10 px-2 py-1 text-[11px]"
-              value={reportCat}
-              onChange={(e) => setReportCat(e.target.value as typeof reportCat)}
-            >
-              {REPORTS.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
+
+        <div
+          className="z-20 shrink-0 space-y-2 bg-black px-3 pb-[max(0.85rem,env(safe-area-inset-bottom))] pt-2 text-white"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {story.allowReactions !== false && (
+            <div className="flex justify-between gap-1">
+              {REACTS.map((e) => (
+                <button
+                  key={e}
+                  type="button"
+                  className="grid size-11 flex-1 place-items-center rounded-full bg-white/8 text-lg"
+                  onClick={() =>
+                    void fetch(`/api/stories/${story.id}`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "react", emoji: e }),
+                    }).then((r) => {
+                      if (r.ok) toast.success("واکنش برای صاحب استوری ارسال شد.");
+                    })
+                  }
+                >
+                  {e}
+                </button>
               ))}
-            </select>
-            <button
-              type="button"
-              className="text-[11px] text-rose-200"
-              onClick={async () => {
-                await fetch("/api/reports", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ targetKind: "story", targetKey: story.id, category: reportCat === "illegal" ? "other" : reportCat === "scam" ? "abuse" : reportCat }),
-                });
-                toast.message("گزارش ثبت شد.");
-              }}
-            >
-              گزارش
-            </button>
-          </div>
-        )}
-        {isOwner && (
-          <>
-            {analytics && (
-              <p className="text-[11px] text-emerald-100/70">
-                آمار: {analytics.views} بازدید · {analytics.reach} reach · {analytics.reactions} واکنش · {analytics.replies} پاسخ · engagement {analytics.engagement}
-                {typeof analytics.completionRate === "number" ? ` · تکمیل ${analytics.completionRate}%` : ""}
-              </p>
-            )}
-            <p className="text-[11px] text-emerald-100/70">
-              بینندگان:{" "}
-              {viewers.map((v) => `${v.viewerName} · ${new Date(v.viewedAt).toLocaleTimeString("fa-IR")}`).join("، ") ||
-                "هنوز کسی ندیده"}
-            </p>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={async () => {
-                if (!confirm("استوری حذف شود؟")) return;
-                await fetch(`/api/stories/${story.id}`, { method: "DELETE" });
-                onDeleted?.();
-                onClose();
-              }}
-            >
-              حذف استوری
-            </Button>
-            {story.expired && (
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={async () => {
-                  const res = await fetch(`/api/stories/${story.id}`, {
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            {!isOwner && story.allowReplies !== false ? (
+              <form
+                className="flex min-w-0 flex-1 gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void fetch(`/api/stories/${story.id}`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ action: "restore" }),
+                    body: JSON.stringify({ action: "reply", body: reply }),
+                  }).then((r) => {
+                    if (r.ok) {
+                      toast.success("پاسخ در صندوق استوری صاحب ثبت شد و اعلان گفتگو می‌آید. متن داخل پاکت E2EE چت تزریق نمی‌شود.");
+                      setReply("");
+                    }
                   });
-                  if (res.ok) {
-                    toast.success("استوری از آرشیو بازیابی شد و دوباره ۲۴ ساعت زنده است.");
-                    onDeleted?.();
-                  } else toast.error("بازیابی ممکن نشد.");
                 }}
               >
-                بازیابی از آرشیو
-              </Button>
+                <Input value={reply} onChange={(e) => setReply(e.target.value)} placeholder="پاسخ خصوصی…" className="h-11 rounded-full border-white/10 bg-white/8" />
+                <Button type="submit" size="sm" className="h-11 rounded-full bg-amber-300 px-4 text-[#102824]">
+                  ارسال
+                </Button>
+              </form>
+            ) : (
+              <div className="min-w-0 flex-1 text-[11px] text-white/40">{isOwner ? "بازدیدکنندگان در منوی بیشتر" : " "}</div>
             )}
-            <p className="text-[10px] text-emerald-100/45">تا قبل از انقضا می‌توانی کپشن و حریم را ویرایش کنی. حذف رسانه را باطل می‌کند.</p>
-          </>
-        )}
-        <p className="text-[10px] text-emerald-100/40">
-          نیکسو ادعا نمی‌کند عکس از صفحه با دستگاه دیگر را ۱۰۰٪ متوقف کند. در سیستم‌عامل‌هایی که اجازه بدهند، محدودیت‌های صفحه اعمال می‌شود.
-        </p>
+            {story.allowShare && (
+              <IconBtn label="اشتراک" onClick={() => void copyShare()}>
+                <Share2 className="size-4" />
+              </IconBtn>
+            )}
+            {isOwner && (
+              <IconBtn
+                label="حذف"
+                onClick={async () => {
+                  if (!confirm("استوری حذف شود؟")) return;
+                  await fetch(`/api/stories/${story.id}`, { method: "DELETE" });
+                  onDeleted?.();
+                  onClose();
+                }}
+              >
+                <Trash2 className="size-4" />
+              </IconBtn>
+            )}
+            <IconBtn label="بیشتر" onClick={() => setMoreOpen((v) => !v)}>
+              <MoreHorizontal className="size-4" />
+            </IconBtn>
+          </div>
+
+          {moreOpen && (
+            <div className="space-y-2 rounded-2xl bg-white/8 p-3 text-sm">
+              {!isOwner && authorId && onMute && !authorId.startsWith("channel:") && (
+                <button type="button" className="block w-full py-2 text-start" onClick={() => onMute(!muted)}>
+                  {muted ? "نمایش استوری‌های این کاربر" : "بی‌صدا کردن استوری این کاربر"}
+                </button>
+              )}
+              {!isOwner && authorId && !authorId.startsWith("channel:") && (
+                <button
+                  type="button"
+                  className="block w-full py-2 text-start text-rose-200"
+                  onClick={async () => {
+                    await fetch("/api/privacy", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "block", peerKey: authorId, blocked: true }),
+                    });
+                    toast.message("حساب مسدود شد. استوری‌های بعدی دیده نمی‌شوند.");
+                    onClose();
+                  }}
+                >
+                  مسدود کردن
+                </button>
+              )}
+              {!isOwner && (
+                <div className="flex items-center gap-2 pt-1">
+                  <select className="h-10 flex-1 rounded-xl bg-black/40 px-2 text-xs" value={reportCat} onChange={(e) => setReportCat(e.target.value as typeof reportCat)}>
+                    {REPORTS.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="text-xs text-rose-200"
+                    onClick={async () => {
+                      await fetch("/api/reports", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          targetKind: "story",
+                          targetKey: story.id,
+                          category: reportCat === "illegal" ? "other" : reportCat === "scam" ? "abuse" : reportCat,
+                        }),
+                      });
+                      toast.message("گزارش ثبت شد.");
+                    }}
+                  >
+                    گزارش
+                  </button>
+                </div>
+              )}
+              {isOwner && analytics && (
+                <p className={cn("text-[11px] leading-5 text-white/65")}>
+                  {analytics.views} بازدید · {analytics.reach} reach · {analytics.reactions} واکنش · {analytics.replies} پاسخ
+                  {typeof analytics.completionRate === "number" ? ` · تکمیل ${analytics.completionRate}٪` : ""}
+                </p>
+              )}
+              {isOwner && (
+                <p className="text-[11px] leading-5 text-white/55">
+                  بینندگان: {viewers.map((v) => `${v.viewerName} · ${new Date(v.viewedAt).toLocaleTimeString("fa-IR")}`).join("، ") || "هنوز کسی ندیده"}
+                </p>
+              )}
+              {isOwner && story.expired && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="w-full"
+                  onClick={async () => {
+                    const res = await fetch(`/api/stories/${story.id}`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "restore" }),
+                    });
+                    if (res.ok) {
+                      toast.success("استوری از آرشیو بازیابی شد و دوباره ۲۴ ساعت زنده است.");
+                      onDeleted?.();
+                    } else toast.error("بازیابی ممکن نشد.");
+                  }}
+                >
+                  بازیابی از آرشیو
+                </Button>
+              )}
+              <p className="text-[10px] leading-4 text-white/35">نیکسو ادعا نمی‌کند عکس از صفحه با دستگاه دیگر را ۱۰۰٪ متوقف کند.</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
