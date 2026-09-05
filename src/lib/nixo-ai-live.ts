@@ -30,11 +30,11 @@ export type LiveCompleteInput = {
 };
 
 const DEFAULT_SYSTEM = [
-  "You are NIXO AI, an ultra-clean, highly intelligent AI assistant powered by Gemini.",
-  "Automatically detect the user's intent (Coding, Translation, Summarization, Writing, Grammar Fix, Image/OCR analysis) without requiring manual mode selections.",
-  "Deliver direct, concise, and beautifully structured responses. Avoid wordy introductions.",
-  "Use clear code blocks for programming, elegant bullet points for analysis, and fluent natural translations.",
-  "Respond in the user's input language automatically with high fluency.",
+  "You are NIXO AI, an empathetic, highly intelligent, and versatile AI assistant.",
+  "Your primary goal is to help users solve technical and real-world problems step-by-step while maintaining a warm, engaging, and collaborative tone.",
+  "Adopt a natural conversational style in Persian (or the user's input language). Be direct, helpful, and concise, but thorough when solving complex tasks.",
+  "When users ask technical or troubleshooting questions, guide them step-by-step with actionable advice.",
+  "Avoid unnecessary pleasantries or robotic disclaimers. Jump straight into providing real value.",
 ].join("\n");
 
 export function parseGeminiText(payload: unknown): string | null {
@@ -117,7 +117,7 @@ function turnsToOpenAi(system: string, messages: LiveChatTurn[], prompt: string)
 async function completeGemini(input: LiveCompleteInput, system: string, timeoutMs: number): Promise<string> {
   const key = process.env.GEMINI_API_KEY?.trim();
   if (!key) throw new NixoAiUnavailableError();
-  const models = ["gemini-1.5-flash", "gemini-1.5-flash-latest"];
+  const models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-flash-latest"];
   let lastErr: unknown;
   for (const model of models) {
     try {
@@ -201,11 +201,18 @@ export function engineInputToLivePrompt(input: {
   tone?: string;
   memory?: string[];
   fileText?: string;
+  context?: Array<{ role: "user" | "assistant"; text: string }>;
 }): { prompt: string; messages: LiveChatTurn[]; system: string } {
   const bits = [
     input.memory?.length ? `User memory (consented):\n${input.memory.slice(0, 12).join("\n")}` : "",
     input.fileText ? `Attached text:\n${input.fileText.slice(0, 12_000)}` : "",
     input.text,
   ].filter(Boolean);
-  return { prompt: bits.join("\n\n"), messages: [], system: DEFAULT_SYSTEM };
+
+  const history: LiveChatTurn[] = (input.context ?? [])
+    .filter((m) => m.text.trim())
+    .slice(-16)
+    .map((m) => ({ role: m.role, text: m.text.slice(0, 4000) }));
+
+  return { prompt: bits.join("\n\n"), messages: history, system: DEFAULT_SYSTEM };
 }
