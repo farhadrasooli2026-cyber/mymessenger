@@ -1285,7 +1285,7 @@ export function Messenger({
         <NixoMark size={36} />
         <NavBtn icon={MessageCircle} label={t("nav.chats")} active={tab === "chats"} onClick={() => setTab("chats")} />
         <NavBtn icon={Radio} label={t("nav.updates")} active={tab === "updates"} onClick={() => { setTab("updates"); setMobileChat(true); }} />
-        <NavBtn icon={Phone} label={t("nav.calls")} active={tab === "calls"} onClick={() => setTab("calls")} />
+        <NavBtn icon={Phone} label={t("nav.calls")} active={tab === "calls"} onClick={() => { setTab("calls"); setMobileChat(true); }} />
         <NavBtn icon={Users} label={t("nav.contacts")} active={tab === "contacts"} onClick={() => setTab("contacts")} />
         <NavBtn icon={Landmark} label={t("nav.communities")} active={tab === "communities"} onClick={() => setTab("communities")} />
         <NavBtn icon={Bookmark} label={t("nav.saved")} active={tab === "saved"} onClick={() => { setTab("saved"); setSavedOpen(true); }} />
@@ -1294,8 +1294,8 @@ export function Messenger({
       <aside
         className={cn(
           "nixo-glass-panel flex w-full max-w-full flex-col border-white/10 bg-[#0b2421] max-md:max-w-none md:w-[320px] lg:w-[360px] md:border-s",
-          (mobileChat || tab === "communities" || tab === "updates") && "hidden md:flex",
-          (tab === "communities" || tab === "updates") && "md:hidden",
+          (mobileChat || tab === "communities" || tab === "updates" || tab === "calls") && "hidden md:flex",
+          (tab === "communities" || tab === "updates" || tab === "calls") && "md:hidden",
         )}
         aria-label="فهرست گفتگو"
       >
@@ -1305,7 +1305,6 @@ export function Messenger({
           onQueryChange={setQuery}
           activeKey={inboxActiveKey}
           onOpen={openInboxItem}
-          onOpenAi={() => router.push("/app/ai")}
           onCamera={() => void openStory()}
           onNewChat={() => setNewChatOpen(true)}
           onNewGroup={() => setCreateGroup(true)}
@@ -1319,7 +1318,7 @@ export function Messenger({
       <section
         className={cn(
           "relative min-w-0 flex-1 flex-col overflow-x-hidden pb-16 md:pb-0",
-          mobileChat || tab === "communities" || tab === "updates" ? "flex" : "hidden md:flex",
+          mobileChat || tab === "communities" || tab === "updates" || tab === "calls" ? "flex" : "hidden md:flex",
         )}
       >
         {tab === "chats" && savedOpen ? (

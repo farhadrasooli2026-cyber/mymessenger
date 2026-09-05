@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Camera, MoreVertical, Pencil, Plus } from "lucide-react";
+import { Camera, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { HeaderOverflowButton, NixoAiHeaderButton, OverflowRow } from "@/components/nixo-header-tools";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -173,66 +174,62 @@ export function UpdatesDesk({
     await loadChannels();
   }
 
+  async function readAll() {
+    setMenu(false);
+    const res = await fetch("/api/inbox", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "read-all" }),
+    });
+    if (!res.ok) toast.error("Read All failed.");
+    else toast.success("All updates marked as read.");
+    await loadChannels();
+  }
+
   const mine = rings.find((r) => r.ownerId === userId);
   const others = rings.filter((r) => r.ownerId !== userId);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-[#071614] text-emerald-50" dir="ltr">
       <header className="flex items-center justify-between px-4 pb-1 pt-4">
-        <div className="relative">
-          <button
-            type="button"
-            className="grid size-10 place-items-center rounded-full text-emerald-100/80 hover:bg-white/10"
-            aria-label="More"
-            onClick={() => setMenu((v) => !v)}
-          >
-            <MoreVertical className="size-5" />
-          </button>
-          {menu && (
-            <div className="absolute start-0 z-30 mt-1 w-56 overflow-hidden rounded-2xl bg-[#16332f] py-1 text-sm shadow-xl">
-              <button
-                type="button"
-                className="block w-full px-4 py-2.5 text-left hover:bg-white/10"
-                onClick={() => {
-                  setSelecting(true);
-                  setMenu(false);
-                  setPicked([]);
-                }}
-              >
-                Select channels
-              </button>
-              <button
-                type="button"
-                className="block w-full px-4 py-2.5 text-left hover:bg-white/10"
-                onClick={() => {
-                  setMenu(false);
-                  onCreateChannel();
-                }}
-              >
-                Create channel
-              </button>
-              <button
-                type="button"
-                className="block w-full px-4 py-2.5 text-left hover:bg-white/10"
-                onClick={() => {
-                  setMenu(false);
-                  setPrivacy(true);
-                }}
-              >
-                Status privacy
-              </button>
-              <button
-                type="button"
-                className="block w-full px-4 py-2.5 text-left hover:bg-white/10"
-                onClick={() => {
-                  setMenu(false);
-                  setAds(true);
-                }}
-              >
-                Ad preferences
-              </button>
-            </div>
-          )}
+        <div className="flex items-center gap-0.5">
+          <HeaderOverflowButton open={menu} onToggle={() => setMenu((v) => !v)}>
+            <OverflowRow
+              onClick={() => {
+                setSelecting(true);
+                setMenu(false);
+                setPicked([]);
+              }}
+            >
+              Select
+            </OverflowRow>
+            <OverflowRow onClick={() => void readAll()}>Read All</OverflowRow>
+            <OverflowRow
+              onClick={() => {
+                setMenu(false);
+                onCreateChannel();
+              }}
+            >
+              Create channel
+            </OverflowRow>
+            <OverflowRow
+              onClick={() => {
+                setMenu(false);
+                setPrivacy(true);
+              }}
+            >
+              Status privacy
+            </OverflowRow>
+            <OverflowRow
+              onClick={() => {
+                setMenu(false);
+                setAds(true);
+              }}
+            >
+              Ad preferences
+            </OverflowRow>
+          </HeaderOverflowButton>
+          <NixoAiHeaderButton />
         </div>
         <h1 className="text-[28px] font-semibold tracking-tight">Updates</h1>
         <span className="w-10" />

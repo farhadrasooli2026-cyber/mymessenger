@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   NIXO_LOGO,
@@ -6,7 +8,14 @@ import {
   publicAvatarFor,
   PUBLIC_AVATARS,
   PUBLIC_BACKGROUNDS,
+  PUBLIC_WALLPAPERS,
 } from "./public-assets";
+
+const publicDir = path.resolve(process.cwd(), "public");
+
+function onDisk(urlPath: string) {
+  return existsSync(path.join(publicDir, urlPath.replace(/^\//, "")));
+}
 
 describe("public static assets", () => {
   it("exposes the app logo and named avatar/background files", () => {
@@ -15,6 +24,14 @@ describe("public static assets", () => {
     expect(PUBLIC_AVATARS.some((a) => a.path === "/avatars/boy-1.jpg")).toBe(true);
     expect(PUBLIC_BACKGROUNDS.some((b) => b.path === "/backgrounds/bg-1.jpg")).toBe(true);
     expect(PUBLIC_BACKGROUNDS.some((b) => b.path === "/backgrounds/bg-3.png")).toBe(true);
+  });
+
+  it("ships every catalog file under public/", () => {
+    expect(onDisk(NIXO_LOGO)).toBe(true);
+    expect(onDisk("/nixo-logo.png")).toBe(true);
+    for (const item of [...PUBLIC_AVATARS, ...PUBLIC_BACKGROUNDS, ...PUBLIC_WALLPAPERS]) {
+      expect(onDisk(item.path)).toBe(true);
+    }
   });
 
   it("only allows catalog public paths", () => {

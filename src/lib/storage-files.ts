@@ -37,7 +37,7 @@ export async function readVaultBlob(ownerUserId: string, storageKey: string): Pr
   const p = vaultObjectPath(ownerUserId, storageKey);
   if (!p) return null;
   try {
-    const raw = await readFile(p);
+    const raw = await readFile(/* turbopackIgnore: true */ p);
     return unwrapVaultBytes(raw);
   } catch {
     return null;
@@ -78,7 +78,7 @@ export async function vaultBlobSize(ownerUserId: string, storageKey: string): Pr
   const p = vaultObjectPath(ownerUserId, storageKey);
   if (!p) return null;
   try {
-    return (await stat(p)).size;
+    return (await stat(/* turbopackIgnore: true */ p)).size;
   } catch {
     return null;
   }

@@ -8,12 +8,12 @@ import {
   Grid3x3,
   Heart,
   Info,
-  MoreVertical,
   Phone,
   Plus,
   Search,
 } from "lucide-react";
 import { toast } from "sonner";
+import { HeaderOverflowButton, NixoAiHeaderButton, OverflowRow } from "@/components/nixo-header-tools";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -140,33 +140,20 @@ export function CallsTab({
   return (
     <div className="flex h-full flex-col overflow-auto pb-24 text-emerald-50 md:pb-6" dir="ltr">
       <header className="flex items-center justify-between px-3 pt-4">
-        <div className="relative">
-          <button
-            type="button"
-            className="grid size-10 place-items-center rounded-full hover:bg-white/10"
-            aria-label="More"
-            onClick={() => setMenu((v) => !v)}
-          >
-            <MoreVertical className="size-5" />
-          </button>
-          {menu && (
-            <div className="absolute start-0 top-11 z-30 min-w-52 overflow-hidden rounded-2xl border border-white/10 bg-[#122e2a] py-1 text-sm shadow-2xl">
-              <button
-                type="button"
-                className="block w-full px-4 py-2.5 text-start hover:bg-white/10"
-                onClick={() => {
-                  setMenu(false);
-                  setSelecting(true);
-                  setPicked([]);
-                }}
-              >
-                Select Calls
-              </button>
-              <button type="button" className="block w-full px-4 py-2.5 text-start hover:bg-white/10" onClick={() => void readAll()}>
-                Read All
-              </button>
-            </div>
-          )}
+        <div className="flex items-center gap-0.5">
+          <HeaderOverflowButton open={menu} onToggle={() => setMenu((v) => !v)}>
+            <OverflowRow
+              onClick={() => {
+                setMenu(false);
+                setSelecting(true);
+                setPicked([]);
+              }}
+            >
+              Select
+            </OverflowRow>
+            <OverflowRow onClick={() => void readAll()}>Read All</OverflowRow>
+          </HeaderOverflowButton>
+          <NixoAiHeaderButton />
         </div>
         <h1 className="text-xl font-semibold">Calls</h1>
         <button

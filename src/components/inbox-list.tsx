@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Camera, Mic, MoreVertical, Phone, Plus, Search, Sparkles, Video } from "lucide-react";
+import { Camera, Mic, Phone, Plus, Search, Video } from "lucide-react";
 import { toast } from "sonner";
-import { NixoMark } from "@/components/nixo-mark";
+import { NixoAiHeaderButton, HeaderOverflowButton, OverflowRow } from "@/components/nixo-header-tools";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MUTE_CHAT_PRESETS } from "@/lib/notify-types";
@@ -101,7 +101,6 @@ export function InboxList({
   onOpen,
   activeKey,
   accountId,
-  onOpenAi,
   onCamera,
   onNewChat,
   onNewGroup,
@@ -112,7 +111,6 @@ export function InboxList({
   activeKey?: string | null;
   accountId: string;
   onOpen: (item: InboxItem) => void;
-  onOpenAi?: () => void;
   onCamera?: () => void;
   onNewChat?: () => void;
   onNewGroup?: () => void;
@@ -274,46 +272,19 @@ export function InboxList({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between px-2 pb-1 pt-2">
         <div className="relative flex items-center gap-0.5">
-          <button
-            type="button"
-            className="grid size-10 place-items-center rounded-full text-emerald-50 hover:bg-white/10"
-            aria-label="منوی گفتگوها"
-            aria-expanded={headerMenu}
-            onClick={(e) => {
-              e.stopPropagation();
-              setHeaderMenu((v) => !v);
-              setPlusMenu(false);
-            }}
-          >
-            <MoreVertical className="size-5" />
-          </button>
-          <button
-            type="button"
-            className="flex h-10 items-center gap-1 rounded-full px-2 text-cyan-200 hover:bg-white/10"
-            aria-label="Nixo AI"
-            onClick={() => onOpenAi?.()}
-          >
-            <NixoMark size={22} />
-            <Sparkles className="size-3.5" />
-            <span className="text-[11px] font-semibold tracking-wide">AI</span>
-          </button>
-          {headerMenu && (
-            <div
-              className="absolute start-0 top-11 z-40 min-w-56 overflow-hidden rounded-2xl border border-white/10 bg-[#122e2a] py-1 text-sm shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
+          <HeaderOverflowButton open={headerMenu} onToggle={() => { setHeaderMenu((v) => !v); setPlusMenu(false); }}>
+            <OverflowRow
+              onClick={() => {
+                setHeaderMenu(false);
+                setSelecting(true);
+                setPicked([]);
+              }}
             >
-              <MenuRow
-                onClick={() => {
-                  setHeaderMenu(false);
-                  setSelecting(true);
-                  setPicked([]);
-                }}
-              >
-                انتخاب گفتگوها
-              </MenuRow>
-              <MenuRow onClick={() => void readAll()}>علامت‌گذاری همه به‌عنوان خوانده‌شده</MenuRow>
-            </div>
-          )}
+              Select
+            </OverflowRow>
+            <OverflowRow onClick={() => void readAll()}>Read All</OverflowRow>
+          </HeaderOverflowButton>
+          <NixoAiHeaderButton />
         </div>
         <div className="relative flex items-center gap-1">
           <button

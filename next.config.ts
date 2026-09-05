@@ -13,6 +13,7 @@ const nextConfig: NextConfig = {
   distDir: ".next",
   poweredByHeader: false,
   productionBrowserSourceMaps: false,
+  allowedDevOrigins: ["127.0.0.1", "localhost"],
   generateBuildId: async () => {
     const id = releaseId();
     return id || null;
